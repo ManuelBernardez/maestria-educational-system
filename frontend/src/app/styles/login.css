@@ -1,0 +1,3 @@
+/* MaestrIA — ajustes de la página de ingreso y registro. */
+.login-page .auth-card{border-top:3px solid var(--brand)}
+.login-page .auth-card form .button{margin-top:8px}

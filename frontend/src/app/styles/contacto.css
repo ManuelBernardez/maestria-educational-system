@@ -1,0 +1,5 @@
+/* MaestrIA — estilos propios del formulario de contacto. */
+.contact-page .legal-content>form{display:grid;gap:.4rem}
+.contact-page .legal-content>form .button{justify-self:start;margin-top:.35rem}
+.contact-page .legal-content>form .honeypot{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}
+@media(max-width:520px){.contact-page .legal-content>form .button{width:100%;justify-self:stretch}}

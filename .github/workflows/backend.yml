@@ -1,0 +1,30 @@
+name: backend-checks
+on:
+  push:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Local SQLite is used in CI; never connect a pull request to a real database.
+      DEBUG: "True"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,testserver"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-prod.txt
+      - run: pip install -r requirements.txt
+      - run: python -m compileall -q config apps manage.py
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test

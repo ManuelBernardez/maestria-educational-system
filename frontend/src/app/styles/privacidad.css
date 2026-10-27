@@ -1,0 +1,3 @@
+/* MaestrIA — estilos propios de la página de privacidad. */
+.privacy-policy-page .notice{border-left:4px solid var(--brand)}
+.privacy-policy-page .legal-updated{font-size:.8rem;color:var(--muted)}

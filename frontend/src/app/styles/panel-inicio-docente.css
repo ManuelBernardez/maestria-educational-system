@@ -1,0 +1,47 @@
+/* MaestrIA — estilos específicos del dashboard docente. */
+.metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.metric-card{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:22px}
+.metric-card span{display:block;font-size:.82rem;color:var(--muted)}
+.metric-card strong{display:block;font-size:2rem;letter-spacing:-.05em;margin:7px 0}
+.metric-card small{font-size:.75rem;color:var(--muted)}
+@media (max-width:850px){.metric-grid{grid-template-columns:1fr 1fr}.metric-card:last-child{grid-column:1/-1}}
+@media (max-width:520px){.metric-grid{grid-template-columns:1fr}.metric-card:last-child{grid-column:auto}}
+.metric-card{box-shadow:0 6px 22px rgba(24,52,58,.035);backdrop-filter:blur(2px)}
+.metric-card{position:relative;overflow:hidden}
+.metric-card:before{content:"";position:absolute;right:-18px;top:-18px;width:72px;height:72px;border-radius:50%;background:var(--brand-soft);opacity:.9}
+.metric-card:nth-child(2):before{background:var(--amber-soft)}
+.metric-card:nth-child(3):before{background:var(--coral-soft)}
+.metric-card strong{position:relative}
+.metric-card{border-radius:var(--radius)}
+.activity-list{display:grid;gap:10px;margin-top:16px}
+.activity-item{display:flex;align-items:flex-start;gap:12px;padding:13px 15px;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.activity-dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:var(--brand);margin-top:7px;box-shadow:0 0 0 4px var(--brand-soft)}
+.activity-item p{margin:0;font-size:.86rem}
+.activity-item small{color:var(--muted);font-size:.74rem}
+.metric-detail{font-size:.75rem;color:var(--muted)}
+@media print{.metric-card{box-shadow:none!important;break-inside:avoid;border-color:#bbb!important}}
+.teacher-tools{display:flex;justify-content:space-between;align-items:center;gap:24px;margin:0 0 18px;padding:22px 24px}
+.teacher-tools h2{font-size:1.08rem;margin:7px 0 4px}
+.teacher-tools p{font-size:.82rem;margin:0;max-width:580px}
+.teacher-tools label{min-width:220px;font-size:.78rem;font-weight:750}
+.teacher-tools select{display:block;width:100%;margin-top:7px;padding:10px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface);color:var(--ink)}
+@media (max-width:760px){.teacher-tools{align-items:stretch;flex-direction:column}.teacher-tools label{min-width:0}}
+.metric-card-link{display:block; color:inherit; text-decoration:none; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease;}
+.metric-card-link:hover{transform:translateY(-2px); border-color:var(--line-strong); box-shadow:var(--shadow);}
+.metric-card-link:focus-visible{outline:3px solid var(--brand); outline-offset:3px;}
+.metric-card-link .metric-link-hint{display:block; margin-top:8px; color:var(--brand-strong); font-size:.75rem; font-weight:800;}
+.metric-grid{grid-template-columns:repeat(5,minmax(0,1fr));}
+@media (max-width:1120px){.metric-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media (max-width:760px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.metric-card{padding:17px;}}
+.activity-link{display:flex; align-items:flex-start; gap:12px; padding:13px 15px; background:var(--surface); border:1px solid var(--line); border-radius:12px; transition:border-color .15s ease,background .15s ease;}
+.activity-link:hover{border-color:var(--line-strong); background:color-mix(in srgb,var(--brand-soft) 30%,var(--surface));}
+.metric-card-link{cursor:pointer;text-align:left;font:inherit;color:inherit}
+.metric-card-link.metric-selected{border-color:#929be8;box-shadow:0 0 0 2px rgba(79,70,229,.11);background:#f8f8ff}
+.delivery-summary.metric-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.delivery-summary .metric-card{width:100%;min-width:0}
+@media (max-width:950px){.delivery-summary.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:620px){.delivery-summary.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.metric-card-link{width:100%;font-family:inherit;text-align:left;appearance:none}
+@media (max-width:850px){.delivery-summary .metric-card:last-child{grid-column:auto}}
+.dashboard-header-actions{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap}
+@media (max-width:700px){.dashboard-header-actions{width:100%}.dashboard-header-actions .button{flex:1}}

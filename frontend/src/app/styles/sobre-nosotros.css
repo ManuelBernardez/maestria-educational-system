@@ -1,0 +1,34 @@
+/* MaestrIA — estilos about; extraídos de la hoja compartida para facilitar mantenimiento. */
+.about-purpose{display: grid; grid-template-columns: minmax(0, .87fr) minmax(0, 1.13fr); align-items: center; gap: clamp(20px, 4vw, 42px); width: 100%; max-width: 100%; min-width: 0; margin: 10px 0 22px; padding: clamp(22px, 4vw, 40px); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-soft); box-sizing: border-box;}
+.about-purpose-lead{min-width: 0;}
+.about-mark{display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); color: var(--brand-strong); font-weight: 900; font-size: 1.5rem; margin-bottom: 20px;}
+.about-purpose-lead .eyebrow{margin-bottom: 8px;}
+.about-purpose-lead h2{margin: 6px 0 12px; font-size: clamp(1.5rem, 3vw, 2.2rem); line-height: 1.14; letter-spacing: -.05em; overflow-wrap: anywhere;}
+.about-purpose-lead h2 em{color: var(--brand); font-style: normal;}
+.about-purpose-lead p:not(.eyebrow){color: var(--muted); font-size: .9rem; line-height: 1.75; margin-bottom: 0;}
+.about-principles-list{min-width: 0; display: grid; gap: 0;}
+.about-principles-list article{display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line-strong);}
+.about-principles-list article:first-child{padding-top: 0;}
+.about-principles-list article:last-child{border-bottom: 0; padding-bottom: 0;}
+.about-principles-list article>span{color: var(--brand-strong); font-size: .76rem; font-weight: 900; padding-top: 3px;}
+.about-principles-list h3{margin: 0 0 5px; font-size: .98rem; letter-spacing: -.02em;}
+.about-principles-list p{margin: 0; color: var(--muted); font-size: .83rem; line-height: 1.7;}
+.about-content-grid{display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 22px;}
+.about-content-grid .prose-card{min-width: 0; padding: clamp(20px, 3vw, 30px);}
+.about-content-grid .prose-card p:last-child{margin-bottom: 0;}
+.about-content-grid .prose-card h2{margin-top: 7px; font-size: 1.3rem; line-height: 1.25;}
+.about-academic-note{margin-top: 20px; padding: 17px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface);}
+.about-academic-note strong{font-size: .84rem;}
+.about-academic-note p{color: var(--muted); margin: 6px 0 0; font-size: .84rem; line-height: 1.75;}
+.about-contact-cta{display: flex; align-items: center; justify-content: space-between; gap: 24px;}
+.about-contact-cta h2{max-width: 650px;}
+.about-contact-cta p:last-child{margin-bottom: 0;}
+@media (max-width: 1000px){.about-purpose{grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);}}
+@media (max-width: 720px){.about-contact-cta{align-items: flex-start; flex-direction: column;}.about-purpose{grid-template-columns: minmax(0, 1fr); padding: 22px; gap: 22px;}.about-content-grid{grid-template-columns: minmax(0, 1fr);}}
+
+/* Los enlaces legales deben leerse como opciones separadas, también en móviles. */
+.legal-links{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.55rem 1.15rem;margin:26px 0 0;padding:16px 0 0;border-top:1px solid var(--line);font-size:.86rem}
+.legal-links a{color:var(--brand-strong);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--brand) 28%,transparent);text-underline-offset:4px}
+.legal-links a:hover{text-decoration-color:currentColor}
+.legal-links a:focus-visible{outline:3px solid var(--brand);outline-offset:4px;border-radius:3px}
+@media(max-width:520px){.legal-links{justify-content:flex-start;gap:.7rem 1rem}}

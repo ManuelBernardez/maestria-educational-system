@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="560" viewBox="0 0 760 560" role="img" aria-labelledby="title desc">
+  <title id="title">Una docente revisa una evaluación con ayuda de MaestrIA</title>
+  <desc id="desc">Ilustración editorial con hojas de evaluación, una rúbrica, un lápiz y tarjetas de retroalimentación.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fffdf8"/><stop offset="1" stop-color="#f0f8f3"/></linearGradient>
+    <linearGradient id="green" x1="0" x2="1"><stop stop-color="#0f766e"/><stop offset="1" stop-color="#4f9d86"/></linearGradient>
+  </defs>
+  <circle cx="390" cy="280" r="222" fill="#e2f3ee"/>
+  <circle cx="584" cy="112" r="50" fill="#fff0eb"/>
+  <circle cx="148" cy="421" r="28" fill="#ffe2b8"/>
+  <path d="M78 456c50-75 97-96 150-93" fill="none" stroke="#d1dfd7" stroke-width="3" stroke-linecap="round" stroke-dasharray="7 9"/>
+  <g transform="rotate(-6 263 275)">
+    <rect x="120" y="105" width="292" height="360" rx="22" fill="#9bbdb0" opacity=".27"/>
+    <rect x="108" y="94" width="292" height="360" rx="22" fill="url(#paper)" stroke="#bfd6ca" stroke-width="2"/>
+    <rect x="136" y="122" width="236" height="49" rx="9" fill="#e2f3ee"/>
+    <circle cx="159" cy="146" r="9" fill="#0f766e"/>
+    <path d="M155 146l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="178" y="139" width="119" height="6" rx="3" fill="#285b54"/>
+    <rect x="178" y="151" width="81" height="4" rx="2" fill="#8eaaa0"/>
+    <text x="137" y="201" font-family="Arial,sans-serif" font-size="11" font-weight="700" fill="#526c63">OBJETIVO DE APRENDIZAJE</text>
+    <rect x="137" y="213" width="225" height="5" rx="2.5" fill="#c2d5cc"/>
+    <rect x="137" y="225" width="200" height="5" rx="2.5" fill="#d5e3dc"/>
+    <rect x="137" y="237" width="178" height="5" rx="2.5" fill="#d5e3dc"/>
+    <text x="137" y="272" font-family="Arial,sans-serif" font-size="11" font-weight="700" fill="#526c63">CRITERIOS</text>
+    <rect x="137" y="284" width="225" height="32" rx="7" fill="#fff0eb"/>
+    <circle cx="153" cy="300" r="5" fill="#c45f4b"/>
+    <rect x="167" y="296" width="102" height="5" rx="2.5" fill="#be7f6e"/>
+    <rect x="137" y="324" width="225" height="32" rx="7" fill="#e2f3ee"/>
+    <circle cx="153" cy="340" r="5" fill="#0f766e"/>
+    <rect x="167" y="336" width="122" height="5" rx="2.5" fill="#78a89a"/>
+    <rect x="137" y="364" width="225" height="32" rx="7" fill="#f8f0da"/>
+    <circle cx="153" cy="380" r="5" fill="#ad6f1d"/>
+    <rect x="167" y="376" width="93" height="5" rx="2.5" fill="#c2a36e"/>
+    <rect x="137" y="415" width="118" height="18" rx="9" fill="#0f766e"/>
+    <text x="153" y="427" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="#fff">RÚBRICA REVISADA</text>
+  </g>
+  <g transform="rotate(8 496 276)">
+    <rect x="398" y="128" width="218" height="302" rx="19" fill="#8bb5a5" opacity=".3"/>
+    <rect x="390" y="120" width="218" height="302" rx="19" fill="#fffdf8" stroke="#c8d9d0" stroke-width="2"/>
+    <text x="414" y="154" font-family="Arial,sans-serif" font-size="10" font-weight="700" letter-spacing="1.1" fill="#0f766e">PROPUESTA DE CORRECCIÓN</text>
+    <text x="414" y="190" font-family="Arial,sans-serif" font-size="31" font-weight="700" fill="#18343a">8,5</text>
+    <text x="468" y="190" font-family="Arial,sans-serif" font-size="12" fill="#5d6e70">/ 10 puntos</text>
+    <rect x="414" y="206" width="168" height="6" rx="3" fill="#e1ebe5"/>
+    <rect x="414" y="206" width="143" height="6" rx="3" fill="url(#green)"/>
+    <text x="414" y="238" font-family="Arial,sans-serif" font-size="10" font-weight="700" fill="#526c63">EVIDENCIA</text>
+    <rect x="414" y="249" width="166" height="43" rx="8" fill="#e2f3ee"/>
+    <rect x="425" y="261" width="127" height="4" rx="2" fill="#6a9f8f"/>
+    <rect x="425" y="273" width="100" height="4" rx="2" fill="#6a9f8f"/>
+    <text x="414" y="319" font-family="Arial,sans-serif" font-size="10" font-weight="700" fill="#526c63">RETROALIMENTACIÓN</text>
+    <rect x="414" y="331" width="166" height="4" rx="2" fill="#c7d9d0"/>
+    <rect x="414" y="342" width="153" height="4" rx="2" fill="#d8e5de"/>
+    <rect x="414" y="353" width="142" height="4" rx="2" fill="#d8e5de"/>
+    <rect x="414" y="376" width="166" height="28" rx="8" fill="#fff0eb" stroke="#efd3c9"/>
+    <circle cx="429" cy="390" r="5" fill="#c45f4b"/>
+    <text x="441" y="393" font-family="Arial,sans-serif" font-size="9" font-weight="700" fill="#87483b">Pendiente de tu aprobación</text>
+  </g>
+  <g transform="rotate(27 637 355)">
+    <rect x="624" y="290" width="19" height="143" rx="9" fill="#e6b85d"/>
+    <rect x="624" y="290" width="19" height="26" rx="7" fill="#df8c75"/>
+    <path d="M624 423h19l-9.5 20z" fill="#d5b596"/>
+    <path d="M631 438l2-5 2 5z" fill="#18343a"/>
+  </g>
+  <path d="M550 75l8 14 16 2-12 10 3 16-15-8-14 8 3-16-12-10 16-2z" fill="#e7b65d"/>
+  <circle cx="674" cy="224" r="8" fill="#c45f4b"/>
+  <circle cx="104" cy="184" r="6" fill="#0f766e"/>
+</svg>

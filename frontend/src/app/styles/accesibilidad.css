@@ -1,0 +1,4 @@
+/* MaestrIA — estilos propios de la página de accesibilidad. */
+.accessibility-content ul{display:grid;gap:.55rem;padding-left:1.25rem}
+.accessibility-content h2{margin-top:1.7rem}
+.accessibility-content h2:first-child{margin-top:0}

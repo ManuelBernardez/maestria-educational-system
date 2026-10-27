@@ -1,0 +1,6 @@
+/* MaestrIA — estilos faq; extraídos de la hoja compartida para facilitar mantenimiento. */
+.faq-list{display:grid;gap:10px}
+.faq-item{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.faq-item summary{font-weight:750;cursor:pointer;line-height:1.5;padding-right:8px}
+.faq-item summary:focus-visible{outline:3px solid var(--coral);outline-offset:5px;border-radius:2px}
+.faq-item p{color:var(--muted);line-height:1.75;margin:13px 0 2px}
