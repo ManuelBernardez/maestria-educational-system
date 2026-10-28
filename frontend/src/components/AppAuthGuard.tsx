@@ -12,8 +12,9 @@ export default function AppAuthGuard({ children }: Readonly<{ children: ReactNod
 
   useEffect(() => {
     let active = true;
+    const client = supabase;
 
-    if (!supabase) {
+    if (!client) {
       router.replace("/login");
       return () => {
         active = false;
@@ -22,17 +23,24 @@ export default function AppAuthGuard({ children }: Readonly<{ children: ReactNod
 
     const verifySession = async () => {
       try {
-        const { data, error } = await supabase.auth.getSession();
+        const { data, error } = await client.auth.getSession();
+
         if (!active) return;
+
         if (error || !data.session) {
           router.replace("/login");
           return;
         }
-        const profileName = String(data.session.user.user_metadata?.full_name || "").trim();
+
+        const profileName = String(
+          data.session.user.user_metadata?.full_name || ""
+        ).trim();
+
         if (!profileName && pathname !== "/app/perfil") {
           router.replace("/app/perfil?setup=1");
           return;
         }
+
         setChecking(false);
       } catch {
         if (active) router.replace("/login");
@@ -40,7 +48,10 @@ export default function AppAuthGuard({ children }: Readonly<{ children: ReactNod
     };
 
     void verifySession();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((_event, session) => {
       if (!session) router.replace("/login");
     });
 

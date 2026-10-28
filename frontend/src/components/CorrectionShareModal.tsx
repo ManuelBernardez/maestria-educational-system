@@ -113,6 +113,8 @@ export default function CorrectionShareModal({ open, data, onClose }: Props) {
   }
 
   function openEmail() {
+    if (!data) return;
+
     const email = recipientEmail.trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setError("Revisá el correo ingresado o dejalo vacío para completar el destinatario desde tu aplicación de correo.");
