@@ -1,6 +1,5 @@
 "use client";
 
-import AppSidebar from "@/components/AppSidebar";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -43,7 +42,7 @@ export default function AssessmentsPage() {
     try {
       const [assessments, courseRows] = await Promise.all([
         api<Assessment[]>("/assessments/", { signal: controller.signal }),
-        api<Course[]>("/courses/", { signal: controller.signal }),
+        api<Course[]>("/courses/?nav=1", { signal: controller.signal }),
       ]);
       if (controller.signal.aborted) return;
       setItems(Array.isArray(assessments) ? assessments : []);
@@ -83,8 +82,8 @@ export default function AssessmentsPage() {
   }, [filteredItems, courses]);
 
   return (
-    <div className="app-shell">
-      <AppSidebar />
+    <>
+      
       <main className="app-main" id="main-content" tabIndex={-1}>
         <header className="app-header">
           <div><span className="eyebrow">PLANIFICACIÓN</span><h1>Evaluaciones</h1><p>Consignas y criterios organizados por materia o curso.</p></div>
@@ -119,6 +118,6 @@ export default function AssessmentsPage() {
         )}
         <p className="app-disclaimer">Las propuestas de IA son asistencias revisables. La decisión final de calificación siempre corresponde al docente.</p>
       </main>
-    </div>
+    </>
   );
 }

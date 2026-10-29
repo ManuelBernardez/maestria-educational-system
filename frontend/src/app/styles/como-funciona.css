@@ -118,3 +118,17 @@
 [data-theme="dark"] .how-step-chip { background: var(--surface); color: var(--muted); }
 
 .how-demo-section .public-page-hero h2{font-size:clamp(2rem,4.4vw,3.35rem);line-height:1.08;letter-spacing:-.055em;max-width:900px;margin:16px 0 18px}
+
+
+/* Las superficies ilustrativas deben seguir usando el tono del tema y no blancos translúcidos. */
+[data-theme="dark"] .how-intro-panel {
+  background: linear-gradient(115deg, var(--surface) 0%, color-mix(in srgb, var(--surface-soft) 82%, var(--brand-soft)) 100%);
+  border-color: var(--line);
+  color: var(--ink);
+}
+[data-theme="dark"] .how-step-card {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+[data-theme="dark"] .how-step-card::after { opacity: .18; }

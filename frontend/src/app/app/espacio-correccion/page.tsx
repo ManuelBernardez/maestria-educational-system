@@ -2,23 +2,44 @@
 
 import "../../styles/espacio-correccion.css";
 
-import AppSidebar from "@/components/AppSidebar";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, SubmitEvent } from "react";
 import { api } from "@/lib/api";
-import CorrectionShareModal, { type CorrectionShareData } from "@/components/CorrectionShareModal";
+import dynamic from "next/dynamic";
+import type { CorrectionShareData } from "@/components/CorrectionShareModal";
 import { supabase } from "@/lib/supabase";
 import { readPreference, writePreference } from "@/lib/preferences";
+
+const CorrectionShareModal = dynamic(() => import("@/components/CorrectionShareModal"), {
+  ssr: false,
+  loading: () => null,
+});
 type Assessment = { id: number; title: string; subject: string; level: string; objectives: string; instructions: string; reference_material: string; status: string; course?: number | null; course_name?: string; questions?: Question[] };
 type Question = { id: number; assessment: number; prompt: string; max_score: string | number; position: number; rubric?: number | null };
 type Student = { id: number; name: string; email: string; phone: string; active: boolean };
 type CourseOption = { id: number; name: string; active: boolean };
-type Enrollment = { id: number; student: number; student_name: string; course: number; status: string };
 type Criterion = { criterion: string; score: number; max_score: number; level?: string; justification: string; evidence: string; question_id?: number; question_prompt?: string };
 type Proposal = { summary: string; criteria: Criterion[]; feedback: string; strengths?: string[]; improvement_suggestions?: string[]; warnings?: string[]; demo?: boolean };
 type Submission = { id: number; assessment: number; student?: number | null; student_name: string; student_display_name?: string; question?: number | null; answer_text: string; source_filename?: string; status: string; created_at?: string };
-type Correction = { id: number; submission: number; rubric?: number | null; proposal: Proposal; final_result?: Proposal; teacher_feedback: string; total_score: string; status: string; provider?: string; student_name?: string; submission_title?: string };
+type Correction = { id: number; submission: number; rubric?: number | null; proposal: Proposal; final_result?: Proposal; teacher_feedback: string; total_score: string; status: string; provider?: string; student_name?: string; submission_title?: string; submission_assessment_id?: number | string; course_id?: number | null; course_name?: string | null; subject?: string; created_at?: string };
+type CorrectionSummary = { id: number; submission: number; status: string; total_score: string; submission_assessment_id: number | string; submission_title: string; student_name: string; course_id?: number | null; course_name?: string | null; subject?: string; created_at?: string };
+
+function summarizeCorrection(item: Correction): CorrectionSummary {
+  return {
+    id: item.id,
+    submission: item.submission,
+    status: item.status,
+    total_score: item.total_score,
+    submission_assessment_id: item.submission_assessment_id ?? 0,
+    submission_title: item.submission_title || "Evaluación",
+    student_name: item.student_name || "Estudiante sin identificar",
+    course_id: item.course_id ?? null,
+    course_name: item.course_name ?? null,
+    subject: item.subject || "",
+    created_at: item.created_at,
+  };
+}
 type WorkspaceStep = 1 | 2 | 3;
 type QuestionSuggestion = { prompt: string; max_score: number; rationale: string };
 const ACCEPTED_FILES = ".txt,.md,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -30,8 +51,7 @@ export default function CorrectionWorkspacePage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [rubrics, setRubrics] = useState<{ id: number; title: string; criteria?: { id: number; name: string; max_score: string | number }[]; scale_type?: string }[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [corrections, setCorrections] = useState<Correction[]>([]);
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [corrections, setCorrections] = useState<CorrectionSummary[]>([]);
   const [assessmentId, setAssessmentId] = useState("");
   const [questionId, setQuestionId] = useState("");
   const [studentId, setStudentId] = useState("");
@@ -59,26 +79,27 @@ export default function CorrectionWorkspacePage() {
   const [step, setStep] = useState<WorkspaceStep>(1);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loadingSelection, setLoadingSelection] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const closeShareModal = useCallback(() => setShareModalOpen(false), []);
   const loadRequestRef = useRef(0);
   const loadControllerRef = useRef<AbortController | null>(null);
+  const selectionControllerRef = useRef<AbortController | null>(null);
+  const selectionRequestRef = useRef(0);
   // A synchronous lock closes the gap before React renders `busy=true`; it
   // prevents double clicks from starting duplicate uploads or expensive AI calls.
   const actionLockRef = useRef(false);
   const selectedAssessment = useMemo(() => assessments.find(item => String(item.id) === assessmentId) || null, [assessments, assessmentId]);
   const filteredAssessments = useMemo(() => assessments.filter(item => item.status !== "archived" && (courseFilter === "all" || String(item.course ?? "unassigned") === courseFilter)), [assessments, courseFilter]);
   const assessmentQuestions = useMemo(() => questions.filter(item => String(item.assessment) === assessmentId).sort((a, b) => a.position - b.position), [questions, assessmentId]);
-  const availableStudents = useMemo(() => {
-    if (!selectedAssessment?.course) return students.filter(item => item.active);
-    const enrolledIds = new Set(enrollments.filter(e => e.status === "active" && String(e.course) === String(selectedAssessment.course)).map(e => String(e.student)));
-    return students.filter(item => item.active && enrolledIds.has(String(item.id)));
-  }, [students, enrollments, selectedAssessment]);
+  // The workspace API already scopes this list to active students enrolled in
+  // the selected course (or all active students when the assessment has no course).
+  const availableStudents = useMemo(() => students.filter(item => item.active), [students]);
   const visibleSubmissions = useMemo(() => submissions.filter(item => {
     if (String(item.assessment) !== assessmentId) return false;
-    const text = `${item.student_display_name || item.student_name} ${item.answer_text}`.toLocaleLowerCase("es-AR");
+    const text = `${item.student_display_name || item.student_name} ${item.source_filename || ""} ${item.answer_text}`.toLocaleLowerCase("es-AR");
     if (!text.includes(searchStudents.trim().toLocaleLowerCase("es-AR"))) return false;
     const itemCorrection = corrections.find(c => c.submission === item.id);
     if (statusFilter === "pending") return !itemCorrection;
@@ -90,13 +111,14 @@ export default function CorrectionWorkspacePage() {
   const selectedRubric = useMemo(() => rubrics.find(item => String(item.id) === rubricId) || null, [rubrics, rubricId]);
   const loadAll = useCallback(async (preferredId?: string) => {
     loadControllerRef.current?.abort();
+    selectionControllerRef.current?.abort();
     const controller = new AbortController();
     loadControllerRef.current = controller;
     const requestId = ++loadRequestRef.current;
     setLoading(true); setError("");
     try {
       const queryId = preferredId ?? (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("assessment") || "" : "");
-      const endpoint = queryId ? `/correction-workspace/?assessment=${encodeURIComponent(queryId)}` : "/correction-workspace/";
+      const endpoint = queryId ? `/correction-workspace/?assessment=${encodeURIComponent(queryId)}&summary=1` : "/correction-workspace/?summary=1";
       const workspace = await api<{
         assessments: Assessment[];
         selected_assessment: Assessment | null;
@@ -105,8 +127,8 @@ export default function CorrectionWorkspacePage() {
         questions: Question[];
         rubrics: typeof rubrics;
         submissions: Submission[];
-        corrections: Correction[];
-        enrollments: Enrollment[];
+        corrections: CorrectionSummary[];
+        enrollments: unknown[];
         ai_provider?: string;
       }>(endpoint, { signal: controller.signal });
       if (controller.signal.aborted || requestId !== loadRequestRef.current) return;
@@ -124,22 +146,30 @@ export default function CorrectionWorkspacePage() {
       setRubrics(Array.isArray(workspace.rubrics) ? workspace.rubrics : []);
       setSubmissions(Array.isArray(workspace.submissions) ? workspace.submissions : []);
       setCorrections(Array.isArray(workspace.corrections) ? workspace.corrections : []);
-      setEnrollments(Array.isArray(workspace.enrollments) ? workspace.enrollments : []);
       const requestedSubmission = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("submission") : null;
       if (requestedSubmission) {
         const target = (Array.isArray(workspace.submissions) ? workspace.submissions : []).find(item => String(item.id) === requestedSubmission);
         if (target) {
-          setActiveSubmission(target);
-          setAnswerText(target.answer_text || "");
-          setStudentId(target.student ? String(target.student) : "");
-          setStudentName(target.student_name || target.student_display_name || "");
-          setQuestionId(target.question ? String(target.question) : "");
           const relatedCorrection = (Array.isArray(workspace.corrections) ? workspace.corrections : []).find(item => item.submission === target.id);
-          if (relatedCorrection) {
-            setCorrection(relatedCorrection);
-            const visible = relatedCorrection.status === "approved" && relatedCorrection.final_result?.criteria?.length ? relatedCorrection.final_result : relatedCorrection.proposal;
+          const [detail, detailedCorrection] = await Promise.all([
+            api<Submission>(`/submissions/${target.id}/`, { signal: controller.signal }),
+            relatedCorrection
+              ? api<Correction>(`/corrections/${relatedCorrection.id}/`, { signal: controller.signal })
+              : Promise.resolve(null),
+          ]);
+          if (controller.signal.aborted || requestId !== loadRequestRef.current) return;
+          setActiveSubmission(detail);
+          setSubmissions(previous => previous.map(item => item.id === detail.id ? { ...item, ...detail } : item));
+          setAnswerText(detail.answer_text || "");
+          setStudentId(detail.student ? String(detail.student) : "");
+          setStudentName(detail.student_name || detail.student_display_name || "");
+          setQuestionId(detail.question ? String(detail.question) : "");
+          if (detailedCorrection) {
+            setCorrection(detailedCorrection);
+            const visible = detailedCorrection.status === "approved" && detailedCorrection.final_result?.criteria?.length ? detailedCorrection.final_result : detailedCorrection.proposal;
             setProposal(visible);
-            setFeedback(relatedCorrection.teacher_feedback || visible.feedback || "");
+            setRubricId(detailedCorrection.rubric ? String(detailedCorrection.rubric) : "");
+            setFeedback(detailedCorrection.teacher_feedback || visible.feedback || "");
             setStep(3);
           } else { setCorrection(null); setProposal(null); setStep(2); }
         }
@@ -147,6 +177,10 @@ export default function CorrectionWorkspacePage() {
       setAiProvider(workspace.ai_provider || "mock");
       const nextId = selected ? String(selected.id) : "";
       setAssessmentId(nextId);
+      if (!selected) {
+        setActiveSubmission(null); setCorrection(null); setProposal(null); setAnswerText("");
+        setStudentId(""); setStudentName(""); setRubricId(""); setStep(1);
+      }
       if (selected) {
         setObjectives(selected.objectives || "");
         setInstructions(selected.instructions || "");
@@ -169,6 +203,8 @@ export default function CorrectionWorkspacePage() {
     return () => {
       loadRequestRef.current += 1;
       loadControllerRef.current?.abort();
+      selectionRequestRef.current += 1;
+      selectionControllerRef.current?.abort();
     };
   }, [loadAll]);
   useEffect(() => {
@@ -207,7 +243,7 @@ export default function CorrectionWorkspacePage() {
       loadRequestRef.current += 1;
       loadControllerRef.current?.abort();
       setLoading(false);
-      setAssessmentId(""); setQuestions([]); setSubmissions([]); setCorrections([]); setEnrollments([]);
+      setAssessmentId(""); setQuestions([]); setSubmissions([]); setCorrections([]);
       setObjectives(""); setInstructions(""); setReferenceMaterial(""); setQuestionId("");
       setRubricId(""); setActiveSubmission(null); setCorrection(null); setProposal(null); setAnswerText("");
       setStep(1); setError(""); setMessage("");
@@ -308,7 +344,7 @@ export default function CorrectionWorkspacePage() {
       setCorrection(generated); setProposal(generated.proposal); setFeedback(generated.teacher_feedback || generated.proposal.feedback || "");
       setChangeReason(""); setStep(3); setMessage("La propuesta está lista. Revisá cada criterio antes de aprobarla.");
       setSubmissions(previous => [submission, ...previous.filter(item => item.id !== submission.id)]);
-      setCorrections(previous => [generated, ...previous.filter(item => item.id !== generated.id && item.submission !== generated.submission)]);
+      setCorrections(previous => [summarizeCorrection(generated), ...previous.filter(item => item.id !== generated.id && item.submission !== generated.submission)]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No pudimos generar la propuesta."); }
     finally { endAction(); setBusy(false); }
   }
@@ -321,16 +357,48 @@ export default function CorrectionWorkspacePage() {
     setBusy(true); setError(""); setMessage("");
     try {
       const result = await api<Correction>(`/corrections/${correction.id}/approve/`, { method: "POST", body: JSON.stringify({ final_result: proposal, teacher_feedback: feedback, change_reason: changeReason }) });
-      setCorrection(result); setProposal(result.final_result || proposal); setFeedback(result.teacher_feedback || feedback); setCorrections(previous => previous.map(item => item.id === result.id ? result : item)); setSubmissions(previous => previous.map(item => item.id === activeSubmission.id ? { ...item, status: "approved" } : item)); setMessage("Corrección aprobada y guardada en el historial.");
+      setCorrection(result); setProposal(result.final_result || proposal); setFeedback(result.teacher_feedback || feedback); setCorrections(previous => previous.map(item => item.id === result.id ? { ...item, status: result.status, total_score: result.total_score } : item)); setSubmissions(previous => previous.map(item => item.id === activeSubmission.id ? { ...item, status: "approved" } : item)); setMessage("Corrección aprobada y guardada en el historial.");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo aprobar la corrección."); }
     finally { endAction(); setBusy(false); }
   }
-  function selectSubmission(submission: Submission) {
+  async function selectSubmission(submission: Submission) {
     if (actionLockRef.current) return;
-    setActiveSubmission(submission); setAnswerText(submission.answer_text || ""); setAnswerFile(null); setStudentId(submission.student ? String(submission.student) : ""); setStudentName(submission.student_name || ""); setQuestionId(submission.question ? String(submission.question) : "");
+    selectionControllerRef.current?.abort();
+    const controller = new AbortController();
+    selectionControllerRef.current = controller;
+    const requestId = ++selectionRequestRef.current;
+    setError("");
+    setAnswerFile(null);
+    setLoadingSelection(true);
     const found = corrections.find(item => item.submission === submission.id);
-    if (found) { setCorrection(found); setRubricId(found.rubric ? String(found.rubric) : ""); const visible = found.status === "approved" && found.final_result?.criteria?.length ? found.final_result : found.proposal; setProposal(visible); setFeedback(found.teacher_feedback || visible.feedback || ""); setStep(3); }
-    else { setCorrection(null); setProposal(null); setStep(2); }
+    try {
+      const [detail, detailedCorrection] = await Promise.all([
+        api<Submission>(`/submissions/${submission.id}/`, { signal: controller.signal }),
+        found ? api<Correction>(`/corrections/${found.id}/`, { signal: controller.signal }) : Promise.resolve(null),
+      ]);
+      if (controller.signal.aborted || requestId !== selectionRequestRef.current) return;
+      setActiveSubmission(detail);
+      setSubmissions(previous => previous.map(item => item.id === detail.id ? { ...item, ...detail } : item));
+      setAnswerText(detail.answer_text || "");
+      setStudentId(detail.student ? String(detail.student) : "");
+      setStudentName(detail.student_name || detail.student_display_name || "");
+      setQuestionId(detail.question ? String(detail.question) : "");
+      if (detailedCorrection) {
+        setCorrection(detailedCorrection);
+        setRubricId(detailedCorrection.rubric ? String(detailedCorrection.rubric) : "");
+        const visible = detailedCorrection.status === "approved" && detailedCorrection.final_result?.criteria?.length ? detailedCorrection.final_result : detailedCorrection.proposal;
+        setProposal(visible);
+        setFeedback(detailedCorrection.teacher_feedback || visible.feedback || "");
+        setStep(3);
+      } else {
+        setCorrection(null); setProposal(null); setFeedback(""); setStep(2);
+      }
+    } catch (caught) {
+      if (controller.signal.aborted || requestId !== selectionRequestRef.current) return;
+      setError(caught instanceof Error ? caught.message : "No se pudo cargar el detalle de la entrega.");
+    } finally {
+      if (requestId === selectionRequestRef.current) setLoadingSelection(false);
+    }
   }
   const approvedCount = visibleSubmissions.filter(item => corrections.some(c => c.submission === item.id && c.status === "approved")).length;
   const reviewedCount = visibleSubmissions.filter(item => corrections.some(c => c.submission === item.id)).length;
@@ -349,8 +417,8 @@ export default function CorrectionWorkspacePage() {
     };
   }, [selectedAssessment, activeSubmission, correction, proposal, selectedStudent, feedback]);
   return (
-    <div className="app-shell">
-      <AppSidebar />
+    <>
+      
       <main className="app-main correction-workspace" id="main-content" tabIndex={-1}>
         <header className="app-header workspace-main-heading">
           <div className="workspace-heading-copy"><span className="eyebrow">ESPACIO DE TRABAJO</span><h1>Vamos a corregir con criterio.</h1><p>Elegí la materia, prepará el contexto y revisá cada propuesta antes de aprobarla.</p></div>
@@ -374,6 +442,7 @@ export default function CorrectionWorkspacePage() {
         {!loading && assessments.length > 0 && !selectedAssessment && <div className="notice" role="alert">Seleccioná una evaluación para continuar.</div>}
         {error && <div className="error-message" role="alert"><b>No se pudo completar el paso.</b><p>{error}</p></div>}
         {message && <div className="success-message" role="status" aria-live="polite">{message}</div>}
+        {loadingSelection && <p className="loading-message" role="status" aria-live="polite">Cargando la entrega seleccionada…</p>}
         {selectedAssessment && <>
           <ol className="workspace-stepper" aria-label="Etapas del proceso de corrección. Contexto y entrega se pueden preparar en paralelo.">{([{id:1,title:"Contexto",hint:"Consigna y criterios"},{id:2,title:"Entrega",hint:"Respuesta del estudiante"},{id:3,title:"Revisar",hint:"Editar y aprobar"}] as const).map(item => <li key={item.id} className={step === item.id ? "is-current" : step > item.id ? "is-done" : ""}><button type="button" onClick={() => item.id < 3 || correction ? setStep(item.id) : setStep(2)} aria-current={step === item.id ? "step" : undefined}><span className="step-number">{step > item.id ? "✓" : item.id}</span><span><b>{item.title}</b><small>{item.hint}</small></span></button></li>)}</ol>
           {step !== 3 && <div className="correction-intake-layout correction-three-column">
@@ -402,7 +471,7 @@ export default function CorrectionWorkspacePage() {
               <details className="privacy-note"><summary><span aria-hidden="true">⌑</span> Privacidad y uso de IA</summary><p>Antes de enviar una respuesta a un proveedor de IA, evitá incluir datos personales innecesarios. Verificá la configuración del proveedor y revisá el texto extraído antes de confiar en una propuesta.</p></details>
               <div className="panel-bottom-actions"><button className="button button-primary" disabled={busy || (!answerText.trim() && !answerFile) || (!studentId && !studentName.trim())}>{busy ? "Analizando respuesta…" : "Guardar y proponer corrección"}</button></div>
             </form></div></section>
-            <aside className="workspace-panel student-queue-panel"><header className="workspace-panel-head"><span className="workspace-panel-icon">03</span><div><h2>Entregas</h2><p>{visibleSubmissions.length} registradas · {approvedCount} aprobadas</p></div></header><div className="queue-progress"><span><i style={{ width: `${visibleSubmissions.length ? Math.round(reviewedCount / visibleSubmissions.length * 100) : 0}%` }} /></span><small>{reviewedCount} de {visibleSubmissions.length} revisadas</small></div><div className="workspace-panel-body queue-body"><label htmlFor="queue-search">Buscar entrega<input id="queue-search" type="search" value={searchStudents} onChange={event => setSearchStudents(event.target.value)} placeholder="Nombre o texto de la respuesta" /></label><label className="queue-filter-select" htmlFor="queue-status-filter">Estado<select id="queue-status-filter" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}>{[{id:"all",label:"Todas"},{id:"pending",label:"Pendientes"},{id:"review",label:"En revisión"},{id:"rejected",label:"Rechazadas"},{id:"approved",label:"Aprobadas"}].map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label>{visibleSubmissions.length === 0 ? <div className="queue-empty"><span aria-hidden="true">▤</span><b>Aún no hay entregas para mostrar</b><p>Cuando guardes una respuesta, aparecerá acá para poder retomarla.</p></div> : <div className="queue-list">{visibleSubmissions.map(item => { const c = corrections.find(value => value.submission === item.id); const state = c?.status === "approved" ? "Aprobada" : c?.status === "rejected" ? "Rechazada" : c ? "En revisión" : "Pendiente"; return <button key={item.id} type="button" className={`queue-item ${activeSubmission?.id === item.id ? "is-active" : ""}`} onClick={() => selectSubmission(item)}><span className="queue-avatar">{(item.student_display_name || item.student_name || "E").slice(0, 1).toUpperCase()}</span><span className="queue-item-copy"><b>{item.student_display_name || item.student_name || "Estudiante"}</b><small>{item.source_filename || (item.answer_text || "Entrega") .slice(0, 58)}</small></span><span className={`status-pill ${c?.status === "approved" ? "delivery-status-approved" : c?.status === "rejected" ? "delivery-status-rejected" : ""}`}>{state}</span></button>; })}</div>}</div></aside>
+            <aside className="workspace-panel student-queue-panel"><header className="workspace-panel-head"><span className="workspace-panel-icon">03</span><div><h2>Entregas</h2><p>{visibleSubmissions.length} registradas · {approvedCount} aprobadas</p></div></header><div className="queue-progress"><span><i style={{ width: `${visibleSubmissions.length ? Math.round(reviewedCount / visibleSubmissions.length * 100) : 0}%` }} /></span><small>{reviewedCount} de {visibleSubmissions.length} revisadas</small></div><div className="workspace-panel-body queue-body"><label htmlFor="queue-search">Buscar entrega<input id="queue-search" type="search" value={searchStudents} onChange={event => setSearchStudents(event.target.value)} placeholder="Nombre, archivo o primeras palabras de la respuesta" /></label><label className="queue-filter-select" htmlFor="queue-status-filter">Estado<select id="queue-status-filter" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}>{[{id:"all",label:"Todas"},{id:"pending",label:"Pendientes"},{id:"review",label:"En revisión"},{id:"rejected",label:"Rechazadas"},{id:"approved",label:"Aprobadas"}].map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label>{visibleSubmissions.length === 0 ? <div className="queue-empty"><span aria-hidden="true">▤</span><b>Aún no hay entregas para mostrar</b><p>Cuando guardes una respuesta, aparecerá acá para poder retomarla.</p></div> : <div className="queue-list">{visibleSubmissions.map(item => { const c = corrections.find(value => value.submission === item.id); const state = c?.status === "approved" ? "Aprobada" : c?.status === "rejected" ? "Rechazada" : c ? "En revisión" : "Pendiente"; return <button key={item.id} type="button" className={`queue-item ${activeSubmission?.id === item.id ? "is-active" : ""}`} onClick={() => selectSubmission(item)}><span className="queue-avatar">{(item.student_display_name || item.student_name || "E").slice(0, 1).toUpperCase()}</span><span className="queue-item-copy"><b>{item.student_display_name || item.student_name || "Estudiante"}</b><small>{item.source_filename || (item.answer_text || "Entrega") .slice(0, 58)}</small></span><span className={`status-pill ${c?.status === "approved" ? "delivery-status-approved" : c?.status === "rejected" ? "delivery-status-rejected" : ""}`}>{state}</span></button>; })}</div>}</div></aside>
           </div>}
           {step === 3 && activeSubmission && correction && proposal && <section className="workspace-review-view"><header className="review-page-header"><div><span className="eyebrow">PASO 3 · REVISIÓN DOCENTE</span><h2>{activeSubmission.student_display_name || activeSubmission.student_name || selectedStudent?.name || "Estudiante sin identificar"}</h2><p>{[selectedAssessment.course_name, selectedAssessment.title, correction.status === "approved" ? "Resultado aprobado" : "Propuesta pendiente de tu revisión"].filter(Boolean).join(" · ")}</p><label className="review-submission-picker">Entrega a revisar<select value={String(activeSubmission.id)} onChange={event => { const item = submissions.find(value => String(value.id) === event.target.value); if (item) selectSubmission(item); }} aria-label="Cambiar entrega para revisar">{submissions.map(item => <option key={item.id} value={item.id}>{item.student_display_name || item.student_name || "Estudiante"} · #{item.id}</option>)}</select></label></div><div className="review-header-actions"><span className={`status-pill ${correction.status === "approved" ? "delivery-status-approved" : correction.status === "rejected" ? "delivery-status-rejected" : "delivery-status-review"}`}>{correction.status === "approved" ? "Aprobada por vos" : correction.status === "rejected" ? "Propuesta rechazada" : "Propuesta no definitiva"}</span><button type="button" className="button button-quiet" onClick={() => { setStep(2); setMessage(""); }}>← Entregas</button></div></header>
             {proposal.demo && <div className="notice" role="note"><b>Modo demostración:</b> esta propuesta está simulada porque `AI_PROVIDER=mock`. No la uses como calificación real.</div>}
@@ -425,9 +494,9 @@ export default function CorrectionWorkspacePage() {
           </section>}
           {step === 3 && !activeSubmission && <div className="empty-state"><h2>Elegí una entrega para revisar</h2><p>Volvé al paso anterior y cargá una respuesta o seleccioná una entrega existente.</p><button className="button button-primary" type="button" onClick={() => setStep(2)}>Ver entregas</button></div>}
         </>}
-        <CorrectionShareModal open={shareModalOpen} data={shareData} onClose={closeShareModal} />
+        {shareModalOpen && <CorrectionShareModal open={shareModalOpen} data={shareData} onClose={closeShareModal} />}
         <p className="app-disclaimer">MaestrIA asiste en la corrección; el docente revisa y aprueba la calificación final.</p>
       </main>
-    </div>
+    </>
   );
 }

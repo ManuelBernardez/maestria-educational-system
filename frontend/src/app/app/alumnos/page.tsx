@@ -1,6 +1,5 @@
 "use client";
 
-import AppSidebar from "@/components/AppSidebar";
 import Link from "next/link";
 import { type SubmitEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -54,7 +53,7 @@ export default function StudentsPage() {
     try {
       const [students, availableCourses] = await Promise.all([
         api<Student[]>("/students/", { signal: controller.signal }),
-        api<Course[]>("/courses/", { signal: controller.signal }),
+        api<Course[]>("/courses/?nav=1", { signal: controller.signal }),
       ]);
       if (controller.signal.aborted || sequence !== loadSequence.current) return;
       setItems(Array.isArray(students) ? students : []);
@@ -188,8 +187,8 @@ export default function StudentsPage() {
   }, [items, search, courseFilter, statusFilter]);
 
   return (
-    <div className="app-shell">
-      <AppSidebar />
+    <>
+      
       <main className="app-main narrow-main" id="main-content" tabIndex={-1}>
         <Link href="/app" className="back-link">← Volver al resumen</Link>
         <span className="eyebrow">ORGANIZACIÓN</span>
@@ -287,6 +286,6 @@ export default function StudentsPage() {
           )}
         </section>
       </main>
-    </div>
+    </>
   );
 }

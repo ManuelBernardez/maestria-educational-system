@@ -2,7 +2,6 @@
 
 import "../../../styles/espacio-correccion.css";
 
-import AppSidebar from "@/components/AppSidebar";
 import AssessmentRubricBuilder from "@/components/AssessmentRubricBuilder";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -223,17 +222,17 @@ export default function AssessmentDetail() {
       setError(caught instanceof Error ? caught.message : "No se pudo agregar la consigna.");
     } finally { mutationLock.current = false; setBusy(false); }
   }
-  if (loading) return <div className="app-shell"><AppSidebar /><main className="app-main" id="main-content" tabIndex={-1} aria-busy="true"><p role="status">Cargando evaluación…</p></main></div>;
+  if (loading) return <><main className="app-main" id="main-content" tabIndex={-1} aria-busy="true"><p role="status">Cargando evaluación…</p></main></>;
   if (!assessment) return (
-    <div className="app-shell"><AppSidebar /><main className="app-main" id="main-content" tabIndex={-1}>
+    <><main className="app-main" id="main-content" tabIndex={-1}>
       <h1>Evaluación no disponible</h1>
       <p>{error || "No encontramos esta evaluación o no tenés permiso para verla."}</p>
       <div className="form-actions"><button type="button" className="button button-primary" onClick={() => void load()}>Intentar nuevamente</button><Link className="button button-quiet" href="/app/evaluaciones">Volver a tus evaluaciones</Link><Link className="button button-quiet" href="/app">Volver al resumen</Link></div>
-    </main></div>
+    </main></>
   );
   return (
-    <div className="app-shell">
-      <AppSidebar />
+    <>
+      
       <main className="app-main" id="main-content" tabIndex={-1}>
         <Link href="/app/evaluaciones" className="back-link">← Volver a tus evaluaciones</Link>
         <header className="app-header assessment-editor-heading">
@@ -323,6 +322,6 @@ export default function AssessmentDetail() {
         </section>
         <p className="app-disclaimer">MaestrIA propone y organiza; vos conservás la decisión final sobre cada criterio y calificación.</p>
       </main>
-    </div>
+    </>
   );
 }

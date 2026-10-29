@@ -6,6 +6,7 @@ Base local: `http://127.0.0.1:8000/api/`. Salvo `/health/` y el formulario públ
 |---|---|---|
 | `GET /health/` | Salud básica de proceso/API; no valida DB | Público |
 | `POST /contact/` | Formulario público con validación, honeypot y rate limit | Público limitado |
+| `GET /dashboard/overview/` | Panel docente compacto en una lectura: cursos, evaluaciones, conteos de correcciones y métricas | Autenticado |
 | `GET /dashboard/summary/` | Contadores y actividad reciente del usuario | Autenticado |
 | `GET /audit-events/` | Últimos eventos del docente | Autenticado |
 | `/courses/` | Listar, crear, editar y archivar cursos | Propietario |
@@ -26,6 +27,8 @@ Base local: `http://127.0.0.1:8000/api/`. Salvo `/health/` y el formulario públ
 | `/corrections/` | Consultar correcciones e historial resumido | Propietario |
 | `POST /corrections/{id}/approve/` | Validar/cerrar propuesta con acción explícita | Propietario |
 | `GET /corrections/{id}/export/` | Exportar la propuesta o el resultado final en Markdown | Propietario |
+
+`GET /correction-workspace/?summary=1` sin `assessment` devuelve solamente datos de selectores; con `assessment=<id>` devuelve información compacta de esa evaluación. La UI solicita los detalles completos de la entrega/corrección al seleccionarla.
 
 El endpoint de generación de rúbrica acepta `instructions`, `question_prompts` (lista de hasta 10 consignas) y `reference_material`; estos campos aportan contexto para una propuesta editable. El cliente debe revisar los criterios antes de persistirlos.
 

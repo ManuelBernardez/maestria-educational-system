@@ -720,8 +720,8 @@
 .workspace-context-panel .workspace-panel-icon{background:#cfe9dc;color:#236c55;}
 .intake-panel .workspace-panel-head{background:linear-gradient(115deg,#fff0e9,#fff8f4);}
 .intake-panel .workspace-panel-icon{background:#f8ded4;color:#9d4b39;}
-.student-queue-panel .workspace-panel-head{background:linear-gradient(115deg,#e9f0ff,#f8faff);}
-.student-queue-panel .workspace-panel-icon{background:#dbe5ff;color:#4356a8;}
+.student-queue-panel .workspace-panel-head{background:linear-gradient(115deg,#E4F3F1,#F2F8F7);}
+.student-queue-panel .workspace-panel-icon{background:#D7EFED;color:#075650;}
 .workspace-panel-body{gap:.7rem;padding:.9rem;}
 .workspace-panel-body>label,.workspace-panel-body form>label,.workspace-panel-body .form-two label{font-size:.79rem;gap:.3rem;}
 .workspace-panel-body textarea{font-size:.84rem;min-height:76px;}
@@ -794,7 +794,7 @@
 .queue-item .delivery-status-rejected{background:var(--coral-soft);color:var(--danger);}
 .workspace-review-split{gap:.85rem;}
 .workspace-source-card,.workspace-proposal-card{border-radius:13px;box-shadow:0 7px 25px rgba(24,52,58,.04);}
-.workspace-source-card>header{background:linear-gradient(110deg,#edf3ff,#fafbff);}
+.workspace-source-card>header{background:linear-gradient(110deg,#EDF7F5,#F7FBFA);}
 .workspace-proposal-card>header{background:linear-gradient(110deg,#e6f5ed,#f8fcf9);}
 .proposal-total{background:var(--brand-soft);border:1px solid #cfe7dc;border-radius:11px;padding:.9rem;}
 .proposal-total strong{color:var(--brand-strong);}

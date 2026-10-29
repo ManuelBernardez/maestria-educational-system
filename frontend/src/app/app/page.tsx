@@ -1,11 +1,9 @@
 "use client";
 
 import "../styles/panel-inicio-docente.css";
-import AppSidebar from "@/components/AppSidebar";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 type Assessment = {
@@ -21,7 +19,8 @@ type Assessment = {
 type Activity = { id: number; event_type: string; object_type: string; object_id: string; detail: Record<string, unknown>; created_at: string };
 type Summary = { courses: number; assessments: number; students: number; submissions: number; pending_corrections: number; approved_corrections: number; recent_activity: Activity[] };
 type Course = { id: number; name: string; subject?: string; level?: string; academic_year?: string; active: boolean; student_count: number; assessment_count: number };
-type CorrectionSummary = { id: number; submission: number; status: string; course_id?: number | null; course_name?: string | null; submission_title?: string; student_name?: string };
+type CourseCorrectionCount = { course_id: number | null; status: string; count: number };
+type DashboardOverview = { courses: Course[]; assessments: Assessment[]; course_correction_counts: CourseCorrectionCount[]; summary: Summary };
 type CourseOverview = Course & { pending: number; approved: number; recentAssessments: Assessment[] };
 
 function activityHref(event: Activity) {
@@ -54,13 +53,13 @@ function statusLabel(status: string) {
 export default function AppHome() {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [corrections, setCorrections] = useState<CorrectionSummary[]>([]);
+  const [courseCorrectionCounts, setCourseCorrectionCounts] = useState<CourseCorrectionCount[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [seedingDemo, setSeedingDemo] = useState(false);
-  const [demoError, setDemoError] = useState("");
   const router = useRouter();
+  const [demoError, setDemoError] = useState("");
   const demoActionLock = useRef(false);
   const loadController = useRef<AbortController | null>(null);
 
@@ -71,36 +70,21 @@ export default function AppHome() {
     setLoading(true);
     setError("");
     try {
-      const session = await supabase?.auth.getSession();
+      // AppAuthGuard already verifies Supabase Auth for the whole private layout.
+      // Keep this screen to one owner-scoped API round-trip instead of four.
+      const overview = await api<DashboardOverview>("/dashboard/overview/", { signal: controller.signal });
       if (controller.signal.aborted) return;
-      if (!session?.data.session) {
-        router.replace("/login");
-        return;
-      }
-
-      const [coursesResult, assessmentsResult, correctionsResult, summaryResult] = await Promise.allSettled([
-        api<Course[]>("/courses/", { signal: controller.signal }),
-        api<Assessment[]>("/assessments/", { signal: controller.signal }),
-        api<CorrectionSummary[]>("/corrections/?summary=1", { signal: controller.signal }),
-        api<Summary>("/dashboard/summary/", { signal: controller.signal }),
-      ]);
-      if (controller.signal.aborted) return;
-      const errors: string[] = [];
-      if (coursesResult.status === "fulfilled") setCourses(Array.isArray(coursesResult.value) ? coursesResult.value : []);
-      else errors.push("No se pudieron cargar las materias.");
-      if (assessmentsResult.status === "fulfilled") setAssessments(Array.isArray(assessmentsResult.value) ? assessmentsResult.value : []);
-      else errors.push("No se pudieron cargar las evaluaciones.");
-      if (correctionsResult.status === "fulfilled") setCorrections(Array.isArray(correctionsResult.value) ? correctionsResult.value : []);
-      else errors.push("No se pudo cargar el estado de las correcciones.");
-      if (summaryResult.status === "fulfilled") setSummary(summaryResult.value);
-      else errors.push("No se pudo cargar el resumen general.");
-      setError(errors.join(" "));
+      setCourses(Array.isArray(overview.courses) ? overview.courses : []);
+      setAssessments(Array.isArray(overview.assessments) ? overview.assessments : []);
+      setCourseCorrectionCounts(Array.isArray(overview.course_correction_counts) ? overview.course_correction_counts : []);
+      setSummary(overview.summary);
+      setError("");
     } catch (caught) {
       if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "No se pudo cargar el espacio docente.");
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     void loadDashboard();
@@ -113,7 +97,7 @@ export default function AppHome() {
     setSeedingDemo(true);
     setDemoError("");
     try {
-      const workspace = await api<{ ai_provider?: string }>("/correction-workspace/");
+      const workspace = await api<{ ai_provider?: string }>("/correction-workspace/?summary=1");
       if (!workspace.ai_provider || workspace.ai_provider === "mock") {
         throw new Error("El entorno está configurado con propuestas simuladas. Para probar una corrección real, el administrador debe configurar el proveedor y autorizar el procesamiento externo en el servidor.");
       }
@@ -127,40 +111,53 @@ export default function AppHome() {
     }
   }
 
+  const correctionCountsByCourse = useMemo(() => {
+    const grouped = new Map<string, { pending: number; approved: number }>();
+    for (const item of courseCorrectionCounts) {
+      if (item.course_id == null) continue;
+      const key = String(item.course_id);
+      const current = grouped.get(key) || { pending: 0, approved: 0 };
+      if (item.status === "pending_review") current.pending = item.count;
+      if (item.status === "approved") current.approved = item.count;
+      grouped.set(key, current);
+    }
+    return grouped;
+  }, [courseCorrectionCounts]);
+
   const courseOverviews = useMemo<CourseOverview[]>(() => courses
     .filter((course) => course.active)
     .map((course) => {
-      const courseCorrections = corrections.filter((item) => String(item.course_id ?? "") === String(course.id));
+      const counts = correctionCountsByCourse.get(String(course.id)) || { pending: 0, approved: 0 };
       return {
         ...course,
-        pending: courseCorrections.filter((item) => item.status === "pending_review").length,
-        approved: courseCorrections.filter((item) => item.status === "approved").length,
+        pending: counts.pending,
+        approved: counts.approved,
         recentAssessments: assessments.filter((item) => String(item.course ?? "") === String(course.id)).slice(0, 2),
       };
-    }), [courses, corrections, assessments]);
+    }), [courses, correctionCountsByCourse, assessments]);
 
   const unassignedAssessments = useMemo(() => assessments.filter((item) => !item.course), [assessments]);
-  const approvedCount = summary?.approved_corrections ?? corrections.filter((item) => item.status === "approved").length;
+  const approvedCount = summary?.approved_corrections ?? 0;
   // Heuristic only: not a measured user outcome. Keep the estimate explicit in the UI.
   const estimatedSavedMinutes = approvedCount * 8;
   const estimatedSavedTime = estimatedSavedMinutes >= 60
     ? `${(estimatedSavedMinutes / 60).toLocaleString("es-AR", { maximumFractionDigits: 1 })} h`
     : `${estimatedSavedMinutes} min`;
   const metrics = [
-    { label: "Por revisar", count: summary?.pending_corrections ?? corrections.filter((item) => item.status === "pending_review").length, detail: "Propuestas que esperan tu decisión", tone: "pending" },
+    { label: "Por revisar", count: summary?.pending_corrections ?? 0, detail: "Propuestas que esperan tu decisión", tone: "pending" },
     { label: "Revisadas", count: approvedCount, detail: "Devoluciones aprobadas por vos", tone: "reviewed" },
     { label: "Tiempo ahorrado estimado", count: estimatedSavedTime, detail: "Estimación orientativa · 8 min por devolución aprobada", tone: "saved" },
   ];
 
   return (
-    <div className="app-shell">
-      <AppSidebar />
+    <>
+      
       <main className="app-main" id="main-content" tabIndex={-1}>
         <header className="app-header dashboard-welcome">
           <div><span className="eyebrow">MI ESPACIO</span><h1>Panel docente</h1><p>Un vistazo a tus materias y a las entregas que necesitan tu revisión.</p></div>
           <div className="dashboard-header-actions">
             <Link href="/app/espacio-correccion" className="button button-quiet">Espacio de trabajo</Link>
-            <Link href="/app/cursos?new=1" className="button button-primary">＋ Agregar materia</Link>
+            <Link href="/app/cursos" className="button button-primary">＋ Agregar materia</Link>
           </div>
         </header>
 
@@ -179,7 +176,7 @@ export default function AppHome() {
           ) : (
             <div className="course-dashboard-grid">
               {courseOverviews.map((course) => (
-                <details className="course-dashboard-card" key={course.id} open>
+                <details className="course-dashboard-card" key={course.id}>
                   <summary className="course-dashboard-card-head"><span className="course-dashboard-icon" aria-hidden="true">▣</span><div><h3>{course.name}</h3><p>{[course.subject, course.level, course.academic_year].filter(Boolean).join(" · ") || "Materia o comisión"}</p></div><span className="course-card-chevron" aria-hidden="true">⌄</span></summary>
                   <div className="course-dashboard-card-body"><div className="course-dashboard-counts"><span><strong>{course.student_count ?? 0}</strong> estudiantes</span><span><strong>{course.assessment_count ?? 0}</strong> evaluaciones</span><span><strong>{course.pending}</strong> por revisar</span></div>
                   {course.recentAssessments.length > 0 ? <div className="course-recent-assessments"><span className="course-section-label">Evaluaciones recientes</span>{course.recentAssessments.map((assessment) => <Link href={`/app/evaluaciones/${assessment.id}`} key={assessment.id} className="course-assessment-link"><span>{assessment.title}</span><span className={`status-pill ${assessment.status === "ready" ? "delivery-status-approved" : assessment.status === "archived" ? "delivery-status-rejected" : "delivery-status-review"}`}>{statusLabel(assessment.status)}</span></Link>)}</div> : <p className="course-empty-hint">Todavía no hay evaluaciones en esta materia.</p>}
@@ -191,13 +188,18 @@ export default function AppHome() {
           {!loading && unassignedAssessments.length > 0 && <details className="unassigned-assessments"><summary>Evaluaciones sin curso asignado ({unassignedAssessments.length})</summary><div>{unassignedAssessments.map((assessment) => <Link href={`/app/evaluaciones/${assessment.id}`} key={assessment.id}>{assessment.title}<span>{[assessment.subject, assessment.level].filter(Boolean).join(" · ") || "Sin materia"}</span></Link>)}</div><p>Podés asignarlas a un curso desde el editor de cada evaluación.</p></details>}
         </section>
 
-        <details className="list-section dashboard-activity-section dashboard-foldable-section" open>
+        <details className="list-section dashboard-activity-section dashboard-foldable-section">
           <summary className="section-row"><div><h2 id="recent-activity-title">Actividad reciente</h2><p>Los últimos movimientos de tus materias.</p></div><span className="course-card-chevron" aria-hidden="true">⌄</span></summary>
           {summary?.recent_activity?.length ? <div className="activity-list">{summary.recent_activity.slice(0, 5).map((event) => <Link className="activity-link" href={activityHref(event)} key={event.id}><span className="activity-dot" aria-hidden="true"/><span className="activity-copy"><b>{activityLabel(event)}</b><small>{new Date(event.created_at).toLocaleString("es-AR")} · {event.detail?.demo ? "Práctica" : "Registro de actividad"}</small></span><span className="row-arrow" aria-hidden="true">→</span></Link>)}</div> : <div className="dashboard-activity-empty">Todavía no hay movimientos registrados. Cuando corrijas o recibas entregas, vas a ver la actividad acá.</div>}
         </details>
         </div>
+        <details className="dashboard-secondary-tools">
+          <summary>Herramientas de demostración</summary>
+          <p>Prepara registros ficticios para explorar el flujo. No uses este recurso con datos reales ni lo confundas con una corrección válida.</p>
+          <button type="button" className="button button-quiet" onClick={() => void openPracticeExample()} disabled={seedingDemo}>{seedingDemo ? "Preparando ejemplo…" : "Preparar ejemplo ficticio"}</button>
+        </details>
         <p className="app-disclaimer">MaestrIA propone correcciones; la decisión final sobre cada nota siempre es tuya.</p>
       </main>
-    </div>
+    </>
   );
 }

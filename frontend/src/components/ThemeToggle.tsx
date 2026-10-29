@@ -6,18 +6,25 @@ export default function ThemeToggle({ variant = "floating" }: { variant?: "float
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    let saved: string | null = null;
-    try { saved = localStorage.getItem("maestria-theme"); } catch { /* storage can be disabled by the browser */ }
-    const useDark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setDark(useDark);
-    document.documentElement.dataset.theme = useDark ? "dark" : "light";
+    const syncFromDocument = () => {
+      setDark(document.documentElement.dataset.theme === "dark");
+    };
+    syncFromDocument();
+    window.addEventListener("maestria-theme-change", syncFromDocument);
+    window.addEventListener("storage", syncFromDocument);
+    return () => {
+      window.removeEventListener("maestria-theme-change", syncFromDocument);
+      window.removeEventListener("storage", syncFromDocument);
+    };
   }, []);
 
   function toggle() {
-    const next = !dark;
-    setDark(next);
+    // Read the shared document state to avoid stale state when more than one toggle is mounted.
+    const next = document.documentElement.dataset.theme !== "dark";
     document.documentElement.dataset.theme = next ? "dark" : "light";
+    setDark(next);
     try { localStorage.setItem("maestria-theme", next ? "dark" : "light"); } catch { /* theme still changes for this page session */ }
+    window.dispatchEvent(new Event("maestria-theme-change"));
   }
 
   return (

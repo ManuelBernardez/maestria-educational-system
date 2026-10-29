@@ -36,7 +36,7 @@
 .activity-link{display:flex; align-items:flex-start; gap:12px; padding:13px 15px; background:var(--surface); border:1px solid var(--line); border-radius:12px; transition:border-color .15s ease,background .15s ease;}
 .activity-link:hover{border-color:var(--line-strong); background:color-mix(in srgb,var(--brand-soft) 30%,var(--surface));}
 .metric-card-link{cursor:pointer;text-align:left;font:inherit;color:inherit}
-.metric-card-link.metric-selected{border-color:#929be8;box-shadow:0 0 0 2px rgba(79,70,229,.11);background:#f8f8ff}
+.metric-card-link.metric-selected{border-color:#5BAEA5;box-shadow:0 0 0 2px rgba(13,115,108,.11);background:#F4FAF9}
 .delivery-summary.metric-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 .delivery-summary .metric-card{width:100%;min-width:0}
 @media (max-width:950px){.delivery-summary.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

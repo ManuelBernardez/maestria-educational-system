@@ -54,7 +54,7 @@ export default function AppSidebar() {
         setDisplayName(fullName || emailPrefix || "Docente");
       }).catch(() => undefined);
     }
-    void api<CourseNavigationItem[]>("/courses/", { signal: controller.signal })
+    void api<CourseNavigationItem[]>("/courses/?nav=1", { signal: controller.signal })
       .then(result => { if (active) setCourses((Array.isArray(result) ? result : []).filter(course => course.active).slice(0, 5)); })
       .catch(() => undefined);
     return () => { active = false; controller.abort(); };
@@ -76,7 +76,7 @@ export default function AppSidebar() {
         })}
       </nav>
       <div className="sidebar-course-section" aria-label="Accesos rápidos a materias">
-        <div className="sidebar-course-heading"><span>MIS MATERIAS</span><Link href="/app/cursos?new=1" aria-label="Crear materia o curso" title="Crear materia o curso">＋</Link></div>
+        <div className="sidebar-course-heading"><span>MIS MATERIAS</span><Link href="/app/cursos" aria-label="Crear materia o curso" title="Crear materia o curso">＋</Link></div>
         {courses.length > 0 ? <ul className="sidebar-course-list">{courses.map(course => {
           const active = pathname === `/app/cursos/${course.id}`;
           return <li key={course.id}><Link className={`sidebar-course-link${active ? " active" : ""}`} href={`/app/cursos/${course.id}`} aria-current={active ? "page" : undefined}>

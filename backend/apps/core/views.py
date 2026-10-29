@@ -16,8 +16,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, OuterRef, Prefetch, Q, Subquery
-from django.db.models.functions import Substr
+from django.db.models import Count, IntegerField, Max, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models.functions import Coalesce, Substr
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -36,9 +36,9 @@ from .models import (
 )
 from .serializers import (
     AssessmentEditorSerializer, AssessmentListSerializer, AssessmentSerializer, AssessmentWorkspaceSerializer, ContactMessageSerializer, CorrectionSerializer,
-    CourseOptionSerializer, CourseSerializer, EnrollmentSerializer, QuestionSerializer,
-    CorrectionSummarySerializer, RubricCriterionSerializer, RubricLevelSerializer, RubricSerializer,
-    StudentSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
+    CourseDashboardSerializer, CourseNavigationSerializer, CourseOptionSerializer, CourseSerializer, EnrollmentSerializer, QuestionSerializer,
+    CorrectionSummarySerializer, RubricCriterionSerializer, RubricLevelSerializer, RubricOptionSerializer, RubricSerializer,
+    StudentOptionSerializer, StudentSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
 )
 from .throttles import AIUserRateThrottle, ContactRateThrottle
 
@@ -114,6 +114,92 @@ def _safe_ai_error_detail(exc, fallback):
     if len(message) <= 350 and message.startswith(safe_prefixes):
         return message
     return fallback
+
+
+def courses_with_dashboard_counts(owner_id, *, active_only=False):
+    """Return owner-scoped courses with isolated count subqueries.
+
+    Separate correlated subqueries avoid multiplying enrollment and assessment
+    rows together in a joined aggregate when a course has many of both.
+    """
+    active_enrollment_count = (
+        Enrollment.objects.filter(
+            owner_id=owner_id,
+            course_id=OuterRef("pk"),
+            status="active",
+            student__owner_id=owner_id,
+            student__active=True,
+        )
+        .order_by()
+        .values("course_id")
+        .annotate(total=Count("student_id"))
+        .values("total")[:1]
+    )
+    assessment_count = (
+        Assessment.objects.filter(owner_id=owner_id, course_id=OuterRef("pk"))
+        .order_by()
+        .values("course_id")
+        .annotate(total=Count("id"))
+        .values("total")[:1]
+    )
+    queryset = Course.objects.filter(owner_id=owner_id)
+    if active_only:
+        queryset = queryset.filter(active=True)
+    return queryset.annotate(
+        student_count=Coalesce(Subquery(active_enrollment_count, output_field=IntegerField()), Value(0), output_field=IntegerField()),
+        assessment_count=Coalesce(Subquery(assessment_count, output_field=IntegerField()), Value(0), output_field=IntegerField()),
+    )
+
+
+@api_view(["GET"])
+def dashboard_overview(request):
+    """Load the dashboard in one authenticated request with compact owner-scoped data."""
+    owner_id = request.user.id
+    course_rows = list(courses_with_dashboard_counts(owner_id, active_only=True).order_by("-updated_at", "name"))
+    courses_data = CourseDashboardSerializer(course_rows, many=True).data
+
+    assessment_rows = Assessment.objects.filter(owner_id=owner_id).select_related("course").only(
+        "id", "title", "subject", "level", "status", "course_id", "updated_at",
+        "course__id", "course__name",
+    ).order_by("-updated_at")
+    assessments_data = AssessmentListSerializer(assessment_rows, many=True).data
+
+    # Aggregate by course and state instead of transferring every correction row.
+    correction_groups = list(
+        Correction.objects.filter(
+            owner_id=owner_id,
+            submission__owner_id=owner_id,
+            submission__assessment__owner_id=owner_id,
+        )
+        .values("submission__assessment__course_id", "status")
+        .annotate(total=Count("id"))
+    )
+    course_correction_counts = [
+        {"course_id": item["submission__assessment__course_id"], "status": item["status"], "count": item["total"]}
+        for item in correction_groups
+    ]
+    pending_count = sum(item["total"] for item in correction_groups if item["status"] == "pending_review")
+    approved_count = sum(item["total"] for item in correction_groups if item["status"] == "approved")
+
+    summary = {
+        "courses": len(course_rows),
+        "assessments": sum(1 for item in assessments_data if item["status"] != "archived"),
+        "students": Student.objects.filter(owner_id=owner_id, active=True).count(),
+        "submissions": Submission.objects.filter(owner_id=owner_id).count(),
+        "pending_corrections": pending_count,
+        "approved_corrections": approved_count,
+        "recent_activity": list(
+            AuditEvent.objects.filter(owner_id=owner_id)
+            .order_by("-created_at")
+            .values("id", "event_type", "object_type", "object_id", "detail", "created_at")[:8]
+        ),
+    }
+    return Response({
+        "courses": courses_data,
+        "assessments": assessments_data,
+        "course_correction_counts": course_correction_counts,
+        "summary": summary,
+    })
 
 
 @api_view(["GET"])
@@ -301,8 +387,9 @@ def seed_demo_dataset(request):
 
 @api_view(["GET"])
 def correction_workspace(request):
-    """Return only the selected evaluation's operational data in one round trip."""
+    """Return selected-evaluation data; summary=1 defers answer and correction details."""
     owner_id = request.user.id
+    summary_mode = request.query_params.get("summary") == "1"
     assessment_qs = Assessment.objects.filter(owner_id=owner_id).select_related("course").order_by("-updated_at")
     requested_id = request.query_params.get("assessment")
     selected = None
@@ -313,10 +400,31 @@ def correction_workspace(request):
             selected = None
         if selected is None:
             raise NotFound("Evaluación no disponible.")
-    else:
+    elif not summary_mode:
+        # Preserve the legacy full-workspace behavior for internal callers that
+        # explicitly request the non-summary representation.
         selected = assessment_qs.exclude(status="archived").first() or assessment_qs.first()
 
     assessments = AssessmentListSerializer(assessment_qs, many=True).data
+    if summary_mode and selected is None:
+        # The first visit only needs the selector data. Do not query rosters,
+        # rubrics, questions, submissions, corrections or enrollments until a
+        # teacher chooses an assessment (or opens a deep link with its ID).
+        courses = CourseOptionSerializer(
+            Course.objects.filter(owner_id=owner_id, active=True).order_by("name"), many=True
+        ).data
+        return Response({
+            "assessments": assessments,
+            "selected_assessment": None,
+            "students": [],
+            "courses": courses,
+            "rubrics": [],
+            "questions": [],
+            "submissions": [],
+            "corrections": [],
+            "enrollments": [],
+            "ai_provider": os.getenv("AI_PROVIDER", "mock").strip().lower(),
+        })
     # Do not load teacher rosters or full rubric structures on the empty state.
     # When an assessment has a course, fetch only its active enrolled students.
     students = []
@@ -328,14 +436,7 @@ def correction_workspace(request):
     corrections = []
     enrollments = []
     if selected is not None:
-        student_qs = Student.objects.filter(owner_id=owner_id, active=True).prefetch_related(
-            Prefetch(
-                "enrollments",
-                queryset=Enrollment.objects.filter(
-                    owner_id=owner_id, course__owner_id=owner_id, student__owner_id=owner_id,
-                ).select_related("course"),
-            )
-        )
+        student_qs = Student.objects.filter(owner_id=owner_id, active=True)
         if selected.course_id:
             student_qs = student_qs.filter(
                 enrollments__owner_id=owner_id,
@@ -343,49 +444,106 @@ def correction_workspace(request):
                 enrollments__course__owner_id=owner_id,
                 enrollments__status="active",
             ).distinct()
-        students = StudentSerializer(
-            student_qs.order_by("name"), many=True, context={"request": request}
-        ).data
+        if summary_mode:
+            # The queue needs identifying fields only, not every enrollment for each student.
+            students = StudentOptionSerializer(
+                student_qs.order_by("name").only("id", "name", "email", "phone", "active"), many=True
+            ).data
+        else:
+            student_qs = student_qs.prefetch_related(
+                Prefetch(
+                    "enrollments",
+                    queryset=Enrollment.objects.filter(
+                        owner_id=owner_id, course__owner_id=owner_id, student__owner_id=owner_id,
+                    ).select_related("course"),
+                )
+            )
+            students = StudentSerializer(
+                student_qs.order_by("name"), many=True, context={"request": request}
+            ).data
         courses = CourseOptionSerializer(
             Course.objects.filter(owner_id=owner_id, active=True).order_by("name"), many=True
         ).data
-        rubrics = RubricSerializer(
-            Rubric.objects.filter(owner_id=owner_id).prefetch_related("criteria__levels").order_by("title"),
-            many=True, context={"request": request},
-        ).data
+        rubric_queryset = Rubric.objects.filter(owner_id=owner_id).prefetch_related(
+            Prefetch("criteria", queryset=RubricCriterion.objects.order_by("position", "id"))
+        ).order_by("title")
+        if summary_mode:
+            rubrics = RubricOptionSerializer(rubric_queryset, many=True).data
+        else:
+            rubrics = RubricSerializer(
+                Rubric.objects.filter(owner_id=owner_id).prefetch_related("criteria__levels").order_by("title"),
+                many=True, context={"request": request},
+            ).data
         selected_data = AssessmentWorkspaceSerializer(selected, context={"request": request}).data
         selected_questions = Question.objects.filter(owner_id=owner_id, assessment=selected).select_related("rubric").order_by("position", "id")
         questions = QuestionSerializer(selected_questions, many=True, context={"request": request}).data
         selected_submissions = Submission.objects.filter(owner_id=owner_id, assessment=selected).select_related(
             "assessment", "student", "question"
-        ).prefetch_related(
-            Prefetch(
-                "answers",
-                queryset=SubmissionAnswer.objects.filter(
-                    owner_id=owner_id,
-                    question__owner_id=owner_id,
-                    submission__owner_id=owner_id,
-                ).select_related("question").order_by("question__position", "id"),
-            )
         ).order_by("-created_at")
-        submissions = SubmissionSerializer(selected_submissions, many=True, context={"request": request}).data
+        if summary_mode:
+            # Keep list rows narrow: question prompts and assessment instructions are
+            # delivered by their dedicated serializers, not duplicated per submission.
+            selected_submissions = selected_submissions.select_related(None).select_related("student").only(
+                "id", "assessment_id", "question_id", "student_id", "student_name",
+                "source_type", "source_filename", "status", "created_at",
+                "student__id", "student__name",
+            )
+            first_answer_preview = Subquery(
+                SubmissionAnswer.objects.filter(
+                    submission_id=OuterRef("pk"), owner_id=owner_id,
+                    question__owner_id=owner_id,
+                ).order_by("question__position", "id").annotate(
+                    preview=Substr("answer_text", 1, 301),
+                ).values("preview")[:1]
+            )
+            selected_submissions = selected_submissions.annotate(
+                answer_preview=Substr("answer_text", 1, 301),
+                first_answer_preview=first_answer_preview,
+            ).defer("answer_text")
+            submissions = SubmissionListSerializer(selected_submissions, many=True, context={"request": request}).data
+        else:
+            selected_submissions = selected_submissions.prefetch_related(
+                Prefetch(
+                    "answers",
+                    queryset=SubmissionAnswer.objects.filter(
+                        owner_id=owner_id,
+                        question__owner_id=owner_id,
+                        submission__owner_id=owner_id,
+                    ).select_related("question").order_by("question__position", "id"),
+                )
+            )
+            submissions = SubmissionSerializer(selected_submissions, many=True, context={"request": request}).data
         corrections_qs = Correction.objects.filter(
             owner_id=owner_id,
             submission__owner_id=owner_id,
             submission__assessment__owner_id=owner_id,
             submission__assessment=selected,
-        ).select_related(
-            "submission__assessment", "submission__student"
-        ).prefetch_related(
-            Prefetch(
-                "criterion_results",
-                queryset=CorrectionCriterionResult.objects.filter(
-                    owner_id=owner_id, correction__owner_id=owner_id,
-                ).select_related("question"),
-            )
         ).order_by("-updated_at")
-        corrections = CorrectionSerializer(corrections_qs, many=True, context={"request": request}).data
-        if selected.course_id:
+        if summary_mode:
+            corrections_qs = corrections_qs.select_related(
+                "submission__assessment__course", "submission__student",
+            ).only(
+                "id", "owner_id", "submission_id", "status", "provider", "total_score", "created_at",
+                "submission__id", "submission__student_id", "submission__student_name",
+                "submission__assessment_id", "submission__assessment__title",
+                "submission__assessment__subject", "submission__assessment__course_id",
+                "submission__assessment__course__id", "submission__assessment__course__name",
+                "submission__student__id", "submission__student__name",
+            )
+            corrections = CorrectionSummarySerializer(corrections_qs, many=True).data
+        else:
+            corrections_qs = corrections_qs.select_related(
+                "submission__assessment", "submission__student"
+            ).prefetch_related(
+                Prefetch(
+                    "criterion_results",
+                    queryset=CorrectionCriterionResult.objects.filter(
+                        owner_id=owner_id, correction__owner_id=owner_id,
+                    ).select_related("question"),
+                )
+            )
+            corrections = CorrectionSerializer(corrections_qs, many=True, context={"request": request}).data
+        if selected.course_id and not summary_mode:
             enrollments = EnrollmentSerializer(
                 Enrollment.objects.filter(owner_id=owner_id, course_id=selected.course_id, status="active")
                 .filter(course__owner_id=owner_id, student__owner_id=owner_id)
@@ -444,15 +602,24 @@ class OwnerViewSet(viewsets.ModelViewSet):
 
 
 class CourseViewSet(OwnerViewSet):
-    queryset = Course.objects.all().annotate(
-        student_count=Count(
-            "enrollments",
-            filter=Q(enrollments__status="active", enrollments__student__active=True),
-            distinct=True,
-        ),
-        assessment_count=Count("assessments", distinct=True),
-    )
+    # Keep a model-bound queryset for router basename discovery. The full list
+    # uses correlated subqueries to avoid enrollment × assessment row fan-out.
+    queryset = Course.objects.all()
     serializer_class = CourseSerializer
+
+    def get_queryset(self):
+        # Navigation and selector calls do not need expensive aggregate counts or
+        # long descriptions. Keep the rich annotated queryset for the course page.
+        if self.action == "list" and self.request.query_params.get("nav") == "1":
+            return Course.objects.filter(owner_id=self.request.user.id).only(
+                "id", "name", "subject", "level", "academic_year", "active",
+            ).order_by("name", "id")
+        return courses_with_dashboard_counts(self.request.user.id)
+
+    def get_serializer_class(self):
+        if self.action == "list" and self.request.query_params.get("nav") == "1":
+            return CourseNavigationSerializer
+        return super().get_serializer_class()
 
     def _save_course(self, serializer, **kwargs):
         try:
@@ -502,6 +669,15 @@ class AssessmentViewSet(OwnerViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        course_id = self.request.query_params.get("course")
+        if course_id is not None:
+            try:
+                parsed_course_id = int(course_id)
+                if parsed_course_id < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ValidationError({"course": "El filtro de curso debe ser un identificador válido."})
+            queryset = queryset.filter(course_id=parsed_course_id)
         if self.action == "retrieve":
             queryset = queryset.prefetch_related("questions")
         return queryset
@@ -1363,6 +1539,15 @@ class CorrectionViewSet(OwnerViewSet):
             submission__owner_id=self.request.user.id,
             submission__assessment__owner_id=self.request.user.id,
         )
+        course_id = self.request.query_params.get("course")
+        if course_id is not None:
+            try:
+                parsed_course_id = int(course_id)
+                if parsed_course_id < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ValidationError({"course": "El filtro de curso debe ser un identificador válido."})
+            queryset = queryset.filter(submission__assessment__course_id=parsed_course_id)
         if self.action == "list" and self.request.query_params.get("summary") == "1":
             # The course dashboard needs small identifying fields, not proposal JSON,
             # rubric criteria or full answer bodies. Keep joins explicit to avoid N+1s.

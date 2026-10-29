@@ -90,3 +90,7 @@
   .sidebar .side-link{flex:0 0 auto;white-space:nowrap;}
   .sidebar-bottom{grid-column:1/-1;}
 }
+
+/* Early loading/error states on nested detail routes are grid children of the persistent shell. */
+.app-shell > .simple-page{grid-column:2;grid-row:2;align-self:start;width:100%;}
+@media(max-width:850px){.app-shell > .simple-page{grid-column:1;grid-row:3;}}

@@ -1,6 +1,5 @@
 "use client";
 
-import AppSidebar from "@/components/AppSidebar";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -102,8 +101,8 @@ export default function CourseDetailPage() {
       api<Course>(`/courses/${id}/`, { signal }),
       api<Student[]>("/students/", { signal }),
       api<Enrollment[]>(`/enrollments/?course=${encodeURIComponent(id)}`, { signal }),
-      api<AssessmentSummary[]>("/assessments/", { signal }),
-      api<CorrectionSummary[]>("/corrections/?summary=1", { signal }),
+      api<AssessmentSummary[]>(`/assessments/?course=${encodeURIComponent(id)}`, { signal }),
+      api<CorrectionSummary[]>(`/corrections/?summary=1&course=${encodeURIComponent(id)}`, { signal }),
     ]);
 
     if (signal.aborted) return;
@@ -302,8 +301,8 @@ export default function CourseDetailPage() {
   }
 
   return (
-    <div className="app-shell">
-      <AppSidebar />
+    <>
+      
       <main className="app-main" id="main-content" tabIndex={-1}>
         <Link href="/app/cursos" className="back-link">← Todas las materias</Link>
         <header className="app-header course-hub-header">
@@ -356,7 +355,7 @@ export default function CourseDetailPage() {
           </div>
         </details>
 
-        <details className="course-hub-section" id="course-students" open>
+        <details className="course-hub-section" id="course-students">
           <summary className="course-hub-section-summary"><div><h2 id="course-students-title">Estudiantes <span className="count">{enrollmentsError ? "—" : activeEnrollments.length}</span></h2><p>Solo se muestran las matrículas de esta materia.</p></div><span className="course-section-chevron" aria-hidden="true">⌄</span></summary>
           <div className="course-hub-section-body"><div className="section-row"><div><h3>Lista de estudiantes</h3><p>Administrá las matrículas y consultá los datos identificatorios.</p></div><Link href={`/app/alumnos?course=${id}`} className="text-link">Gestionar estudiantes →</Link></div>
           {enrollmentsError && <div className="error-message" role="alert"><p>{enrollmentsError}</p><button className="button button-quiet" type="button" disabled={busy} onClick={() => void refreshEnrollments()}>Reintentar carga</button></div>}
@@ -365,14 +364,14 @@ export default function CourseDetailPage() {
           </div>
         </details>
 
-        <details className="course-hub-section" id="course-assessments" open>
+        <details className="course-hub-section" id="course-assessments">
           <summary className="course-hub-section-summary"><div><h2 id="course-assessments-title">Evaluaciones <span className="count">{assessmentsError ? "—" : courseAssessments.length}</span></h2><p>Consignas y criterios pertenecientes a esta materia.</p></div><span className="course-section-chevron" aria-hidden="true">⌄</span></summary>
           <div className="course-hub-section-body"><div className="section-row"><div><h3>Evaluaciones de la materia</h3></div><Link className="button button-primary button-small" href={`/app/evaluaciones/nueva?course=${id}`}>＋ Nueva evaluación</Link></div>
           {assessmentsError ? <p className="error-message" role="alert">{assessmentsError}</p> : courseAssessments.length > 0 ? <div className="assessment-list">{courseAssessments.map((assessment) => <Link className="assessment-row assessment-row-link" href={`/app/evaluaciones/${assessment.id}`} key={assessment.id}><span className="assessment-icon" aria-hidden="true">▤</span><span className="assessment-info"><strong>{assessment.title}</strong><span>{assessment.subject || course.subject || "Sin materia adicional"}</span></span><span className={`status-pill ${assessment.status === "ready" ? "delivery-status-approved" : assessment.status === "archived" ? "delivery-status-rejected" : "delivery-status-review"}`}>{assessment.status === "ready" ? "Lista" : assessment.status === "archived" ? "Archivada" : "Borrador"}</span><span className="row-arrow" aria-hidden="true">→</span></Link>)}</div> : <div className="empty-state"><h3>Sin evaluaciones para esta materia</h3><p>Creá la primera para asociar consignas, entregas y correcciones a este curso.</p><Link className="button button-primary" href={`/app/evaluaciones/nueva?course=${id}`}>Crear evaluación</Link></div>}
           </div>
         </details>
 
-        <details className="course-hub-section" id="course-corrections" open>
+        <details className="course-hub-section" id="course-corrections">
           <summary className="course-hub-section-summary"><div><h2 id="course-corrections-title">Correcciones <span className="count">{correctionsError ? "—" : courseCorrections.length}</span></h2><p>Historial de devoluciones de las evaluaciones de esta materia.</p></div><span className="course-section-chevron" aria-hidden="true">⌄</span></summary>
           <div className="course-hub-section-body"><div className="section-row"><div><h3>Historial de correcciones</h3></div><Link href={`/app/correcciones?course=${id}`} className="text-link">Ver historial →</Link></div>
           {correctionsError ? <p className="error-message" role="alert">{correctionsError}</p> : courseCorrections.length > 0 ? <div className="assessment-list">{courseCorrections.map((correction) => {
@@ -388,6 +387,6 @@ export default function CourseDetailPage() {
         </details>
         <p className="app-disclaimer">La evaluación, los estudiantes y las devoluciones de esta página pertenecen a este curso. La decisión final de cada nota siempre es docente.</p>
       </main>
-    </div>
+    </>
   );
 }

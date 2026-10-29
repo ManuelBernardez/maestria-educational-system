@@ -1,11 +1,13 @@
 "use client";
 
 import "../../styles/espacio-correccion.css";
-import AppSidebar from "@/components/AppSidebar";
-import CorrectionShareModal, { type CorrectionShareData, type ShareableProposal } from "@/components/CorrectionShareModal";
 import Link from "next/link";
+import dynamic from "next/dynamic";
+import type { CorrectionShareData, ShareableProposal } from "@/components/CorrectionShareModal";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, downloadApiFile } from "@/lib/api";
+
+const CorrectionShareModal = dynamic(() => import("@/components/CorrectionShareModal"), { ssr: false });
 
 type Criterion = {
   criterion: string;
@@ -21,25 +23,37 @@ type CorrectionProposal = Omit<ShareableProposal, "criteria"> & {
   warnings?: string[];
   demo?: boolean;
 };
-type Correction = {
+type CorrectionSummary = {
   id: number;
   submission: number;
   submission_assessment_id: number | string;
   status: string;
-  proposal: CorrectionProposal | null;
-  final_result: CorrectionProposal | null;
-  teacher_feedback: string;
+  provider: string;
   total_score: string;
   submission_title: string;
   student_name: string;
-  student_email?: string;
   course_id?: number | null;
   course_name?: string | null;
   subject?: string;
   created_at: string;
 };
+type Correction = CorrectionSummary & {
+  proposal: CorrectionProposal | null;
+  final_result: CorrectionProposal | null;
+  teacher_feedback: string;
+  student_email?: string;
+};
 type StatusFilter = "all" | "pending_review" | "approved" | "rejected";
 type CourseOption = { id: number; name: string; active: boolean };
+
+function isStatusFilter(value: string): value is StatusFilter {
+  return (
+    value === "all" ||
+    value === "pending_review" ||
+    value === "approved" ||
+    value === "rejected"
+  );
+}
 
 function getVisibleProposal(correction: Correction): CorrectionProposal {
   const source = correction.status === "approved" && correction.final_result?.criteria?.length
@@ -66,13 +80,16 @@ function statusClass(status: string): string {
   return "delivery-status-review";
 }
 
-function courseName(correction: Correction): string {
+function courseName(correction: CorrectionSummary): string {
   return correction.course_name?.trim() || "Sin curso asignado";
 }
 
 export default function CorrectionsPage() {
-  const [items, setItems] = useState<Correction[]>([]);
+  const [items, setItems] = useState<CorrectionSummary[]>([]);
   const [courseRows, setCourseRows] = useState<CourseOption[]>([]);
+  const [correctionDetails, setCorrectionDetails] = useState<Record<number, Correction>>({});
+  const [detailLoading, setDetailLoading] = useState<Record<number, boolean>>({});
+  const [detailErrors, setDetailErrors] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -80,11 +97,44 @@ export default function CorrectionsPage() {
   const [search, setSearch] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  // Explicit true means expanded. Every correction starts compact by default.
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const loadController = useRef<AbortController | null>(null);
   const exportLock = useRef<number | null>(null);
+  const detailsRef = useRef<Map<number, Correction>>(new Map());
+  const detailRequests = useRef<Map<number, Promise<Correction>>>(new Map());
   const closeShareModal = useCallback(() => setShareCorrection(null), []);
+
+  const loadCorrectionDetail = useCallback((id: number): Promise<Correction> => {
+    const cached = detailsRef.current.get(id);
+    if (cached) return Promise.resolve(cached);
+    const pending = detailRequests.current.get(id);
+    if (pending) return pending;
+
+    setDetailLoading((previous) => ({ ...previous, [id]: true }));
+    setDetailErrors((previous) => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+
+    const request = api<Correction>(`/corrections/${id}/`)
+      .then((detail) => {
+        detailsRef.current.set(id, detail);
+        setCorrectionDetails((previous) => ({ ...previous, [id]: detail }));
+        return detail;
+      })
+      .catch((caught: unknown) => {
+        const text = caught instanceof Error ? caught.message : "No se pudo cargar el detalle de esta devolución.";
+        setDetailErrors((previous) => ({ ...previous, [id]: text }));
+        throw caught;
+      })
+      .finally(() => {
+        detailRequests.current.delete(id);
+        setDetailLoading((previous) => ({ ...previous, [id]: false }));
+      });
+    detailRequests.current.set(id, request);
+    return request;
+  }, []);
 
   const load = useCallback(async (showLoading = true) => {
     loadController.current?.abort();
@@ -94,8 +144,8 @@ export default function CorrectionsPage() {
     setError("");
     try {
       const [correctionsResult, coursesResult] = await Promise.allSettled([
-        api<Correction[]>("/corrections/", { signal: controller.signal }),
-        api<CourseOption[]>("/courses/", { signal: controller.signal }),
+        api<CorrectionSummary[]>("/corrections/?summary=1", { signal: controller.signal }),
+        api<CourseOption[]>("/courses/?nav=1", { signal: controller.signal }),
       ]);
       if (controller.signal.aborted) return;
       if (correctionsResult.status === "rejected") throw correctionsResult.reason;
@@ -103,6 +153,11 @@ export default function CorrectionsPage() {
       setItems(safeItems);
       setCourseRows(coursesResult.status === "fulfilled" && Array.isArray(coursesResult.value) ? coursesResult.value : []);
       setExpanded({});
+      detailsRef.current.clear();
+      detailRequests.current.clear();
+      setCorrectionDetails({});
+      setDetailLoading({});
+      setDetailErrors({});
     } catch (caught) {
       if (controller.signal.aborted || (caught instanceof Error && caught.name === "AbortError")) return;
       setError(caught instanceof Error ? caught.message : "No se pudieron cargar las correcciones.");
@@ -124,7 +179,6 @@ export default function CorrectionsPage() {
   const courses = useMemo(() => {
     const unique = new Map<string, string>();
     courseRows.forEach((course) => unique.set(String(course.id), course.name));
-    // Keep a fallback for archived/legacy course references if the course list is unavailable.
     items.forEach((item) => {
       if (item.course_id != null && !unique.has(String(item.course_id))) unique.set(String(item.course_id), courseName(item));
     });
@@ -134,7 +188,8 @@ export default function CorrectionsPage() {
   const filteredItems = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("es-AR");
     return items.filter((item) => {
-      const searchable = [item.student_name, item.submission_title, item.teacher_feedback, item.proposal?.summary, item.course_name, item.subject]
+      // The initial list only contains identifying fields. Long feedback and AI JSON are fetched on demand.
+      const searchable = [item.student_name, item.submission_title, item.course_name, item.subject]
         .filter(Boolean).join(" ").toLocaleLowerCase("es-AR");
       const matchesSearch = !needle || searchable.includes(needle);
       const matchesCourse = courseFilter === "all" || String(item.course_id ?? "unassigned") === courseFilter;
@@ -144,7 +199,7 @@ export default function CorrectionsPage() {
   }, [items, search, courseFilter, statusFilter]);
 
   const groupedItems = useMemo(() => {
-    const groups = new Map<string, { name: string; rows: Correction[] }>();
+    const groups = new Map<string, { name: string; rows: CorrectionSummary[] }>();
     for (const item of filteredItems) {
       const key = item.course_id == null ? "unassigned" : String(item.course_id);
       const resolvedCourseName = item.course_name?.trim()
@@ -156,7 +211,7 @@ export default function CorrectionsPage() {
     return Array.from(groups.entries()).map(([id, group]) => ({ id, ...group }));
   }, [filteredItems, courses]);
 
-  async function exportMarkdown(correction: Correction) {
+  async function exportMarkdown(correction: CorrectionSummary) {
     if (exportLock.current === correction.id) return;
     exportLock.current = correction.id;
     setError("");
@@ -187,8 +242,7 @@ export default function CorrectionsPage() {
   }, [shareCorrection]);
 
   return (
-    <div className="app-shell">
-      <AppSidebar />
+    <>
       <main className="app-main" id="main-content" tabIndex={-1}>
         <header className="app-header">
           <div>
@@ -205,7 +259,14 @@ export default function CorrectionsPage() {
         {!loading && items.length > 0 && (
           <section className="ux-filter-bar" aria-label="Filtros de correcciones">
             <label htmlFor="corrections-search">Buscar
-              <input id="corrections-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Estudiante, evaluación o comentario…" />
+              <input id="corrections-search" type="search" value={search} 
+                onChange={(event) =>
+                  setStatusFilter(
+                    isStatusFilter(event.currentTarget.value)
+                      ? event.currentTarget.value
+                      : "all"
+                  )
+                } placeholder="Estudiante, evaluación o curso…" />
             </label>
             <label htmlFor="corrections-course">Materia o curso
               <select id="corrections-course" value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
@@ -215,7 +276,20 @@ export default function CorrectionsPage() {
               </select>
             </label>
             <label htmlFor="corrections-status">Estado
-              <select id="corrections-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <select id="corrections-status" value={statusFilter} 
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+
+                  if (
+                    value === "all" ||
+                    value === "pending_review" ||
+                    value === "approved" ||
+                    value === "rejected"
+                  ) {
+                    setStatusFilter(value);
+                  }
+                }}
+              >
                 <option value="all">Todos</option><option value="pending_review">Pendientes</option><option value="approved">Aprobadas</option><option value="rejected">Rechazadas</option>
               </select>
             </label>
@@ -241,15 +315,16 @@ export default function CorrectionsPage() {
                 </header>
                 <div className="correction-card-list">
                   {group.rows.map((correction) => {
-                    const proposal = getVisibleProposal(correction);
-                    const scoreTotal = proposal.criteria.reduce((sum, criterion) => sum + Number(criterion.score || 0), 0);
-                    const maxTotal = proposal.criteria.reduce((sum, criterion) => sum + Number(criterion.max_score || 0), 0);
+                    const detail = correctionDetails[correction.id];
+                    const proposal = detail ? getVisibleProposal(detail) : null;
+                    const scoreTotal = proposal?.criteria.reduce((sum, criterion) => sum + Number(criterion.score || 0), 0) ?? 0;
+                    const maxTotal = proposal?.criteria.reduce((sum, criterion) => sum + Number(criterion.max_score || 0), 0) ?? 0;
                     const storedScore = String(correction.total_score ?? "").trim();
                     const hasStoredScore = storedScore !== "" && Number.isFinite(Number(storedScore));
-                    const useCriteriaScore = proposal.criteria.length > 0 && (correction.status !== "approved" || Boolean(correction.final_result?.criteria?.length));
+                    const useCriteriaScore = Boolean(proposal && proposal.criteria.length > 0 && (correction.status !== "approved" || Boolean(detail?.final_result?.criteria?.length)));
                     const scoreAvailable = useCriteriaScore || hasStoredScore;
                     const displayScore = useCriteriaScore ? scoreTotal : hasStoredScore ? Number(storedScore) : 0;
-                    const displayMaxScore = useCriteriaScore ? maxTotal : maxTotal > 0 ? maxTotal : 0;
+                    const displayMaxScore = useCriteriaScore ? maxTotal : 0;
                     const isExpanded = expanded[correction.id] === true;
                     const workspaceUrl = `/app/espacio-correccion?assessment=${encodeURIComponent(String(correction.submission_assessment_id))}&submission=${correction.submission}`;
                     return (
@@ -267,34 +342,45 @@ export default function CorrectionsPage() {
                           </div>
                           <span className={`status-pill ${statusClass(correction.status)}`}>{statusLabel(correction.status)}</span>
                         </div>
-                        {proposal.demo && <p className="correction-demo-note" role="note">Ejemplo de práctica · no es una calificación real</p>}
+                        {detail?.proposal?.demo && <p className="correction-demo-note" role="note">Ejemplo de práctica · no es una calificación real</p>}
                         <div className="correction-compact-actions">
-                          <button className="button button-quiet button-small" type="button" aria-expanded={isExpanded} aria-controls={`correction-detail-${correction.id}`} onClick={() => setExpanded((previous) => ({ ...previous, [correction.id]: !isExpanded }))}>{isExpanded ? "Ocultar detalle ↑" : "Ver devolución ↓"}</button>
+                          <button className="button button-quiet button-small" type="button" aria-expanded={isExpanded} aria-controls={`correction-detail-${correction.id}`} onClick={() => {
+                            const nextExpanded = !isExpanded;
+                            setExpanded((previous) => ({ ...previous, [correction.id]: nextExpanded }));
+                            if (nextExpanded) void loadCorrectionDetail(correction.id).catch(() => undefined);
+                          }}>{isExpanded ? "Ocultar detalle ↑" : "Ver devolución ↓"}</button>
                           <Link className="button button-small button-primary" href={workspaceUrl}>{correction.status === "approved" ? "Abrir corrección" : "Revisar corrección"} →</Link>
                         </div>
                         <div className="correction-compact-detail" id={`correction-detail-${correction.id}`} hidden={!isExpanded}>
-                          <div className="correction-detail-toolbar">
-                              <strong>Detalle de la devolución</strong>
-                              <div>
-                                {correction.status === "approved" && <button className="button button-quiet button-small" type="button" onClick={() => setShareCorrection(correction)}>Compartir devolución</button>}
-                                <button className="button button-quiet button-small" type="button" disabled={exportLock.current === correction.id} onClick={() => void exportMarkdown(correction)}>Exportar .md</button>
+                          {detailLoading[correction.id] && <p role="status" aria-live="polite">Cargando devolución completa…</p>}
+                          {detailErrors[correction.id] && <div className="error-message" role="alert"><p>{detailErrors[correction.id]}</p><button type="button" className="button button-quiet button-small" onClick={() => void loadCorrectionDetail(correction.id).catch(() => undefined)}>Reintentar</button></div>}
+                          {detail && proposal && !detailLoading[correction.id] && (
+                            <>
+                              <div className="correction-detail-toolbar">
+                                <strong>Detalle de la devolución</strong>
+                                <div>
+                                  {correction.status === "approved" && <button className="button button-quiet button-small" type="button" onClick={() => void loadCorrectionDetail(correction.id).then(setShareCorrection).catch(() => undefined)}>Compartir devolución</button>}
+                                  <button className="button button-quiet button-small" type="button" disabled={exportLock.current === correction.id} onClick={() => void exportMarkdown(correction)}>Exportar .md</button>
+                                </div>
                               </div>
-                            </div>
-                            {proposal.summary ? <p className="correction-history-summary">{proposal.summary}</p> : !proposal.criteria.length ? <p className="correction-history-summary">Esta corrección no contiene un detalle estructurado. Abrila para revisar el registro completo.</p> : null}
-                            {proposal.strengths?.length ? <div className="ai-detail-lists"><h4>Fortalezas</h4><ul>{proposal.strengths.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
-                            {proposal.improvement_suggestions?.length ? <div className="ai-detail-lists"><h4>Para seguir mejorando</h4><ul>{proposal.improvement_suggestions.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
-                            <div className="correction-history-criteria">
-                              {proposal.criteria.map((criterion, index) => (
-                                <article className="criterion-review" key={`${criterion.criterion}-${index}`}>
-                                  <div className="criterion-head"><b>{criterion.criterion}</b><span>{criterion.score} / {criterion.max_score}</span></div>
-                                  {criterion.level && <span className="level-pill">Nivel sugerido: {criterion.level}</span>}
-                                  <p>{criterion.justification}</p>
-                                  <blockquote className="evidence-quote">{criterion.evidence ? `“${criterion.evidence}”` : "Sin evidencia literal; revisar manualmente."}</blockquote>
-                                </article>
-                              ))}
-                            </div>
-                            <p className="correction-feedback-line"><strong>Devolución:</strong> {correction.teacher_feedback || proposal.feedback || "Sin retroalimentación adicional."}</p>
-                          </div>
+                              {proposal.summary ? <p className="correction-history-summary">{proposal.summary}</p> : !proposal.criteria.length ? <p className="correction-history-summary">Esta corrección no contiene un detalle estructurado. Abrila para revisar el registro completo.</p> : null}
+                              {proposal.strengths?.length ? <div className="ai-detail-lists"><h4>Fortalezas</h4><ul>{proposal.strengths.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
+                              {proposal.improvement_suggestions?.length ? <div className="ai-detail-lists"><h4>Para seguir mejorando</h4><ul>{proposal.improvement_suggestions.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
+                              <div className="correction-history-criteria">
+                                {proposal.criteria.map((criterion, index) => (
+                                  <article className="criterion-review" key={`${criterion.criterion}-${index}`}>
+                                    <div className="criterion-head"><b>{criterion.criterion}</b><span>{criterion.score} / {criterion.max_score}</span></div>
+                                    {criterion.level && <span className="level-pill">Nivel sugerido: {criterion.level}</span>}
+                                    <p>{criterion.justification}</p>
+                                    <blockquote className="evidence-quote">{criterion.evidence ? `“${criterion.evidence}”` : "Sin evidencia literal; revisar manualmente."}</blockquote>
+                                  </article>
+                                ))}
+                              </div>
+                              <p className="correction-feedback-line"><strong>Devolución:</strong> {detail.teacher_feedback || proposal.feedback || "Sin retroalimentación adicional."}</p>
+                            </>
+                          )}
+                          {!detail && !detailLoading[correction.id] && !detailErrors[correction.id] && <p className="correction-history-summary">Abrí el detalle para cargar la devolución completa.</p>}
+                        </div>
                       </article>
                     );
                   })}
@@ -305,14 +391,7 @@ export default function CorrectionsPage() {
         )}
         <p className="app-disclaimer">La nota y la devolución son definitivas solo después de la aprobación docente.</p>
       </main>
-      <CorrectionShareModal open={Boolean(shareCorrection)} data={shareCorrection ? {
-        studentName: shareCorrection.student_name || "Estudiante sin identificar",
-        studentEmail: shareCorrection.student_email || "",
-        assessmentTitle: shareCorrection.submission_title,
-        totalScore: shareData?.totalScore ?? Number(shareCorrection.total_score || 0),
-        teacherFeedback: shareCorrection.teacher_feedback,
-        proposal: getVisibleProposal(shareCorrection),
-      } : null} onClose={closeShareModal} />
-    </div>
+      {shareCorrection && <CorrectionShareModal open data={shareData} onClose={closeShareModal} />}
+    </>
   );
 }

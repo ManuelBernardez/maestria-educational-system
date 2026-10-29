@@ -1,6 +1,5 @@
 "use client";
 
-import AppSidebar from "@/components/AppSidebar";
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -30,7 +29,7 @@ export default function NewAssessment() {
     loadController.current = controller;
     const requestedCourse = new URLSearchParams(window.location.search).get("course");
     const validRequestedCourse = requestedCourse && /^\d+$/.test(requestedCourse) ? requestedCourse : "";
-    void api<Course[]>("/courses/", { signal: controller.signal })
+    void api<Course[]>("/courses/?nav=1", { signal: controller.signal })
       .then(items => {
         if (controller.signal.aborted) return;
         const active = items.filter(item => item.active);
@@ -65,7 +64,7 @@ export default function NewAssessment() {
     finally { submitLock.current = false; setBusy(false); }
   }
 
-  return <div className="app-shell"><AppSidebar />
+  return <>
     <main className="app-main narrow-main" id="main-content" tabIndex={-1}><Link href="/app/evaluaciones" className="back-link">← Volver a evaluaciones</Link><span className="eyebrow">UN PRIMER PASO SENCILLO</span><h1>Crear evaluación</h1><p className="page-intro">Empezá con lo esencial. Después, en el espacio de corrección, vas a poder sumar materiales, elegir criterios y cargar una entrega.</p>
       {courses.length === 0 && !loadingCourses && <div className="notice" role="status">Primero creá un curso para mantener estudiantes y evaluaciones organizados. <Link href="/app/cursos">Crear curso →</Link></div>}
       <form className="form-card quick-assessment-form" onSubmit={submit}><div className="quick-form-intro"><span className="quick-form-icon" aria-hidden="true">✳</span><div><h2>Tu evaluación</h2><p>Solo necesitamos saber qué vas a preparar y en qué curso.</p></div></div>
@@ -76,5 +75,5 @@ export default function NewAssessment() {
         <div className="quick-form-next"><div><b>¿Qué sigue?</b><p>Vas a entrar en un espacio guiado para agregar materiales, criterios y la respuesta del estudiante.</p></div><span aria-hidden="true">→</span></div>
         {error && <p className="error-message" role="alert">{error}</p>}<div className="form-actions"><Link href="/app/evaluaciones" className="button button-quiet">Cancelar</Link><button className="button button-primary" disabled={busy || loadingCourses || courses.length === 0}>{busy ? "Creando…" : "Crear y preparar corrección →"}</button></div>
       </form>
-    </main></div>;
+    </main></>;
 }

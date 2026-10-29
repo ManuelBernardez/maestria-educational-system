@@ -1,6 +1,5 @@
 "use client";
 
-import AppSidebar from "@/components/AppSidebar";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -61,7 +60,7 @@ export default function DeliveriesPage() {
         api<Submission[]>("/submissions/", { signal: controller.signal }),
         api<Assessment[]>("/assessments/", { signal: controller.signal }),
         api<Correction[]>("/corrections/?summary=1", { signal: controller.signal }),
-        api<{ id: number; name: string; active: boolean }[]>("/courses/", { signal: controller.signal }),
+        api<{ id: number; name: string; active: boolean }[]>("/courses/?nav=1", { signal: controller.signal }),
       ]);
       if (controller.signal.aborted || sequence !== loadSequence.current) return;
       setSubmissions(Array.isArray(received) ? received : []);
@@ -119,8 +118,8 @@ export default function DeliveriesPage() {
     approved: courseSubmissions.filter(item => item.status === "approved" || correctionBySubmission.get(item.id)?.status === "approved").length,
   }), [courseSubmissions, correctionBySubmission]);
 
-  return <div className="app-shell">
-    <AppSidebar />
+  return <>
+    
     <main className="app-main" id="main-content" tabIndex={-1}>
       <div className="app-header">
         <div><span className="eyebrow">TRABAJO RECIBIDO</span><h1>Entregas</h1><p>Encontrá cada respuesta y continuá directamente con su revisión.</p></div>
@@ -159,5 +158,5 @@ export default function DeliveriesPage() {
       </section>
       <p className="app-disclaimer">Las propuestas de IA son asistencias revisables. La decisión final de calificación siempre corresponde al docente.</p>
     </main>
-  </div>;
+  </>;
 }

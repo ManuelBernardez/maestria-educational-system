@@ -43,6 +43,33 @@ class CourseOptionSerializer(serializers.ModelSerializer):
         fields = ("id", "name", "active")
 
 
+class CourseNavigationSerializer(serializers.ModelSerializer):
+    """Small navigation/selector payload that avoids count annotations and long descriptions."""
+    class Meta:
+        model = Course
+        fields = ("id", "name", "subject", "level", "academic_year", "active")
+
+
+class CourseDashboardSerializer(serializers.ModelSerializer):
+    """Dashboard card payload; excludes owner metadata and the long description."""
+    student_count = serializers.IntegerField(read_only=True, default=0)
+    assessment_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Course
+        fields = (
+            "id", "name", "subject", "level", "academic_year", "active",
+            "student_count", "assessment_count",
+        )
+
+
+class StudentOptionSerializer(serializers.ModelSerializer):
+    """Minimal student fields for selection in the correction workspace."""
+    class Meta:
+        model = Student
+        fields = ("id", "name", "email", "phone", "active")
+
+
 class StudentEnrollmentSummarySerializer(serializers.ModelSerializer):
     course_id = serializers.IntegerField(source="course.id", read_only=True)
     course_name = serializers.CharField(source="course.name", read_only=True)
@@ -152,6 +179,22 @@ class RubricCriterionSerializer(OwnedSerializer):
         if rubric and str(rubric.owner_id) != str(self.context["request"].user.id):
             raise serializers.ValidationError({"rubric": "Rúbrica no disponible."})
         return attrs
+
+
+class RubricCriterionOptionSerializer(serializers.ModelSerializer):
+    """Minimal criterion fields needed by the correction-workspace selector."""
+    class Meta:
+        model = RubricCriterion
+        fields = ("id", "name", "max_score")
+
+
+class RubricOptionSerializer(serializers.ModelSerializer):
+    """Avoid returning level descriptions for every rubric before one is selected."""
+    criteria = RubricCriterionOptionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Rubric
+        fields = ("id", "title", "scale_type", "criteria")
 
 
 class RubricSerializer(OwnedSerializer):

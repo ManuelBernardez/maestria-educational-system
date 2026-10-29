@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./styles.css";
 import SiteHeader from "@/components/SiteHeader";
 
@@ -32,14 +33,27 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f2efe7" },
-    { media: "(prefers-color-scheme: dark)", color: "#152326" },
+    { media: "(prefers-color-scheme: light)", color: "#edf7f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#102927" },
   ],
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="es-AR">
+    <html lang="es-AR" suppressHydrationWarning>
+      <head>
+        <Script id="maestria-theme-init" strategy="beforeInteractive">
+          {`(function () {
+            try {
+              var saved = window.localStorage.getItem("maestria-theme");
+              var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+              document.documentElement.dataset.theme = saved === "dark" || (saved !== "light" && prefersDark) ? "dark" : "light";
+            } catch (_) {
+              document.documentElement.dataset.theme = "light";
+            }
+          })();`}
+        </Script>
+      </head>
       <body>
         <a className="skip-link" href="#main-content">Saltar al contenido principal</a>
         <div id="app-container"><SiteHeader />{children}</div>

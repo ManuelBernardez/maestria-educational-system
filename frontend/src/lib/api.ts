@@ -103,6 +103,7 @@ async function requestApiResponse<T>(
   init: RequestInit,
   timeoutMs: number,
   consume: (response: Response) => Promise<T>,
+  knownAccessToken?: string,
 ): Promise<T> {
   const url = safeApiUrl(path);
   const headers = new Headers(init.headers);
@@ -132,9 +133,13 @@ async function requestApiResponse<T>(
       throw cancelled;
     }
 
-    // Only the public/publishable Supabase client is used here. A missing session
-    // is allowed for public endpoints; protected endpoints fail closed in Django.
-    if (supabase) {
+    // Shared reads already resolved the session to scope their cache key. Reuse
+    // that access token instead of querying Supabase Auth a second time.
+    if (knownAccessToken) {
+      headers.set("Authorization", `Bearer ${knownAccessToken}`);
+    } else if (supabase) {
+      // Only the public/publishable Supabase client is used here. A missing session
+      // is allowed for public endpoints; protected endpoints fail closed in Django.
       try {
         const sessionResult = await Promise.race([
           supabase.auth.getSession(),
@@ -148,11 +153,7 @@ async function requestApiResponse<T>(
             else controller.signal.addEventListener("abort", rejectOnAbort, { once: true });
           }),
         ]);
-        if (controller.signal.aborted) {
-          const cancelled = new Error("La solicitud fue cancelada.");
-          cancelled.name = "AbortError";
-          throw cancelled;
-        }
+        if (controller.signal.aborted) throw makeAbortError();
         const token = sessionResult.error ? undefined : sessionResult.data.session?.access_token;
         if (token) headers.set("Authorization", `Bearer ${token}`);
       } catch (cause) {
@@ -213,12 +214,22 @@ type SharedReadEntry = { promise: Promise<unknown>; expiresAt: number };
 // Mutations invalidate the cache, and errors are never cached.
 const SHARED_READ_PATHS = new Set([
   "/courses/",
+  "/courses/?nav=1",
   "/assessments/",
   "/corrections/?summary=1",
   "/dashboard/summary/",
+  "/dashboard/overview/",
+  // No assessment means this is selector metadata only, not student answers.
+  "/correction-workspace/?summary=1",
 ]);
-const SHARED_READ_TTL_MS = 1_200;
+const DEFAULT_SHARED_READ_TTL_MS = 5_000;
+const SHARED_READ_TTLS: Record<string, number> = {
+  "/courses/?nav=1": 15_000,
+  "/dashboard/overview/": 10_000,
+  "/correction-workspace/?summary=1": 10_000,
+};
 const sharedReadCache = new Map<string, SharedReadEntry>();
+let currentScopePromise: Promise<AuthScope | null> | null = null;
 
 function isShareableRead(path: string, init: RequestInit): boolean {
   const method = (init.method || "GET").toUpperCase();
@@ -256,28 +267,55 @@ function waitForCaller<T>(promise: Promise<T>, signal?: AbortSignal | null): Pro
   });
 }
 
-async function currentUserScope(): Promise<string | null> {
+type AuthScope = { userId: string; accessToken: string };
+
+async function readCurrentUserScope(): Promise<AuthScope | null> {
   if (!supabase) return null;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session?.user.id) return null;
-    return data.session.user.id;
+    // getSession is local storage access in normal operation; guard against a
+    // broken auth lock so API calls are never blocked indefinitely before fetch.
+    const result = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("Supabase session lookup timed out")), 3_000);
+      }),
+    ]);
+    const session = result.data.session;
+    if (result.error || !session?.user.id || !session.access_token) return null;
+    return { userId: session.user.id, accessToken: session.access_token };
   } catch {
     return null;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
+}
+
+async function currentUserScope(signal?: AbortSignal | null): Promise<AuthScope | null> {
+  if (!currentScopePromise) {
+    const pending = readCurrentUserScope().finally(() => {
+      if (currentScopePromise === pending) currentScopePromise = null;
+    });
+    currentScopePromise = pending;
+  }
+  return waitForCaller(currentScopePromise, signal);
+}
+
+function sharedReadTtl(path: string): number {
+  return SHARED_READ_TTLS[path] ?? DEFAULT_SHARED_READ_TTL_MS;
 }
 
 function invalidateSharedReads(): void {
   sharedReadCache.clear();
 }
 
-async function performApiRequest<T>(path: string, init: RequestInit, timeoutMs: number): Promise<T> {
+async function performApiRequest<T>(path: string, init: RequestInit, timeoutMs: number, knownAccessToken?: string): Promise<T> {
   return requestApiResponse(path, init, timeoutMs, async (response) => {
     if (!response.ok) {
       throw new Error(messageFromBody(await readErrorBody(response), response.status));
     }
     return parseSuccess<T>(response);
-  });
+  }, knownAccessToken);
 }
 
 export async function api<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
@@ -286,39 +324,42 @@ export async function api<T>(path: string, init: ApiRequestInit = {}): Promise<T
 
   if (isShareableRead(path, requestInit)) {
     if (requestInit.signal?.aborted) throw makeAbortError();
-    const userScope = await currentUserScope();
+    const userScope = await currentUserScope(requestInit.signal);
     if (requestInit.signal?.aborted) throw makeAbortError();
-
-    // Without a verified local session scope, do not share a protected response
-    // between anonymous callers. The API will return its normal auth error.
-    if (userScope) {
-      const key = `${userScope}:${safeApiUrl(path)}:${timeoutMs}`;
-      let entry = sharedReadCache.get(key);
-      if (entry && entry.expiresAt !== Number.POSITIVE_INFINITY && entry.expiresAt <= Date.now()) {
-        sharedReadCache.delete(key);
-        entry = undefined;
-      }
-
-      if (!entry) {
-        // Do not bind the underlying small GET to one component's AbortSignal:
-        // a sibling may still need it after navigation/Strict Mode cleanup.
-        const promise = performApiRequest<T>(path, { ...requestInit, signal: undefined }, timeoutMs);
-        entry = { promise, expiresAt: Number.POSITIVE_INFINITY };
-        sharedReadCache.set(key, entry);
-        const storedEntry = entry;
-        void promise.then(
-          () => {
-            if (sharedReadCache.get(key) === storedEntry) {
-              storedEntry.expiresAt = Date.now() + SHARED_READ_TTL_MS;
-            }
-          },
-          () => {
-            if (sharedReadCache.get(key) === storedEntry) sharedReadCache.delete(key);
-          },
-        );
-      }
-      return waitForCaller(entry.promise as Promise<T>, requestInit.signal);
+    // Every route in this allowlist is private. If the local session cannot be
+    // verified, fail closed instead of repeating a potentially stalled
+    // getSession() inside requestApiResponse or sending an accidental anonymous
+    // request. The auth guard can then redirect/refresh the session normally.
+    if (!userScope) {
+      throw new Error("No se pudo verificar tu sesión. Volvé a ingresar y reintentá.");
     }
+
+    const key = `${userScope.userId}:${safeApiUrl(path)}:${timeoutMs}`;
+    let entry = sharedReadCache.get(key);
+    if (entry && entry.expiresAt !== Number.POSITIVE_INFINITY && entry.expiresAt <= Date.now()) {
+      sharedReadCache.delete(key);
+      entry = undefined;
+    }
+
+    if (!entry) {
+      // Do not bind the underlying small GET to one component's AbortSignal:
+      // a sibling may still need it after navigation/Strict Mode cleanup.
+      const promise = performApiRequest<T>(path, { ...requestInit, signal: undefined }, timeoutMs, userScope.accessToken);
+      entry = { promise, expiresAt: Number.POSITIVE_INFINITY };
+      sharedReadCache.set(key, entry);
+      const storedEntry = entry;
+      void promise.then(
+        () => {
+          if (sharedReadCache.get(key) === storedEntry) {
+            storedEntry.expiresAt = Date.now() + sharedReadTtl(path);
+          }
+        },
+        () => {
+          if (sharedReadCache.get(key) === storedEntry) sharedReadCache.delete(key);
+        },
+      );
+    }
+    return waitForCaller(entry.promise as Promise<T>, requestInit.signal);
   }
 
   const result = await performApiRequest<T>(path, requestInit, timeoutMs);

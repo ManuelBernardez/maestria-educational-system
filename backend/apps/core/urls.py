@@ -4,7 +4,7 @@ from .views import (
     AssessmentViewSet, CourseViewSet, EnrollmentViewSet, QuestionViewSet,
     RubricCriterionViewSet, RubricLevelViewSet, RubricViewSet, StudentViewSet,
     SubmissionAnswerViewSet, SubmissionViewSet, CorrectionViewSet,
-    audit_events, contact, correction_workspace, dashboard_summary, seed_demo_dataset,
+    audit_events, contact, correction_workspace, dashboard_overview, dashboard_summary, seed_demo_dataset,
 )
 
 router = DefaultRouter()
@@ -21,6 +21,7 @@ router.register("submission-answers", SubmissionAnswerViewSet)
 router.register("corrections", CorrectionViewSet)
 
 urlpatterns = [
+    path("dashboard/overview/", dashboard_overview, name="dashboard-overview"),
     path("dashboard/summary/", dashboard_summary, name="dashboard-summary"),
     path("correction-workspace/", correction_workspace, name="correction-workspace"),
     path("demo/seed/", seed_demo_dataset, name="demo-seed"),

@@ -9,7 +9,7 @@ export default function PublicDemo() {
   const [approved, setApproved] = useState(false);
   const total = useMemo(() => (scoreOne + scoreTwo).toFixed(1).replace(".", ","), [scoreOne, scoreTwo]);
   return <section id="demostracion" className="how-demo-section" aria-labelledby="public-demo-title">
-    <div className="public-page-hero"><h2 id="public-demo-title">Más que un número: una nota con retroalimentación</h2><p className="public-intro">Esta vista interactiva ayuda a reconocer la consigna, la respuesta, los criterios y la devolución editable. Es una simulación visual pública: no llama a la IA ni guarda calificaciones. Para probar el flujo real —con IA configurada, aprobación y exportación— entrá al espacio docente.</p></div>
+    <div className="public-page-hero"><h2 id="public-demo-title">Una nota con explicación, no solo un número.</h2><p className="public-intro">Esta vista interactiva ayuda a reconocer la consigna, la respuesta, los criterios y la devolución editable. Es una simulación visual pública: no llama a la IA ni guarda calificaciones. Para probar el flujo real —con IA configurada, aprobación y exportación— entrá al espacio docente.</p></div>
     <section className="demo-board" aria-labelledby="demo-heading">
       <div className="demo-columns">
         <article className="demo-answer demo-source-card" aria-labelledby="demo-heading">
@@ -28,5 +28,5 @@ export default function PublicDemo() {
         </article>
       </div>
     </section>
-</section>;
+  </section>;
 }

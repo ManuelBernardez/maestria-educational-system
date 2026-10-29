@@ -1,6 +1,5 @@
 "use client";
 
-import AppSidebar from "@/components/AppSidebar";
 import Link from "next/link";
 import { type SubmitEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
@@ -41,7 +40,6 @@ export default function CoursesPage() {
       if (!controller.signal.aborted && sequence === loadSequence.current) {
         const nextCourses = Array.isArray(result) ? result : [];
         setCourses(nextCourses);
-        setCreateFormOpen(!nextCourses.some(course => course.active) || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("new") === "1"));
       }
     } catch (caught) {
       if (!controller.signal.aborted && sequence === loadSequence.current) setError(caught instanceof Error ? caught.message : "No se pudieron cargar los cursos.");
@@ -120,8 +118,8 @@ export default function CoursesPage() {
     finally { mutationLock.current = false; setBusy(false); }
   }
 
-  return <div className="app-shell">
-    <AppSidebar />
+  return <>
+    
     <main className="app-main narrow-main" id="main-content" tabIndex={-1}>
       <Link href="/app" className="back-link">← Volver al resumen</Link><span className="eyebrow">ORGANIZACIÓN DOCENTE</span><h1>Materias y cursos</h1>
       <p className="page-intro">Separá tus espacios de trabajo por materia, nivel o comisión. Cada curso organiza estudiantes y evaluaciones sin mezclar información de otros cursos.</p>
@@ -150,5 +148,5 @@ export default function CoursesPage() {
         {loading ? <div className="empty-state">Cargando cursos…</div> : courses.length === 0 ? <div className="empty-state"><div className="empty-icon">▣</div><h3>Creá tu primer espacio</h3><p>Un curso permite agrupar estudiantes y mantener las evaluaciones organizadas.</p></div> : <div className="assessment-list">{courses.map(course => <article className="assessment-row" key={course.id}><div className="assessment-icon">▣</div><div className="assessment-info"><h3><Link href={`/app/cursos/${course.id}`}>{course.name}</Link></h3><p>{[course.subject, course.level, course.academic_year].filter(Boolean).join(" · ")}</p><small>{course.student_count} estudiantes · {course.assessment_count} evaluaciones</small></div><span className={`status-pill ${course.active ? "" : "muted"}`}>{course.active ? "Activo" : "Archivado"}</span>{course.active && <><button className="button button-quiet button-small" type="button" onClick={()=>void editCourse(course)} disabled={busy}>Editar</button><button className="text-link" type="button" onClick={()=>archiveCourse(course)} disabled={busy} aria-label={`Archivar ${course.name}`}>Archivar</button></>}</article>)}</div>}
       </section>
     </main>
-  </div>;
+  </>;
 }

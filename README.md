@@ -164,3 +164,7 @@ Ver instrucciones completas en [`docs/AI-EVALUATION-v0.2.0.md`](docs/AI-EVALUATI
 ## Alcance que queda fuera del MVP
 
 OCR de manuscritos/escaneos, portal de estudiantes, realización de exámenes dentro de MaestrIA, LMS completo, pagos, detección de plagio y analítica institucional avanzada. No añadir colas distribuidas/microservicios hasta que el uso medido las necesite.
+
+## Rendimiento
+
+Los cambios y validaciones de la última pasada de optimización están documentados en [`docs/OPTIMIZACION-RENDIMIENTO-2026-10-29.md`](docs/OPTIMIZACION-RENDIMIENTO-2026-10-29.md).
