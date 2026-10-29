@@ -1,4 +1,5 @@
 import "../styles/espacio-docente.css";
+import "../styles/ux-refresh.css";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import AppAuthGuard from "@/components/AppAuthGuard";

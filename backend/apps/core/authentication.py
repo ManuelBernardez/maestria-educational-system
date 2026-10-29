@@ -21,7 +21,9 @@ class SupabasePrincipal:
 
 @lru_cache(maxsize=4)
 def _jwks_client(url):
-    return PyJWKClient(url, cache_keys=True)
+    # Bound outbound key-discovery latency and cache key sets across requests.
+    # A transient Supabase/JWKS outage must not pin a Gunicorn worker for 30s.
+    return PyJWKClient(url, timeout=5, cache_keys=True, max_cached_keys=16, lifespan=300)
 
 
 def _principal_from_claims(claims):
@@ -50,8 +52,10 @@ class SupabaseJWTAuthentication(BaseAuthentication):
         supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
         if not supabase_url:
             raise AuthenticationFailed("La autenticación no está configurada en el servidor.")
-        token = parts[1].decode("utf-8")
+        if len(parts[1]) > 16_384:
+            raise AuthenticationFailed("Token de autenticación demasiado grande.")
         try:
+            token = parts[1].decode("utf-8")
             header = get_unverified_header(token)
             if header.get("alg") == "HS256" and os.getenv("SUPABASE_JWT_SECRET"):
                 claims = decode(token, os.getenv("SUPABASE_JWT_SECRET"), algorithms=["HS256"], audience="authenticated", options={"require": ["exp", "sub"]}, issuer=f"{supabase_url}/auth/v1")

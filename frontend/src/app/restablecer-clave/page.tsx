@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { type SubmitEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -29,7 +29,7 @@ export default function ResetPasswordPage() {
     return () => { active = false; };
   }, []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault(); setError("");
     if (password.length < 8) { setError("Usá una contraseña de al menos 8 caracteres."); return; }
     if (password !== confirmPassword) { setError("Las contraseñas no coinciden."); return; }

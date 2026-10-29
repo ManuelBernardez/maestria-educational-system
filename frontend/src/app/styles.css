@@ -1,5 +1,5 @@
 /* MaestrIA — estilos global; extraídos de la hoja compartida para facilitar mantenimiento. */
-:root{color-scheme:light;--bg:#f2efe7;--surface:#fffdf8;--surface-soft:#eef7f3;--ink:#18343a;--muted:#5d6e70;--faint:#879491;--line:#d8e2dd;--line-strong:#b9cbc3;--brand:#0f766e;--brand-strong:#0a514c;--brand-soft:#e2f3ee;--coral:#c45f4b;--coral-soft:#fff0eb;--amber:#ad6f1d;--amber-soft:#fff3d9;--success:#287d58;--success-soft:#e3f4e9;--danger:#a13c3c;--shadow:0 18px 46px rgba(24,52,58,.08),0 2px 8px rgba(24,52,58,.04);--radius:18px}
+:root{color-scheme:light;--bg:#f8fafc;--surface:#ffffff;--surface-soft:#f5f7ff;--ink:#20243a;--muted:#5e647b;--faint:#8990a5;--line:#e2e8f0;--line-strong:#cbd5e1;--brand:#4f46e5;--brand-strong:#3730a3;--brand-soft:#eef2ff;--coral:#c45f4b;--coral-soft:#fff0eb;--amber:#b45309;--amber-soft:#fff7ed;--success:#15803d;--success-soft:#dcfce7;--danger:#a13c3c;--shadow:0 18px 46px rgba(40,52,80,.085),0 2px 8px rgba(40,52,80,.04);--radius:18px}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;background-color:var(--bg);background-image:radial-gradient(rgba(24,52,58,.12) .8px,transparent .8px);background-size:18px 18px;color:var(--ink);font-family:"DM Sans",Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}
@@ -57,7 +57,7 @@ footer{max-width:1180px;margin:auto;padding:25px 26px;display:flex;justify-conte
 .simple-page{max-width:760px;margin:80px auto;padding:25px}
 .simple-page h1{margin-top:25px}
 .simple-page p{color:var(--muted)}
-[data-theme="dark"]{color-scheme:dark;--bg:#0f141a;--surface:#141b22;--surface-soft:#19242d;--ink:#f0f4f4;--muted:#9aaab0;--faint:#6c7c82;--line:#22303a;--line-strong:#2f424f;--brand:#14b8a6;--brand-strong:#5eead4;--brand-soft:#0f2c2a;--coral:#f87171;--coral-soft:#381a1a;--amber:#fbbf24;--amber-soft:#362912;--success:#34d399;--success-soft:#103325;--danger:#ffaaaa;--shadow:0 18px 46px rgba(0,0,0,.24)}
+[data-theme="dark"]{color-scheme:dark;--bg:#0f141a;--surface:#141b22;--surface-soft:#19242d;--ink:#f0f4f4;--muted:#9aaab0;--faint:#6c7c82;--line:#22303a;--line-strong:#2f424f;--brand:#a5b4fc;--brand-strong:#c7d2fe;--brand-soft:#252449;--coral:#fb8b7a;--coral-soft:#3b2324;--amber:#fbbf24;--amber-soft:#362912;--success:#4ade80;--success-soft:#173524;--danger:#ffaaaa;--shadow:0 18px 46px rgba(0,0,0,.24)}
 [data-theme="dark"] body{background-image:radial-gradient(rgba(190,210,210,.09) .8px,transparent .8px)}
 [data-theme="dark"] .status-pill{background:#362912;color:#f3d98f}
 [data-theme="dark"] .error-message{background:#472c2c}
@@ -306,7 +306,6 @@ select{font:inherit}
 .proposal-total>div>span{font-size:.76rem;color:var(--muted,#697184)}
 .proposal-total strong{font-size:1.55rem;letter-spacing:-.04em}
 .proposal-total strong small{font-size:.82rem;font-weight:550;letter-spacing:0;color:var(--muted,#697184)}
-.proposal-provider{align-self:start;padding:.3rem .5rem;border:1px solid #dce6e0;border-radius:7px;background:#fff;font-size:.72rem;color:var(--muted,#697184)}
 .proposal-summary-text{margin:1rem 0;line-height:1.65;font-size:.88rem}
 .feedback-highlights{padding:.8rem .9rem;margin:.7rem 0;border:1px solid #dbe9df;border-radius:11px;background:#f7fbf7}
 .feedback-highlights h4{margin:0 0 .4rem;font-size:.86rem}
@@ -394,9 +393,9 @@ select{font:inherit}
 .assessment-workflow-next-step p{max-width:850px;color:var(--muted);line-height:1.65}
 @media (max-width:620px){.assessment-workflow-next-step .form-actions{align-items:stretch;flex-direction:column}.assessment-workflow-next-step .button{justify-content:center}}
 
-/* Interfaz más calma: el color marca acciones y estados, no cada superficie. */
-body{background-image:none;}
-[data-theme="dark"] body{background-image:none;}
+/* Fondo-pizarrón: puntos perceptibles, con contraste equilibrado en ambos temas. */
+body{background-color:var(--bg);background-image:radial-gradient(circle,rgba(63,79,122,.20) 1.05px,transparent 1.15px);background-size:20px 20px;}
+[data-theme="dark"] body{background-image:radial-gradient(circle,rgba(190,210,225,.20) 1.05px,transparent 1.15px);}
 
 .theme-toggle-inline{position:static;right:auto;bottom:auto;z-index:auto;width:34px;height:34px;flex:0 0 auto;border:1px solid var(--line);border-radius:10px;background:var(--surface-soft);color:var(--ink);box-shadow:none;cursor:pointer;font-size:1rem;display:grid;place-items:center;transition:background .15s,border-color .15s}
 .theme-toggle-inline:hover{transform:none;background:var(--brand-soft);border-color:var(--line-strong)}
@@ -423,3 +422,87 @@ body{background-image:none;}
 .sidebar-public-home { display:block; margin:0 0 12px; color:var(--muted); font-size:.78rem; font-weight:700; }
 .sidebar-public-home:hover { color:var(--brand-strong); }
 @media (max-width:700px) { .delivery-header-actions { justify-content:flex-start; } }
+
+/* Contraste consistente para paneles que conservan fondos claros de la versión anterior. */
+[data-theme="dark"] .app-shell :is(
+  .review-result-panel,
+  .workspace-stepper li.is-current,
+  .workspace-stepper .step-number,
+  .workspace-panel-head,
+  .workspace-panel-icon,
+  .workspace-panel-head .mini-badge,
+  .material-dropzone,
+  .material-dropzone-icon,
+  .rubric-compact-summary,
+  .workspace-side-note,
+  .review-warnings,
+  .workspace-source-card,
+  .workspace-proposal-card,
+  .workspace-source-card > header,
+  .workspace-proposal-card > header,
+  .workspace-criterion,
+  .workspace-evidence,
+  .assessment-toolbar,
+  .delivery-row,
+  .source-answer-card,
+  .source-card-heading,
+  .source-question-block,
+  .source-answer-block blockquote,
+  .proposal-summary,
+  .criterion-review,
+  .level-pill,
+  .evidence-quote,
+  .ai-detail-lists,
+  .change-reason-field,
+  .queue-filter button,
+  .queue-item.is-active,
+  .source-block blockquote,
+  .proposal-total,
+  .feedback-highlights,
+  .improvement-highlights,
+  .delivery-actions,
+  .advanced-assessment-fields,
+  .context-advanced-fields,
+  .quick-form-next,
+  .assessment-workflow-next-step,
+  .quickstart-tip
+) {
+  background: var(--surface-soft);
+  color: var(--ink);
+  border-color: var(--line);
+}
+[data-theme="dark"] .app-shell :is(
+  .workspace-panel-head h2,
+  .workspace-panel-head h3,
+  .workspace-stepper li,
+  .workspace-stepper .step-number,
+  .material-dropzone strong,
+  .workspace-side-note strong,
+  .source-card-heading,
+  .source-answer-block blockquote,
+  .source-block blockquote,
+  .proposal-summary,
+  .level-pill,
+  .evidence-quote
+) { color: var(--ink); }
+[data-theme="dark"] .app-shell :is(
+  .workspace-panel-head p,
+  .material-dropzone p,
+  .rubric-compact-summary p,
+  .workspace-side-note p,
+  .workspace-evidence,
+  .source-card-heading small,
+  .source-answer-block small,
+  .field-hint
+) { color: var(--muted); }
+[data-theme="dark"] .app-shell :is(
+  .workspace-criterion textarea,
+  .criterion-editor-score input,
+  .teacher-feedback-editor,
+  .change-reason-box textarea,
+  .assessment-toolbar input,
+  .assessment-toolbar select,
+  .delivery-search input,
+  .quick-form-next textarea,
+  .quick-form-next input
+) { background: #10171d; color: var(--ink); border-color: var(--line-strong); }

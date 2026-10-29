@@ -3,8 +3,8 @@
 import AppSidebar from "@/components/AppSidebar";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -22,22 +22,47 @@ export default function NewAssessment() {
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [error, setError] = useState("");
   const router = useRouter();
+  const loadController = useRef<AbortController | null>(null);
+  const submitLock = useRef(false);
 
   useEffect(() => {
-    api<Course[]>("/courses/").then(items => {
-      const active = items.filter(item => item.active);
-      setCourses(active);
-      if (active.length === 1) { setCourseId(String(active[0].id)); setSubject(active[0].subject); setLevel(active[0].level); }
-    }).catch(caught => setError(caught instanceof Error ? caught.message : "No se pudieron cargar los cursos.")).finally(() => setLoadingCourses(false));
+    const controller = new AbortController();
+    loadController.current = controller;
+    const requestedCourse = new URLSearchParams(window.location.search).get("course");
+    const validRequestedCourse = requestedCourse && /^\d+$/.test(requestedCourse) ? requestedCourse : "";
+    void api<Course[]>("/courses/", { signal: controller.signal })
+      .then(items => {
+        if (controller.signal.aborted) return;
+        const active = items.filter(item => item.active);
+        setCourses(active);
+        const preferred = active.find(item => String(item.id) === validRequestedCourse)
+          || (active.length === 1 ? active[0] : null);
+        if (preferred) {
+          setCourseId(String(preferred.id));
+          setSubject(preferred.subject);
+          setLevel(preferred.level);
+        }
+      })
+      .catch(caught => {
+        if (controller.signal.aborted || (caught instanceof Error && caught.name === "AbortError")) return;
+        setError(caught instanceof Error ? caught.message : "No se pudieron cargar los cursos.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingCourses(false);
+      });
+    return () => controller.abort();
   }, []);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
+  async function submit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitLock.current || loadingCourses || courses.length === 0) return;
+    submitLock.current = true;
+    setBusy(true); setError("");
     try {
       const item = await api<{ id: string | number }>("/assessments/", { method: "POST", body: JSON.stringify({ title: title.trim(), course: Number(courseId), subject: subject.trim(), level: level.trim(), objectives: objectives.trim(), instructions: instructions.trim(), reference_material: "", status: "draft" }) });
       router.push(`/app/espacio-correccion?assessment=${item.id}`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "No se pudo guardar la evaluación."); }
-    finally { setBusy(false); }
+    finally { submitLock.current = false; setBusy(false); }
   }
 
   return <div className="app-shell"><AppSidebar />

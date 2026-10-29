@@ -141,6 +141,19 @@ class TenantIsolationTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(str(Course.objects.get(pk=response.data["id"]).owner_id), self.owner_a)
 
+    def test_course_name_duplicate_ignoring_case_is_rejected(self):
+        from .authentication import SupabasePrincipal
+        self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_a))
+        response = self.client.post("/api/courses/", {"name": "curso a"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("name", response.data)
+
+    def test_database_constraint_prevents_case_only_duplicate_course_names(self):
+        from django.db import IntegrityError, transaction
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Course.objects.create(owner_id=self.owner_a, name="curso a")
+
     def test_student_creation_requires_a_course(self):
         from .authentication import SupabasePrincipal
         self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_a))

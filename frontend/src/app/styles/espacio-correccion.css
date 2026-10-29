@@ -698,14 +698,6 @@
 .workspace-main-heading>.button{flex:0 0 auto;}
 .workspace-assessment-meta{font-size:.78rem;gap:.55rem;}
 .workspace-assessment-meta .status-pill{padding:4px 9px;}
-.ai-provider-details{margin:0 0 .85rem;padding:.68rem .85rem;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--surface) 92%,var(--brand-soft));color:var(--muted);}
-.ai-provider-details summary{display:flex;align-items:center;gap:.55rem;cursor:pointer;list-style:none;font-size:.78rem;}
-.ai-provider-details summary::-webkit-details-marker{display:none;}
-.ai-provider-details summary b{color:var(--ink);font-weight:750;}
-.ai-provider-dot{width:8px;height:8px;flex:0 0 8px;border-radius:50%;background:var(--success);}
-.ai-provider-details.is-demo .ai-provider-dot{background:var(--amber);}
-.ai-provider-more{margin-left:auto;color:var(--brand-strong);font-weight:750;}
-.ai-provider-details>p{margin:.6rem 0 .15rem 1rem;max-width:900px;font-size:.8rem;line-height:1.6;}
 .practice-help-card{margin-bottom:.85rem;padding:0 .85rem;border-radius:11px;background:var(--surface);}
 .practice-help-card summary{padding:.7rem 0;font-size:.79rem;}
 .practice-help-card ol{margin:.25rem 0 .65rem;font-size:.81rem;}

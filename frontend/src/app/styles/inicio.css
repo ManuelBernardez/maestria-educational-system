@@ -84,7 +84,7 @@
   margin: 20px 0 8px;}
 .hero-slogan{max-width: 620px;
   margin: 0 0 18px;
-  font-size: clamp(1.85rem, 2.35vw, 2.15rem);
+  font-size: clamp(0.85rem, 1.35vw, 1.15rem);
   line-height: 1.12;
   letter-spacing: -.055em;
   font-weight: 750;}
@@ -132,7 +132,7 @@
 .feature-final-cta{display: flex; align-items: center; justify-content: space-between; gap: 24px;}
 .feature-final-cta h2{max-width: 650px;}
 .feature-final-cta p:last-child{margin-bottom: 0;}
-@media (max-width: 720px){.hero-copy-column{padding: 22px clamp(20px, 5vw, 30px) 12px;}.hero-copy-column h1{margin-top: 14px;}.hero-slogan{font-size: clamp(1.8rem, 7vw, 2.65rem);}.feature-explorer-intro{grid-template-columns: 1fr; gap: 18px;}.feature-promise{max-width: none;}.feature-filter{gap: 5px;}.feature-filter-chip{padding: 8px 10px; font-size: .78rem;}.feature-count{width: 100%; margin: 4px 0 0; padding: 0 4px;}.feature-grid-public{grid-template-columns: 1fr;}.feature-final-cta{align-items: flex-start; flex-direction: column;}.feature-limit-callout{grid-template-columns: 34px minmax(0, 1fr); padding: 18px;}}
+@media (max-width: 720px){.hero-copy-column{padding: 22px clamp(20px, 5vw, 30px) 12px;}.hero-copy-column h1{margin-top: 14px;}.hero-slogan{font-size: clamp(1.8rem, 5vw, 2rem);}.feature-explorer-intro{grid-template-columns: 1fr; gap: 18px;}.feature-promise{max-width: none;}.feature-filter{gap: 5px;}.feature-filter-chip{padding: 8px 10px; font-size: .78rem;}.feature-count{width: 100%; margin: 4px 0 0; padding: 0 4px;}.feature-grid-public{grid-template-columns: 1fr;}.feature-final-cta{align-items: flex-start; flex-direction: column;}.feature-limit-callout{grid-template-columns: 34px minmax(0, 1fr); padding: 18px;}}
 @media (max-width: 420px){.hero-copy-column .hero-actions{align-items: stretch; justify-content: flex-start;}.hero-copy-column .hero-actions .button{width: 100%;}}
 @media (max-width:650px){.hero-copy-column{padding-inline:clamp(20px,5vw,30px);}}
 .function-story-strip{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(230px,.8fr);gap:2rem;align-items:center;margin:1.5rem 0 1.7rem;padding:clamp(1.2rem,3.4vw,2rem);border:1px solid #dbe8e0;border-radius:19px;background:linear-gradient(115deg,#f2f8f4,#fff 75%)}
@@ -161,4 +161,55 @@
 .function-trust-grid h2{margin:0 0 .35rem;font-size:.94rem}
 .function-trust-grid p{margin:0;color:var(--muted,#60687a);font-size:.82rem;line-height:1.6}
 @media (max-width:760px){.function-story-strip{grid-template-columns:1fr;gap:1rem}.function-story-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.function-trust-grid{grid-template-columns:1fr}.function-accordion summary{grid-template-columns:36px minmax(0,1fr) 26px;gap:.65rem;padding:.85rem}.function-num{width:34px;height:34px}.function-accordion-copy>span{font-size:.79rem}.function-accordion-detail{padding:0 .85rem .9rem calc(.85rem + 43px)}}
+
+/* Public pages: keep fixed pale decorative surfaces legible when dark mode is selected. */
+[data-theme="dark"] .function-story-strip {
+  background: linear-gradient(115deg, var(--surface-soft), var(--surface) 75%);
+  border-color: var(--line);
+  color: var(--ink);
+}
+[data-theme="dark"] .function-story-strip h2,
+[data-theme="dark"] .function-story-steps span { color: var(--ink); }
+[data-theme="dark"] .function-story-steps span {
+  background: var(--surface);
+  border-color: var(--line);
+}
+[data-theme="dark"] .function-story-steps b,
+[data-theme="dark"] .function-trust-grid article > span {
+  background: #1e4034;
+  color: #a7f3d0;
+}
+[data-theme="dark"] .function-accordion { background: var(--surface); border-color: var(--line); }
+[data-theme="dark"] .function-accordion-copy small { color: #a7f3d0; }
+[data-theme="dark"] .function-expand { border-color: var(--line); color: var(--brand-strong); }
+[data-theme="dark"] .function-num { background: #1e4034; color: #a7f3d0; }
 @media (prefers-reduced-motion:reduce){.function-accordion{transition:none!important;animation:none!important}}
+
+
+/* Identidad MaestrIA: cálida, docente y reconocible por su trama de pizarrón. */
+.landing { position: relative; }
+.hero { isolation: isolate; }
+.hero:before { background: linear-gradient(130deg,rgba(255,255,255,.95),rgba(238,242,255,.8) 58%,rgba(255,240,235,.42)); border-color: rgba(79,70,229,.17); }
+.hero-slogan { color: #1b3035; font-size: clamp(2.15rem,1.2vw,1.85rem); line-height: 1.08; font-weight: 850; }
+.hero-slogan em { color: #4f46e5; }
+.hero-copy { color: #55696a; }
+.trust-row span { display: inline-flex; align-items: center; gap: 7px; }
+.trust-row span:before { content: "✓"; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 7px; background: var(--success-soft); color: var(--success); font-weight: 900; }
+.hero-art-wrap { position: relative; }
+.hero-art-wrap:before { content: ""; position: absolute; z-index: -1; width: 80%; height: 70%; right: 5%; top: 14%; border-radius: 42% 58% 49% 51%; background: radial-gradient(circle at 25% 25%,rgba(196,95,75,.13),transparent 45%),radial-gradient(circle at 75% 75%,rgba(79,70,229,.16),transparent 46%); filter: blur(5px); }
+.preview-card { background: rgba(255,253,248,.97); }
+.preview-label { color: #3730a3; }
+.answer-panel { background: #eef7f3; }
+.score-line strong { color: #4f46e5; }
+.criterion:nth-of-type(3n+2) .progress span { background: #c45f4b; }
+.criterion:nth-of-type(3n+3) .progress span { background: #ad6f1d; }
+.steps article:nth-child(3n+1) .step-number, .steps article:nth-child(3n+1) .step-icon { background: var(--brand-soft); color: var(--brand-strong); }
+.steps article:nth-child(3n+2) .step-number, .steps article:nth-child(3n+2) .step-icon { background: var(--coral-soft); color: var(--coral); }
+.steps article:nth-child(3n+3) .step-number, .steps article:nth-child(3n+3) .step-icon { background: var(--amber-soft); color: var(--amber); }
+.feature-tile:nth-child(3n+2)>span { background: var(--amber-soft); color: var(--amber); }
+.feature-tile:nth-child(3n+3)>span { background: #e9e9fb; color: #5c57b5; }
+[data-theme="dark"] .hero-slogan { color: var(--ink); }
+[data-theme="dark"] .hero:before { background: linear-gradient(130deg,rgba(20,27,34,.94),rgba(37,36,73,.8) 58%,rgba(59,35,36,.45)); border-color: var(--line); }
+[data-theme="dark"] .hero-copy { color: var(--muted); }
+[data-theme="dark"] .preview-card { background: var(--surface); }
+[data-theme="dark"] .answer-panel { background: var(--surface-soft); }

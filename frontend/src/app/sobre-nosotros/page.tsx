@@ -43,11 +43,6 @@ export default function AboutPage() {
         </article>
       </div>
 
-      <section className="about-academic-note" role="note">
-        <strong>Estado del proyecto</strong>
-        <p>MaestrIA está en desarrollo académico. Las funciones disponibles, las demostraciones y los resultados de pruebas deben distinguirse claramente de las capacidades planificadas. No se presentan métricas de ahorro hasta validarlas con usuarios.</p>
-      </section>
-
       <section className="public-callout about-contact-cta">
         <div><p className="eyebrow">Construyamos con experiencias reales</p><h2>¿Sos docente y querés aportar tu mirada?</h2><p>Nos interesa conocer cómo preparás evaluaciones y qué tipo de devolución sería útil para tus estudiantes.</p></div>
         <Link href="/contacto" className="button button-primary">Contactar al equipo <span aria-hidden="true">→</span></Link>

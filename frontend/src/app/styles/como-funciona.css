@@ -91,4 +91,30 @@
 .how-step-number{display:grid;place-items:center;border-radius:12px;background:#e7f2eb;color:#286b54;font-weight:850}
 @media (max-width:760px){.how-human-panel,.how-faq-mini{grid-template-columns:1fr;gap:1rem}.how-human-points{gap:.45rem}}
 
+/* Estas secciones usan fondos claros a propósito en tema claro; adaptarlas en tema oscuro evita texto claro sobre blanco. */
+[data-theme="dark"] .how-human-panel {
+  border-color: var(--line);
+  background: radial-gradient(ellipse at top right, rgba(39, 76, 60, .34), transparent 48%), linear-gradient(125deg, var(--surface), var(--surface-soft));
+  color: var(--ink);
+}
+[data-theme="dark"] .how-human-copy h2,
+[data-theme="dark"] .how-human-points span { color: var(--ink); }
+[data-theme="dark"] .how-human-copy p { color: var(--muted); }
+[data-theme="dark"] .how-human-points > div {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+[data-theme="dark"] .how-human-points b {
+  background: #1e4034;
+  color: #a7f3d0;
+}
+[data-theme="dark"] .how-mini-flow-item {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+[data-theme="dark"] .how-mini-flow-item strong { color: var(--ink); }
+[data-theme="dark"] .how-step-chip { background: var(--surface); color: var(--muted); }
+
 .how-demo-section .public-page-hero h2{font-size:clamp(2rem,4.4vw,3.35rem);line-height:1.08;letter-spacing:-.055em;max-width:900px;margin:16px 0 18px}

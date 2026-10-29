@@ -38,6 +38,66 @@ class CorrectionWorkspaceApiTests(TestCase):
         response = self.client.get(f"/api/correction-workspace/?assessment={self.other_assessment.id}")
         self.assertEqual(response.status_code, 404)
 
+    def test_workspace_get_does_not_delete_synthetic_corrections(self):
+        # GET is read-only. Cleaning demo data belongs to the explicit POST seed flow.
+        from .models import Submission
+        practice = Assessment.objects.create(
+            owner_id=self.owner_id,
+            title="Ejemplo MaestrIA · Práctica de ciencias",
+            subject="Ciencias",
+        )
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=practice,
+            student_name="Estudiante ficticio", answer_text="Respuesta de práctica",
+            status="review",
+        )
+        correction = Correction.objects.create(
+            owner_id=self.owner_id, submission=submission, provider="mock",
+            proposal={"demo": True, "criteria": [{"criterion": "Comprensión", "score": 1, "max_score": 2}]},
+        )
+
+        response = self.client.get(f"/api/correction-workspace/?assessment={practice.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Correction.objects.filter(pk=correction.pk).exists())
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, "review")
+
+    def test_submission_list_returns_bounded_preview_not_full_answer(self):
+        from .models import Submission
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment,
+            student_name="Estudiante ficticio", answer_text="A" * 10_000,
+        )
+
+        response = self.client.get("/api/submissions/")
+
+        self.assertEqual(response.status_code, 200)
+        item = next(row for row in response.data if row["id"] == submission.pk)
+        self.assertLessEqual(len(item["answer_text"]), 301)
+        self.assertNotIn("answers", item)
+        self.assertNotEqual(item["answer_text"], "A" * 10_000)
+
+    def test_concurrent_correction_request_does_not_call_provider_twice(self):
+        from unittest.mock import patch
+        from .models import Submission
+
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment,
+            student_name="Estudiante ficticio", answer_text="Respuesta de prueba",
+            status="processing",
+        )
+        with patch("apps.core.views.generate_correction") as provider:
+            response = self.client.post(
+                f"/api/submissions/{submission.id}/generate-correction/", {}, format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("procesando", str(response.data).lower())
+        provider.assert_not_called()
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, "processing")
+
     def test_demo_correction_cannot_be_approved_even_if_client_calls_api_directly(self):
         submission = Submission.objects.create(
             owner_id=self.owner_id,
@@ -107,6 +167,59 @@ class CorrectionWorkspaceApiTests(TestCase):
     def test_assessment_editor_hides_foreign_assessment(self):
         response = self.client.get(f"/api/assessments/{self.other_assessment.id}/editor/")
         self.assertEqual(response.status_code, 404)
+
+    def test_question_cannot_be_moved_to_another_assessment(self):
+        from .models import Question
+        destination = Assessment.objects.create(
+            owner_id=self.owner_id, title="Otra evaluación propia",
+        )
+        question = Question.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment,
+            prompt="Pregunta original", max_score=10, position=1,
+        )
+
+        response = self.client.patch(
+            f"/api/questions/{question.id}/",
+            {"assessment": destination.id}, format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        question.refresh_from_db()
+        self.assertEqual(question.assessment_id, self.assessment.id)
+
+    def test_submission_cannot_be_reassigned_to_another_assessment(self):
+        destination = Assessment.objects.create(
+            owner_id=self.owner_id, title="Otra evaluación propia",
+        )
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment,
+            student_name="Estudiante ficticio", answer_text="Respuesta original",
+        )
+
+        response = self.client.patch(
+            f"/api/submissions/{submission.id}/",
+            {"assessment": destination.id}, format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        submission.refresh_from_db()
+        self.assertEqual(submission.assessment_id, self.assessment.id)
+
+    def test_correction_summary_does_not_return_proposal_or_student_details(self):
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment,
+            student_name="Nombre sensible de prueba", answer_text="Respuesta privada",
+        )
+        Correction.objects.create(
+            owner_id=self.owner_id, submission=submission, provider="mock",
+            proposal={"demo": True, "criteria": [{"criterion": "Criterio", "score": 1}]},
+        )
+
+        response = self.client.get("/api/corrections/?summary=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(set(response.data[0].keys()), {"id", "submission", "status", "provider"})
 
 
 class AtomicRubricCreationTests(TestCase):
@@ -180,6 +293,23 @@ class StudentCourseAssignmentTests(TestCase):
         student = Student.objects.get(pk=response.data["id"])
         self.assertTrue(Enrollment.objects.filter(owner_id=self.owner_id, student=student, course=self.course, status="active").exists())
         self.assertEqual(response.data["enrollments"][0]["course_name"], self.course.name)
+
+    def test_duplicate_student_external_code_is_rejected_without_partial_enrollment(self):
+        from .models import Enrollment, Student
+        first = self.client.post(
+            "/api/students/",
+            {"name": "Julia Pérez", "course": self.course.id, "external_code": "ALU-001"},
+            format="json",
+        )
+        self.assertEqual(first.status_code, 201, first.data)
+        second = self.client.post(
+            "/api/students/",
+            {"name": "Julia Pérez duplicada", "course": self.course.id, "external_code": "ALU-001"},
+            format="json",
+        )
+        self.assertEqual(second.status_code, 400)
+        self.assertEqual(Student.objects.filter(owner_id=self.owner_id, external_code="ALU-001").count(), 1)
+        self.assertEqual(Enrollment.objects.filter(owner_id=self.owner_id, course=self.course).count(), 1)
 
     def test_student_cannot_be_assigned_to_another_teachers_course(self):
         response = self.client.post(

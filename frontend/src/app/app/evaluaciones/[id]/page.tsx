@@ -3,10 +3,11 @@
 import "../../../styles/espacio-correccion.css";
 
 import AppSidebar from "@/components/AppSidebar";
+import AssessmentRubricBuilder from "@/components/AssessmentRubricBuilder";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { SubmitEvent } from "react";
 import { api } from "@/lib/api";
 type Assessment = {
   id: number;
@@ -48,7 +49,12 @@ export default function AssessmentDetail() {
   const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([]);
   const [generatingSuggestions, setGeneratingSuggestions] = useState(false);
   const [suggestionIsDemo, setSuggestionIsDemo] = useState(false);
+  const loadController = useRef<AbortController | null>(null);
+  const mutationLock = useRef(false);
   const load = useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
     setError("");
     try {
@@ -56,7 +62,8 @@ export default function AssessmentDetail() {
         assessment: Assessment;
         courses: CourseOption[];
         questions: Question[];
-      }>(`/assessments/${encodeURIComponent(id)}/editor/`);
+      }>(`/assessments/${encodeURIComponent(id)}/editor/`, { signal: controller.signal });
+      if (controller.signal.aborted) return;
       const current = result.assessment;
       setAssessment(current);
       setCourses(Array.isArray(result.courses) ? result.courses : []);
@@ -69,15 +76,20 @@ export default function AssessmentDetail() {
       setEditCourse(current.course ? String(current.course) : "");
       setEditStatus(current.status || "draft");
     } catch (caught) {
+      if (controller.signal.aborted || (caught instanceof Error && caught.name === "AbortError")) return;
       setError(caught instanceof Error ? caught.message : "No se pudieron cargar los datos de la evaluación.");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [id]);
-  useEffect(() => { void load(); }, [load]);
-  async function saveAssessmentDetails(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    void load();
+    return () => loadController.current?.abort();
+  }, [load]);
+  async function saveAssessmentDetails(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!assessment) return;
+    if (!assessment || mutationLock.current) return;
+    mutationLock.current = true;
     setBusy(true); setError(""); setMessage("");
     try {
       const updated = await api<Assessment>(`/assessments/${id}/`, {
@@ -93,11 +105,13 @@ export default function AssessmentDetail() {
       setMessage("Datos de la evaluación actualizados.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudieron guardar los datos de la evaluación.");
-    } finally { setBusy(false); }
+    } finally { mutationLock.current = false; setBusy(false); }
   }
   async function archiveAssessment() {
-    if (!assessment || assessment.status === "archived") return;
+    if (!assessment || assessment.status === "archived" || mutationLock.current) return;
     if (!window.confirm("¿Archivar esta evaluación? Se conservarán las respuestas y las correcciones.")) return;
+    if (mutationLock.current) return;
+    mutationLock.current = true;
     setBusy(true); setError(""); setMessage("");
     try {
       await api(`/assessments/${id}/`, { method: "PATCH", body: JSON.stringify({ status: "archived" }) });
@@ -106,16 +120,17 @@ export default function AssessmentDetail() {
       setMessage("Evaluación archivada. Se conservará el historial.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo archivar la evaluación.");
-    } finally { setBusy(false); }
+    } finally { mutationLock.current = false; setBusy(false); }
   }
-  async function addQuestion(event: FormEvent<HTMLFormElement>) {
+  async function addQuestion(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!assessment) return;
+    if (!assessment || mutationLock.current) return;
     const points = Number(questionMaxScore);
     if (!Number.isFinite(points) || points <= 0 || points > 1000) {
       setError("El puntaje máximo debe ser mayor que cero y no superar 1.000.");
       return;
     }
+    mutationLock.current = true;
     setBusy(true); setError(""); setMessage("");
     try {
       const created = await api<Question>("/questions/", {
@@ -127,20 +142,22 @@ export default function AssessmentDetail() {
       setMessage("Consigna agregada a la evaluación.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo guardar la consigna.");
-    } finally { setBusy(false); }
+    } finally { mutationLock.current = false; setBusy(false); }
   }
   function beginQuestionEdit(question: Question) {
     setEditingQuestionId(question.id);
     setEditQuestionPrompt(question.prompt);
     setEditQuestionScore(String(question.max_score));
   }
-  async function saveQuestionEdit(event: FormEvent<HTMLFormElement>, questionId: number) {
+  async function saveQuestionEdit(event: SubmitEvent<HTMLFormElement>, questionId: number) {
     event.preventDefault();
+    if (mutationLock.current) return;
     const points = Number(editQuestionScore);
     if (!editQuestionPrompt.trim() || !Number.isFinite(points) || points <= 0 || points > 1000) {
       setError("Ingresá una consigna y un puntaje máximo válido (hasta 1.000).");
       return;
     }
+    mutationLock.current = true;
     setBusy(true); setError(""); setMessage("");
     try {
       const updated = await api<Question>(`/questions/${questionId}/`, {
@@ -152,10 +169,12 @@ export default function AssessmentDetail() {
       setMessage("Consigna actualizada.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo actualizar la consigna.");
-    } finally { setBusy(false); }
+    } finally { mutationLock.current = false; setBusy(false); }
   }
   async function deleteQuestion(question: Question) {
+    if (mutationLock.current) return;
     if (!window.confirm("¿Eliminar esta consigna? Si tiene entregas vinculadas, MaestrIA impedirá eliminarla para proteger el historial.")) return;
+    mutationLock.current = true;
     setBusy(true); setError(""); setMessage("");
     try {
       await api(`/questions/${question.id}/`, { method: "DELETE" });
@@ -163,10 +182,11 @@ export default function AssessmentDetail() {
       setMessage("Consigna eliminada.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo eliminar la consigna.");
-    } finally { setBusy(false); }
+    } finally { mutationLock.current = false; setBusy(false); }
   }
   async function generateSuggestions() {
-    if (!assessment) return;
+    if (!assessment || mutationLock.current) return;
+    mutationLock.current = true;
     setGeneratingSuggestions(true); setError(""); setMessage("");
     try {
       const result = await api<{ questions: SuggestedQuestion[]; demo?: boolean; warnings?: string[] }>(`/assessments/${id}/generate-questions/`, {
@@ -177,18 +197,19 @@ export default function AssessmentDetail() {
       setMessage(result.demo ? "Se prepararon ejemplos editables. No fueron generados por un modelo real." : "Revisá las consignas sugeridas y agregá solo las que quieras usar.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudieron proponer consignas.");
-    } finally { setGeneratingSuggestions(false); }
+    } finally { mutationLock.current = false; setGeneratingSuggestions(false); }
   }
   function updateSuggestion(index: number, patch: Partial<SuggestedQuestion>) {
     setSuggestions(previous => previous.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
   }
   async function acceptSuggestion(suggestion: SuggestedQuestion, index: number) {
-    if (!assessment) return;
+    if (!assessment || mutationLock.current) return;
     const points = Number(suggestion.max_score);
     if (!suggestion.prompt.trim() || !Number.isFinite(points) || points <= 0 || points > 1000) {
       setError("Revisá el texto y el puntaje máximo de la consigna antes de agregarla.");
       return;
     }
+    mutationLock.current = true;
     setBusy(true); setError(""); setMessage("");
     try {
       const created = await api<Question>("/questions/", {
@@ -200,7 +221,7 @@ export default function AssessmentDetail() {
       setMessage("Consigna agregada a la evaluación.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo agregar la consigna.");
-    } finally { setBusy(false); }
+    } finally { mutationLock.current = false; setBusy(false); }
   }
   if (loading) return <div className="app-shell"><AppSidebar /><main className="app-main" id="main-content" tabIndex={-1} aria-busy="true"><p role="status">Cargando evaluación…</p></main></div>;
   if (!assessment) return (
@@ -226,7 +247,7 @@ export default function AssessmentDetail() {
         <div className="assessment-detail-actions">
           <div className="assessment-state-line">
             <span className={`status-pill ${assessment.status === "archived" ? "delivery-status-review" : ""}`}>{assessment.status === "ready" ? "Lista para usar" : assessment.status === "archived" ? "Archivada" : "Borrador"}</span>
-            {assessment.course ? <span className="muted">Curso: {assessment.course_name || "asociado"}</span> : <span className="muted">Todavía no está asociada a un curso</span>}
+            {assessment.course ? <Link className="assessment-course-context" href={`/app/cursos/${assessment.course}`}>Materia: {assessment.course_name || "Ver curso"} ↗</Link> : <span className="muted">Todavía no está asociada a un curso</span>}
           </div>
           <div className="form-actions">
             <button type="button" className="button button-quiet" onClick={() => setEditingDetails(value => !value)}>{editingDetails ? "Cerrar edición" : "Editar datos"}</button>
@@ -293,6 +314,7 @@ export default function AssessmentDetail() {
             </article>)}</div>}
           </section>
         </div>
+        {assessment && <AssessmentRubricBuilder assessment={assessment} questions={questions} />}
         <section className="form-card assessment-workflow-next-step">
           <span className="eyebrow">SIGUIENTE PASO</span>
           <h2>Preparar criterios, corregir y devolver</h2>

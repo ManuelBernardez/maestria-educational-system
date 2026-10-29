@@ -9,13 +9,15 @@ import os
 from pathlib import Path
 import time
 import zipfile
+from datetime import timedelta
 
 from asgiref.sync import async_to_sync
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.core.validators import validate_email
-from django.db import transaction
-from django.db.models import Count, Q
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Max, OuterRef, Prefetch, Q, Subquery
+from django.db.models.functions import Substr
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -35,8 +37,8 @@ from .models import (
 from .serializers import (
     AssessmentEditorSerializer, AssessmentListSerializer, AssessmentSerializer, AssessmentWorkspaceSerializer, ContactMessageSerializer, CorrectionSerializer,
     CourseOptionSerializer, CourseSerializer, EnrollmentSerializer, QuestionSerializer,
-    RubricCriterionSerializer, RubricLevelSerializer, RubricSerializer,
-    StudentSerializer, SubmissionAnswerSerializer, SubmissionSerializer,
+    CorrectionSummarySerializer, RubricCriterionSerializer, RubricLevelSerializer, RubricSerializer,
+    StudentSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
 )
 from .throttles import AIUserRateThrottle, ContactRateThrottle
 
@@ -314,9 +316,6 @@ def correction_workspace(request):
     else:
         selected = assessment_qs.exclude(status="archived").first() or assessment_qs.first()
 
-    if selected is not None:
-        clear_mock_practice_corrections(owner_id, selected)
-
     assessments = AssessmentListSerializer(assessment_qs, many=True).data
     # Do not load teacher rosters or full rubric structures on the empty state.
     # When an assessment has a course, fetch only its active enrolled students.
@@ -329,7 +328,14 @@ def correction_workspace(request):
     corrections = []
     enrollments = []
     if selected is not None:
-        student_qs = Student.objects.filter(owner_id=owner_id, active=True)
+        student_qs = Student.objects.filter(owner_id=owner_id, active=True).prefetch_related(
+            Prefetch(
+                "enrollments",
+                queryset=Enrollment.objects.filter(
+                    owner_id=owner_id, course__owner_id=owner_id, student__owner_id=owner_id,
+                ).select_related("course"),
+            )
+        )
         if selected.course_id:
             student_qs = student_qs.filter(
                 enrollments__owner_id=owner_id,
@@ -352,11 +358,32 @@ def correction_workspace(request):
         questions = QuestionSerializer(selected_questions, many=True, context={"request": request}).data
         selected_submissions = Submission.objects.filter(owner_id=owner_id, assessment=selected).select_related(
             "assessment", "student", "question"
-        ).prefetch_related("answers").order_by("-created_at")
+        ).prefetch_related(
+            Prefetch(
+                "answers",
+                queryset=SubmissionAnswer.objects.filter(
+                    owner_id=owner_id,
+                    question__owner_id=owner_id,
+                    submission__owner_id=owner_id,
+                ).select_related("question").order_by("question__position", "id"),
+            )
+        ).order_by("-created_at")
         submissions = SubmissionSerializer(selected_submissions, many=True, context={"request": request}).data
-        corrections_qs = Correction.objects.filter(owner_id=owner_id, submission__assessment=selected).select_related(
+        corrections_qs = Correction.objects.filter(
+            owner_id=owner_id,
+            submission__owner_id=owner_id,
+            submission__assessment__owner_id=owner_id,
+            submission__assessment=selected,
+        ).select_related(
             "submission__assessment", "submission__student"
-        ).prefetch_related("criterion_results").order_by("-updated_at")
+        ).prefetch_related(
+            Prefetch(
+                "criterion_results",
+                queryset=CorrectionCriterionResult.objects.filter(
+                    owner_id=owner_id, correction__owner_id=owner_id,
+                ).select_related("question"),
+            )
+        ).order_by("-updated_at")
         corrections = CorrectionSerializer(corrections_qs, many=True, context={"request": request}).data
         if selected.course_id:
             enrollments = EnrollmentSerializer(
@@ -427,6 +454,21 @@ class CourseViewSet(OwnerViewSet):
     )
     serializer_class = CourseSerializer
 
+    def _save_course(self, serializer, **kwargs):
+        try:
+            with transaction.atomic():
+                serializer.save(**kwargs)
+        except IntegrityError as exc:
+            # The case-insensitive DB constraint is the final guard against two
+            # concurrent create/update requests bypassing serializer validation.
+            raise ValidationError({"name": "Ya existe una materia o curso con ese nombre en tu cuenta."}) from exc
+
+    def perform_create(self, serializer):
+        self._save_course(serializer, owner_id=self.request.user.id)
+
+    def perform_update(self, serializer):
+        self._save_course(serializer)
+
     def perform_destroy(self, instance):
         # Keep historical course/assessment relationships; deletion is logical.
         instance.active = False
@@ -436,6 +478,15 @@ class CourseViewSet(OwnerViewSet):
 class EnrollmentViewSet(OwnerViewSet):
     queryset = Enrollment.objects.all().select_related("course", "student")
     serializer_class = EnrollmentSerializer
+
+    def perform_create(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save(owner_id=self.request.user.id)
+        except IntegrityError as exc:
+            # The serializer catches ordinary duplicates; the database constraint
+            # remains the final arbiter when two requests race.
+            raise ValidationError({"student": "Ya existe una matrícula para este estudiante y curso. Revisá si está inactiva para reactivarla."}) from exc
 
     def get_queryset(self):
         queryset = super().get_queryset().filter(course__owner_id=self.request.user.id, student__owner_id=self.request.user.id)
@@ -460,6 +511,21 @@ class AssessmentViewSet(OwnerViewSet):
             return AssessmentListSerializer
         return super().get_serializer_class()
 
+    def perform_update(self, serializer):
+        # The generation worker reads an evaluation as a coherent input snapshot.
+        # Lock the parent row in the same order as the worker and reject edits
+        # while an associated delivery is processing.
+        with transaction.atomic():
+            assessment = Assessment.objects.select_for_update().get(
+                pk=serializer.instance.pk, owner_id=self.request.user.id,
+            )
+            if Submission.objects.filter(
+                owner_id=self.request.user.id, assessment=assessment, status="processing",
+            ).exists():
+                raise ValidationError({"assessment": "No se puede editar la evaluación mientras se procesa una corrección."})
+            serializer.instance = assessment
+            serializer.save()
+
     @action(detail=True, methods=["get"], url_path="editor")
     def editor(self, request, pk=None):
         """Small payload for preparing an evaluation without loading submissions or rubrics."""
@@ -480,16 +546,31 @@ class AssessmentViewSet(OwnerViewSet):
         uploaded = request.FILES.get("file")
         if not uploaded:
             raise ValidationError({"file": "Seleccioná un apunte o material de referencia."})
-        text, source_type = _read_document(uploaded)
         mode = str(request.data.get("mode", "replace"))
         if mode not in {"replace", "append"}:
             raise ValidationError({"mode": "Usá replace o append."})
-        combined = text if mode == "replace" or not assessment.reference_material else assessment.reference_material.rstrip() + "\n\n" + text
-        if len(combined) > MAX_ANSWER_CHARS:
-            raise ValidationError({"file": "El material combinado supera los 50.000 caracteres. Reemplazá el material existente o resumí los documentos."})
-        assessment.reference_material = combined
-        assessment.save(update_fields=["reference_material", "updated_at"])
-        record_audit(request.user.id, "assessment.reference_imported", "assessment", assessment.id, {"source_type": source_type, "chars": len(text), "mode": mode})
+        # Parse the uploaded document before taking a database lock. For append,
+        # merge against a freshly locked row so concurrent imports cannot overwrite
+        # each other's changes with a stale in-memory Assessment instance.
+        text, source_type = _read_document(uploaded)
+        with transaction.atomic():
+            assessment = Assessment.objects.select_for_update().get(
+                pk=assessment.pk, owner_id=request.user.id,
+            )
+            if Submission.objects.filter(
+                owner_id=request.user.id, assessment=assessment, status="processing",
+            ).exists():
+                raise ValidationError({"assessment": "No se puede cambiar el material mientras se procesa una corrección."})
+            combined = (
+                text
+                if mode == "replace" or not assessment.reference_material
+                else assessment.reference_material.rstrip() + "\n\n" + text
+            )
+            if len(combined) > MAX_ANSWER_CHARS:
+                raise ValidationError({"file": "El material combinado supera los 50.000 caracteres. Reemplazá el material existente o resumí los documentos."})
+            assessment.reference_material = combined
+            assessment.save(update_fields=["reference_material", "updated_at"])
+            record_audit(request.user.id, "assessment.reference_imported", "assessment", assessment.id, {"source_type": source_type, "chars": len(text), "mode": mode})
         return Response({"assessment_id": assessment.id, "source_type": source_type, "chars": len(text), "total_chars": len(combined), "reference_material": combined})
 
     @action(detail=True, methods=["post"], url_path="generate-questions", throttle_classes=[AIUserRateThrottle])
@@ -537,8 +618,14 @@ class StudentViewSet(OwnerViewSet):
         payload.pop("course", None)
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        student = serializer.save(owner_id=request.user.id)
-        Enrollment.objects.create(owner_id=request.user.id, course=course, student=student, status="active")
+        try:
+            # A savepoint lets us catch the DB uniqueness guard cleanly without
+            # leaving the outer atomic request transaction in a broken state.
+            with transaction.atomic():
+                student = serializer.save(owner_id=request.user.id)
+                Enrollment.objects.create(owner_id=request.user.id, course=course, student=student, status="active")
+        except IntegrityError as exc:
+            raise ValidationError({"external_code": "Ya existe un estudiante con ese código externo. Revisá el código e intentá nuevamente."}) from exc
         student = self.get_queryset().get(pk=student.pk)
         return Response(self.get_serializer(student).data, status=status.HTTP_201_CREATED)
 
@@ -577,8 +664,17 @@ class StudentViewSet(OwnerViewSet):
                         skipped += 1; errors.append({"row": row_number, "reason": "Correo inválido."}); continue
                 if code and code in seen_codes:
                     skipped += 1; errors.append({"row": row_number, "reason": "external_code duplicado."}); continue
-                student = Student.objects.create(owner_id=owner_id, name=name, email=email, phone=(row.get("phone") or "").strip()[:32], external_code=code)
-                Enrollment.objects.create(owner_id=owner_id, course=course, student=student, status="active")
+                try:
+                    # Each row has a savepoint so one concurrent duplicate does
+                    # not poison the whole import transaction.
+                    with transaction.atomic():
+                        student = Student.objects.create(owner_id=owner_id, name=name, email=email, phone=(row.get("phone") or "").strip()[:32], external_code=code)
+                        Enrollment.objects.create(owner_id=owner_id, course=course, student=student, status="active")
+                except IntegrityError:
+                    skipped += 1
+                    reason = "external_code duplicado." if code else "No se pudo registrar la matrícula por un conflicto de integridad."
+                    errors.append({"row": row_number, "reason": reason})
+                    continue
                 if code: seen_codes.add(code)
                 created += 1
             record_audit(owner_id, "students.imported", "student_import", "csv", {"created": created, "skipped": skipped})
@@ -688,20 +784,64 @@ class QuestionViewSet(OwnerViewSet):
     def get_queryset(self):
         return super().get_queryset().filter(assessment__owner_id=self.request.user.id)
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        assessment = serializer.validated_data["assessment"]
-        if str(assessment.owner_id) != str(self.request.user.id):
-            raise ValidationError("Evaluación no disponible.")
-        serializer.save(owner_id=self.request.user.id)
+        # The AI reservation also locks Assessment before Submission. Sharing this
+        # lock order prevents a new/reordered question racing with prompt creation.
+        requested_assessment = serializer.validated_data["assessment"]
+        try:
+            assessment = Assessment.objects.select_for_update().get(
+                pk=requested_assessment.pk, owner_id=self.request.user.id,
+            )
+        except Assessment.DoesNotExist as exc:
+            raise ValidationError("Evaluación no disponible.") from exc
+        if assessment.status == "archived":
+            raise ValidationError({"assessment": "No se pueden agregar consignas a una evaluación archivada."})
+        if Submission.objects.filter(
+            owner_id=self.request.user.id, assessment=assessment, status="processing",
+        ).exists():
+            raise ValidationError({"assessment": "No se pueden modificar las consignas mientras se procesa una corrección."})
+        position = (Question.objects.filter(assessment=assessment).aggregate(max_position=Max("position"))["max_position"] or 0) + 1
+        serializer.save(owner_id=self.request.user.id, assessment=assessment, position=position)
+        # Treat a question-list change as an assessment-context update so in-flight
+        # generation can detect a stale preflight snapshot.
+        assessment.save(update_fields=["updated_at"])
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        requested_question = serializer.instance
+        assessment = Assessment.objects.select_for_update().get(
+            pk=requested_question.assessment_id, owner_id=self.request.user.id,
+        )
+        if Submission.objects.filter(
+            owner_id=self.request.user.id, assessment=assessment, status="processing",
+        ).exists():
+            raise ValidationError({"question": "No se pueden modificar consignas mientras se procesa una corrección."})
+        question = Question.objects.select_for_update().get(
+            pk=requested_question.pk, assessment=assessment, owner_id=self.request.user.id,
+        )
+        serializer.instance = question
+        serializer.save()
+        assessment.save(update_fields=["updated_at"])
 
     def destroy(self, request, *args, **kwargs):
         question = self.get_object()
-        if Submission.objects.filter(question=question).exists() or SubmissionAnswer.objects.filter(question=question).exists():
-            return Response(
-                {"detail": "No se puede eliminar una pregunta con respuestas vinculadas. Podés editarla para nuevas evaluaciones o archivar la evaluación completa."},
-                status=status.HTTP_409_CONFLICT,
+        with transaction.atomic():
+            assessment = Assessment.objects.select_for_update().get(
+                pk=question.assessment_id, owner_id=request.user.id,
             )
-        return super().destroy(request, *args, **kwargs)
+            if Submission.objects.filter(
+                owner_id=request.user.id, assessment=assessment, status="processing",
+            ).exists():
+                raise ValidationError({"question": "No se pueden modificar consignas mientras se procesa una corrección."})
+            question = self.get_queryset().select_for_update().get(pk=question.pk)
+            if Submission.objects.filter(question=question).exists() or SubmissionAnswer.objects.filter(question=question).exists():
+                return Response(
+                    {"detail": "No se puede eliminar una pregunta con respuestas vinculadas. Podés editarla para nuevas evaluaciones o archivar la evaluación completa."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            self.perform_destroy(question)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RubricCriterionViewSet(OwnerViewSet):
@@ -785,11 +925,70 @@ def _read_document(uploaded):
 
 
 class SubmissionViewSet(OwnerViewSet):
-    queryset = Submission.objects.all().select_related("assessment", "student", "question").prefetch_related("answers__question").order_by("-created_at")
+    queryset = Submission.objects.all().select_related("assessment", "student", "question").order_by("-created_at")
     serializer_class = SubmissionSerializer
 
+    def get_serializer_class(self):
+        # The list page needs only a short preview; avoid transferring complete
+        # student answers (and nested answer bodies) for every row.
+        if self.action == "list":
+            return SubmissionListSerializer
+        return super().get_serializer_class()
+
     def get_queryset(self):
-        return super().get_queryset().filter(assessment__owner_id=self.request.user.id)
+        queryset = super().get_queryset().filter(assessment__owner_id=self.request.user.id)
+        if self.action == "list":
+            # Only transfer a short response preview from PostgreSQL, not every
+            # student's full answer body. The full content remains available on
+            # the detail/workspace endpoints when the teacher opens one delivery.
+            first_answer_preview = Subquery(
+                SubmissionAnswer.objects.filter(
+                    submission_id=OuterRef("pk"), owner_id=self.request.user.id,
+                    question__owner_id=self.request.user.id,
+                ).order_by("question__position", "id").annotate(
+                    preview=Substr("answer_text", 1, 301),
+                ).values("preview")[:1]
+            )
+            queryset = queryset.annotate(
+                answer_preview=Substr("answer_text", 1, 301),
+                first_answer_preview=first_answer_preview,
+            ).defer("answer_text")
+        else:
+            queryset = queryset.prefetch_related("answers__question")
+        return queryset
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        requested_submission = serializer.instance
+        Assessment.objects.select_for_update().get(
+            pk=requested_submission.assessment_id, owner_id=self.request.user.id,
+        )
+        submission = Submission.objects.select_for_update().get(
+            pk=requested_submission.pk, owner_id=self.request.user.id,
+        )
+        if submission.status == "processing":
+            raise ValidationError({"status": "No se puede editar una entrega mientras se procesa una corrección."})
+        serializer.instance = submission
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        requested_submission = self.get_object()
+        with transaction.atomic():
+            Assessment.objects.select_for_update().get(
+                pk=requested_submission.assessment_id, owner_id=request.user.id,
+            )
+            submission = Submission.objects.select_for_update().get(
+                pk=requested_submission.pk, owner_id=request.user.id,
+            )
+            if submission.status == "processing":
+                raise ValidationError({"status": "No se puede eliminar una entrega mientras se procesa una corrección."})
+            if Correction.objects.filter(submission=submission).exists():
+                return Response(
+                    {"detail": "No se puede eliminar una entrega con historial de corrección. Conservá el registro y corregí la propuesta existente."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            submission.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=["post"], url_path="import-file", parser_classes=[MultiPartParser, FormParser], throttle_classes=[AIUserRateThrottle])
     def import_file(self, request):
@@ -828,6 +1027,8 @@ class SubmissionViewSet(OwnerViewSet):
     @action(detail=True, methods=["post"], url_path="generate-correction", throttle_classes=[AIUserRateThrottle])
     def generate_correction_action(self, request, pk=None):
         submission = self.get_object()
+        submission_updated_at = submission.updated_at
+        assessment_updated_at = submission.assessment.updated_at
         configured_provider = os.getenv("AI_PROVIDER", "mock").strip().lower()
         if submission.assessment.title.startswith("Ejemplo MaestrIA ·") and configured_provider == "mock":
             return Response({"detail": "El ejemplo docente requiere una corrección con IA real. El servidor está en modo MOCK y no se generarán puntajes simulados. Configurá un proveedor de IA y volvé a intentarlo."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -836,8 +1037,11 @@ class SubmissionViewSet(OwnerViewSet):
         if Correction.objects.filter(submission=submission, status="pending_review").exists():
             raise ValidationError({"submission": "Ya existe una propuesta pendiente para esta entrega. Revisala antes de generar otra."})
         question_items = []
-        if submission.answers.exists():
-            for answer_obj in submission.answers.select_related("question__rubric").all():
+        answer_objects = list(
+            submission.answers.select_related("question__rubric").order_by("question__position", "id")
+        )
+        if answer_objects:
+            for answer_obj in answer_objects:
                 question_items.append((answer_obj.question, answer_obj.answer_text, answer_obj))
         else:
             question_obj = submission.question or submission.assessment.questions.first()
@@ -847,11 +1051,15 @@ class SubmissionViewSet(OwnerViewSet):
 
         # Defensive relationship checks also protect legacy data or writes made
         # outside this API; never send a cross-assessment answer to an AI provider.
+        question_snapshots = {}
         for question_obj, answer_text, _answer_obj in question_items:
             if question_obj and (str(question_obj.owner_id) != str(request.user.id) or question_obj.assessment_id != submission.assessment_id):
                 raise ValidationError({"answers": "La entrega contiene una pregunta que no pertenece a esta evaluación."})
+            if question_obj:
+                question_snapshots[question_obj.pk] = question_obj.updated_at
             if not (answer_text or "").strip():
                 raise ValidationError({"answers": "La entrega contiene una respuesta vacía; completala antes de corregir."})
+        answer_snapshot = {answer.pk: answer.updated_at for answer in answer_objects}
 
         # One API call may invoke the model once per answer. Bound the number and
         # total size to prevent accidental or abusive cost/latency amplification.
@@ -875,6 +1083,28 @@ class SubmissionViewSet(OwnerViewSet):
         results, all_criteria, used_rubrics = [], [], []
         started = time.monotonic()
         context = {"submission": submission.pk, "questions": [item[0].pk if item[0] else None for item in question_items], "rubric_id": rubric_id or None}
+        reservation_acquired = False
+        reservation_timestamp = None
+
+        def release_reservation():
+            # A worker crash can leave a row in `processing`; the timestamp-based
+            # lease below allows recovery after 15 minutes. Never reset a row that
+            # has already been reviewed/approved or has an active correction.
+            with transaction.atomic():
+                current = Submission.objects.select_for_update().filter(
+                    pk=submission.pk, owner_id=request.user.id,
+                ).first()
+                # Do not release a newer worker's lease if an old timed-out
+                # request finishes after another request reclaimed the row.
+                if current and current.status == "processing" and current.updated_at == reservation_timestamp:
+                    if Correction.objects.filter(submission=current, status="approved").exists():
+                        current.status = "approved"
+                    elif Correction.objects.filter(submission=current, status="pending_review").exists():
+                        current.status = "review"
+                    else:
+                        current.status = "pending"
+                    current.save(update_fields=["status", "updated_at"])
+
         try:
             prepared_items = []
             for question_obj, answer_text, answer_obj in question_items:
@@ -945,6 +1175,48 @@ class SubmissionViewSet(OwnerViewSet):
 
                 return await asyncio.gather(*(generate_one(item) for item in prepared_items))
 
+            # Reserve atomically before spending time/quota on an external model.
+            # Concurrent requests for the same submission will see this lease and
+            # stop before making duplicate provider calls.
+            with transaction.atomic():
+                # Lock in the same order as assessment/question mutation routes:
+                # assessment first, then submission. This closes the preflight race.
+                locked_assessment = Assessment.objects.select_for_update().get(
+                    pk=submission.assessment_id, owner_id=request.user.id,
+                )
+                locked_submission = Submission.objects.select_for_update().get(
+                    pk=submission.pk, owner_id=request.user.id,
+                )
+                if locked_submission.updated_at != submission_updated_at:
+                    raise ValidationError({"submission": "La entrega cambió mientras se preparaba la corrección. Recargá el espacio e intentá nuevamente."})
+                if locked_assessment.updated_at != assessment_updated_at:
+                    raise ValidationError({"assessment": "La evaluación cambió mientras se preparaba la corrección. Recargá e intentá nuevamente."})
+                current_answers = dict(SubmissionAnswer.objects.filter(
+                    submission=locked_submission, owner_id=request.user.id,
+                ).order_by("id").values_list("id", "updated_at"))
+                if current_answers != answer_snapshot:
+                    raise ValidationError({"answers": "Las respuestas cambiaron mientras se preparaba la corrección. Recargá e intentá nuevamente."})
+                for question_id, updated_at in question_snapshots.items():
+                    if not Question.objects.filter(
+                        pk=question_id, owner_id=request.user.id,
+                        assessment_id=submission.assessment_id, updated_at=updated_at,
+                    ).exists():
+                        raise ValidationError({"questions": "Una consigna cambió mientras se preparaba la corrección. Recargá e intentá nuevamente."})
+                if locked_submission.status == "approved" or Correction.objects.filter(
+                    submission=locked_submission, status="approved",
+                ).exists():
+                    raise ValidationError({"submission": "Esta entrega ya tiene una corrección aprobada."})
+                if Correction.objects.filter(
+                    submission=locked_submission, status="pending_review",
+                ).exists():
+                    raise ValidationError({"submission": "Ya existe una propuesta pendiente para esta entrega."})
+                if locked_submission.status == "processing" and locked_submission.updated_at >= timezone.now() - timedelta(minutes=15):
+                    raise ValidationError({"submission": "Esta entrega ya se está procesando. Esperá a que termine antes de reintentar."})
+                locked_submission.status = "processing"
+                locked_submission.save(update_fields=["status", "updated_at"])
+                reservation_timestamp = locked_submission.updated_at
+                reservation_acquired = True
+
             proposals = async_to_sync(generate_all_proposals)()
             for item, proposal in zip(prepared_items, proposals):
                 question_obj = item["question"]
@@ -968,34 +1240,55 @@ class SubmissionViewSet(OwnerViewSet):
                 "warnings": list(dict.fromkeys(w for result in results for w in result.get("warnings", [])))[:20],
                 "demo": any(bool(result.get("demo")) for result in results),
             }
-            record_ai_generation(request.user.id, "generate_correction", started, True, fingerprint(context), assessment=submission.assessment, submission=submission)
         except ValidationError:
+            if reservation_acquired:
+                release_reservation()
             raise
         except Exception as exc:
+            if reservation_acquired:
+                release_reservation()
             record_ai_generation(request.user.id, "generate_correction", started, False, fingerprint(context), type(exc).__name__, assessment=submission.assessment, submission=submission)
             logger.warning("AI correction generation failed (%s)", type(exc).__name__)
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")}, status=status.HTTP_502_BAD_GATEWAY)
 
         total = sum(Decimal(str(item.get("score", 0))) for item in aggregate["criteria"])
-        with transaction.atomic():
-            # Recheck under a row lock after the external AI call. Concurrent retries
-            # may have passed the first guard, but only one may create an active proposal.
-            locked_submission = Submission.objects.select_for_update().get(
-                pk=submission.pk, owner_id=request.user.id,
-            )
-            if locked_submission.status == "approved" or Correction.objects.filter(submission=locked_submission, status="approved").exists():
-                raise ValidationError({"submission": "La entrega fue aprobada mientras se generaba la propuesta; no se creó otra corrección."})
-            if Correction.objects.filter(submission=locked_submission, status="pending_review").exists():
-                raise ValidationError({"submission": "Otra solicitud creó una propuesta mientras se procesaba esta. Revisá la propuesta existente."})
-            correction = Correction.objects.create(
-                owner_id=request.user.id, submission=locked_submission,
-                rubric=used_rubrics[0] if len(set(r.id for r in used_rubrics)) == 1 else requested_rubric,
-                provider=os.getenv("AI_PROVIDER", "mock"), proposal=aggregate,
-                teacher_feedback=aggregate.get("feedback", ""), total_score=total,
-            )
-            locked_submission.status = "review"
-            locked_submission.save(update_fields=["status", "updated_at"])
-            record_audit(request.user.id, "correction.proposed", "correction", correction.id, {"provider": correction.provider, "demo": bool(aggregate.get("demo")), "criteria": len(aggregate["criteria"])})
+        try:
+            with transaction.atomic():
+                # Recheck under a row lock after the external AI call. The lease
+                # prevents normal concurrent retries; this protects against changes
+                # made through other paths while the provider was running.
+                locked_submission = Submission.objects.select_for_update().get(
+                    pk=submission.pk, owner_id=request.user.id,
+                )
+                # A worker whose 15-minute lease expired must not commit a stale
+                # proposal after another request reclaimed the submission.
+                if locked_submission.status != "processing" or locked_submission.updated_at != reservation_timestamp:
+                    raise ValidationError({"submission": "El procesamiento fue reemplazado o venció. Recargá la entrega antes de intentar nuevamente."})
+                if locked_submission.status == "approved" or Correction.objects.filter(submission=locked_submission, status="approved").exists():
+                    raise ValidationError({"submission": "La entrega fue aprobada mientras se generaba la propuesta; no se creó otra corrección."})
+                if Correction.objects.filter(submission=locked_submission, status="pending_review").exists():
+                    raise ValidationError({"submission": "Otra solicitud creó una propuesta mientras se procesaba esta. Revisá la propuesta existente."})
+                correction = Correction.objects.create(
+                    owner_id=request.user.id, submission=locked_submission,
+                    rubric=used_rubrics[0] if len(set(r.id for r in used_rubrics)) == 1 else requested_rubric,
+                    provider=os.getenv("AI_PROVIDER", "mock"), proposal=aggregate,
+                    teacher_feedback=aggregate.get("feedback", ""), total_score=total,
+                )
+                locked_submission.status = "review"
+                locked_submission.save(update_fields=["status", "updated_at"])
+                record_audit(request.user.id, "correction.proposed", "correction", correction.id, {"provider": correction.provider, "demo": bool(aggregate.get("demo")), "criteria": len(aggregate["criteria"])})
+                # Persist operational telemetry in the same transaction as the
+                # proposal so an audit/logging failure cannot return a false 500
+                # after the correction was already committed.
+                record_ai_generation(request.user.id, "generate_correction", started, True, fingerprint(context), assessment=submission.assessment, submission=submission)
+        except ValidationError:
+            if reservation_acquired:
+                release_reservation()
+            raise
+        except Exception:
+            if reservation_acquired:
+                release_reservation()
+            raise
         return Response(_serialize_correction(correction), status=status.HTTP_201_CREATED)
 
 
@@ -1008,6 +1301,10 @@ def _serialize_correction(correction):
         "provider": correction.provider, "proposal": correction.proposal, "final_result": correction.final_result,
         "teacher_feedback": correction.teacher_feedback, "total_score": str(correction.total_score),
         "status": correction.status, "created_at": correction.created_at.isoformat(),
+        "student_id": correction.submission.student_id,
+        "course_id": correction.submission.assessment.course_id,
+        "course_name": correction.submission.assessment.course.name if correction.submission.assessment.course else None,
+        "subject": correction.submission.assessment.subject,
     }
 
 
@@ -1018,17 +1315,47 @@ class SubmissionAnswerViewSet(OwnerViewSet):
     def get_queryset(self):
         return super().get_queryset().filter(submission__owner_id=self.request.user.id, question__owner_id=self.request.user.id)
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        submission = serializer.validated_data["submission"]
+        requested_submission = serializer.validated_data["submission"]
         question = serializer.validated_data["question"]
-        if str(submission.owner_id) != str(self.request.user.id) or str(question.owner_id) != str(self.request.user.id):
+        if str(requested_submission.owner_id) != str(self.request.user.id) or str(question.owner_id) != str(self.request.user.id):
             raise ValidationError("Entrega o pregunta no disponible.")
-        serializer.save(owner_id=self.request.user.id)
+        # Match the generation workflow's lock order to prevent an answer being
+        # added after the worker has taken its snapshot but before it reserves it.
+        Assessment.objects.select_for_update().get(
+            pk=requested_submission.assessment_id, owner_id=self.request.user.id,
+        )
+        submission = Submission.objects.select_for_update().get(
+            pk=requested_submission.pk, owner_id=self.request.user.id,
+        )
+        if submission.status == "processing":
+            raise ValidationError({"submission": "No se pueden agregar respuestas mientras se procesa una corrección."})
+        serializer.save(owner_id=self.request.user.id, submission=submission)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        requested_submission = serializer.instance.submission
+        Assessment.objects.select_for_update().get(
+            pk=requested_submission.assessment_id, owner_id=self.request.user.id,
+        )
+        submission = Submission.objects.select_for_update().get(
+            pk=requested_submission.pk, owner_id=self.request.user.id,
+        )
+        if submission.status == "processing":
+            raise ValidationError({"submission": "No se pueden modificar respuestas mientras se procesa una corrección."})
+        serializer.instance.submission = submission
+        serializer.save()
 
 
 class CorrectionViewSet(OwnerViewSet):
-    queryset = Correction.objects.all().select_related("submission__assessment", "submission__student", "rubric").prefetch_related("criterion_results", "revisions").order_by("-created_at")
+    queryset = Correction.objects.all().select_related("submission__assessment", "submission__student", "rubric").prefetch_related("criterion_results").order_by("-created_at")
     serializer_class = CorrectionSerializer
+
+    def get_serializer_class(self):
+        if self.action == "list" and self.request.query_params.get("summary") == "1":
+            return CorrectionSummarySerializer
+        return super().get_serializer_class()
 
     def get_queryset(self):
         queryset = super().get_queryset().filter(
@@ -1036,6 +1363,22 @@ class CorrectionViewSet(OwnerViewSet):
             submission__owner_id=self.request.user.id,
             submission__assessment__owner_id=self.request.user.id,
         )
+        if self.action == "list" and self.request.query_params.get("summary") == "1":
+            # The course dashboard needs small identifying fields, not proposal JSON,
+            # rubric criteria or full answer bodies. Keep joins explicit to avoid N+1s.
+            # Clear the default select_related("rubric") before narrowing columns.
+            # Django raises FieldError if a relation is both deferred by only()
+            # and traversed through select_related().
+            queryset = queryset.select_related(None).select_related(
+                "submission__assessment__course", "submission__student",
+            ).prefetch_related(None).only(
+                "id", "owner_id", "submission_id", "status", "provider", "total_score", "created_at",
+                "submission__id", "submission__student_id", "submission__student_name",
+                "submission__assessment_id", "submission__assessment__title",
+                "submission__assessment__subject", "submission__assessment__course_id",
+                "submission__assessment__course__id", "submission__assessment__course__name",
+                "submission__student__id", "submission__student__name",
+            )
         if getattr(self, "action", None) == "approve":
             # Bloquea únicamente la fila Correction.
             # Evita bloquear el lado nullable de los JOIN.
@@ -1058,6 +1401,13 @@ class CorrectionViewSet(OwnerViewSet):
     @transaction.atomic
     def approve(self, request, pk=None):
         correction = self.get_object()
+        locked_submission = Submission.objects.select_for_update().get(
+            pk=correction.submission_id, owner_id=request.user.id,
+        )
+        if Correction.objects.filter(
+            submission=locked_submission, status="approved",
+        ).exclude(pk=correction.pk).exists():
+            raise ValidationError({"submission": "Esta entrega ya tiene otra corrección aprobada."})
         if isinstance(correction.proposal, dict) and correction.proposal.get("demo"):
             raise ValidationError("Las propuestas demostrativas no se pueden aprobar como una calificación real.")
         if correction.status == "approved":
@@ -1138,7 +1488,15 @@ class CorrectionViewSet(OwnerViewSet):
             correction.criterion_results.all().delete()
             for position, item in enumerate(validated_criteria, start=1):
                 question_id = item.get("question_id")
-                question = Question.objects.filter(pk=question_id, owner_id=request.user.id, assessment_id=correction.submission.assessment_id).first() if question_id else None
+                question = None
+                if question_id not in (None, ""):
+                    try:
+                        question = Question.objects.filter(
+                            owner_id=request.user.id,
+                            assessment_id=correction.submission.assessment_id,
+                        ).get(pk=question_id)
+                    except (Question.DoesNotExist, ValueError, TypeError) as exc:
+                        raise ValidationError({"final_result": "Una pregunta de la propuesta no pertenece a esta evaluación."}) from exc
                 CorrectionCriterionResult.objects.create(
                     owner_id=request.user.id, correction=correction, question=question,
                     criterion_name=str(item.get("criterion", "Criterio"))[:160],
@@ -1147,8 +1505,8 @@ class CorrectionViewSet(OwnerViewSet):
                     justification=str(item.get("justification", ""))[:5000],
                     feedback=feedback, position=position,
                 )
-            correction.submission.status = "approved"
-            correction.submission.save(update_fields=["status", "updated_at"])
+            locked_submission.status = "approved"
+            locked_submission.save(update_fields=["status", "updated_at"])
             record_audit(request.user.id, "correction.approved", "correction", correction.id, {"score": str(correction.total_score), "demo": bool(final_result.get("demo"))})
         correction.refresh_from_db()
         return Response(self.get_serializer(correction).data)

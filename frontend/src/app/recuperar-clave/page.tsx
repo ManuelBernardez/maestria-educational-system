@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { type SubmitEvent, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function RecoverPasswordPage() {
@@ -10,7 +10,7 @@ export default function RecoverPasswordPage() {
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(""); setSent(false);
     if (!supabase) { setError("El acceso no está configurado todavía. Contactá al responsable del sitio."); setBusy(false); return; }
     try {

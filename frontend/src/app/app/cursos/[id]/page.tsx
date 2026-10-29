@@ -1,7 +1,6 @@
 "use client";
 
 import AppSidebar from "@/components/AppSidebar";
-import { api } from "@/lib/api";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -12,6 +11,7 @@ import {
   useState,
   type SubmitEvent,
 } from "react";
+import { api } from "@/lib/api";
 
 type Course = {
   id: number;
@@ -22,7 +22,6 @@ type Course = {
   description: string;
   active: boolean;
 };
-
 type Student = {
   id: number;
   name: string;
@@ -30,7 +29,6 @@ type Student = {
   external_code: string;
   active: boolean;
 };
-
 type Enrollment = {
   id: number;
   course: number;
@@ -38,56 +36,60 @@ type Enrollment = {
   status: "active" | "inactive";
   student_name: string;
   student_email: string;
+  student_external_code?: string;
   course_name: string;
+};
+type AssessmentSummary = { id: number | string; title: string; subject?: string; status?: string; course?: number | null; course_name?: string | null };
+type CorrectionSummary = {
+  id: number;
+  submission: number;
+  submission_assessment_id: number | string;
+  submission_title: string;
+  student_name: string;
+  status: string;
+  total_score?: string | number;
+  course_id?: number | null;
+  course_name?: string | null;
+  created_at?: string;
 };
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : fallback;
+  return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
 export default function CourseDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
-
-  const validCourseId =
-    /^\d+$/.test(id) &&
-    Number.isSafeInteger(Number(id)) &&
-    Number(id) > 0;
+  const validCourseId = /^\d+$/.test(id) && Number.isSafeInteger(Number(id)) && Number(id) > 0;
 
   const [course, setCourse] = useState<Course | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
-
+  const [assessments, setAssessments] = useState<AssessmentSummary[]>([]);
+  const [corrections, setCorrections] = useState<CorrectionSummary[]>([]);
   const [studentId, setStudentId] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-
   const [error, setError] = useState("");
   const [courseError, setCourseError] = useState("");
   const [studentsError, setStudentsError] = useState("");
   const [enrollmentsError, setEnrollmentsError] = useState("");
+  const [assessmentsError, setAssessmentsError] = useState("");
+  const [correctionsError, setCorrectionsError] = useState("");
   const [message, setMessage] = useState("");
-
   const [loadAttempt, setLoadAttempt] = useState(0);
-
-  // Evita que dos acciones de escritura se ejecuten simultáneamente.
-  // La ref cambia sin esperar al siguiente render.
   const operationInProgress = useRef(false);
 
-  // Carga inicial: las tres solicitudes son independientes y concurrentes.
-  // Promise.allSettled permite mostrar el curso aunque falle otra sección.
   const load = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
-    setError("");
     setCourseError("");
     setStudentsError("");
     setEnrollmentsError("");
+    setAssessmentsError("");
+    setCorrectionsError("");
 
     if (!validCourseId) {
       setCourse(null);
@@ -96,104 +98,105 @@ export default function CourseDetailPage() {
       return;
     }
 
-    try {
-      const [courseResult, studentsResult, enrollmentsResult] =
-        await Promise.allSettled([
-          api<Course>(`/courses/${id}/`, { signal }),
-          api<Student[]>("/students/", { signal }),
-          api<Enrollment[]>(`/enrollments/?course=${id}`, { signal }),
-        ]);
+    const [courseResult, studentsResult, enrollmentsResult, assessmentsResult, correctionsResult] = await Promise.allSettled([
+      api<Course>(`/courses/${id}/`, { signal }),
+      api<Student[]>("/students/", { signal }),
+      api<Enrollment[]>(`/enrollments/?course=${encodeURIComponent(id)}`, { signal }),
+      api<AssessmentSummary[]>("/assessments/", { signal }),
+      api<CorrectionSummary[]>("/corrections/?summary=1", { signal }),
+    ]);
 
-      // Ignoramos resultados de una carga cancelada o de una ruta anterior.
-      if (signal.aborted) return;
+    if (signal.aborted) return;
 
-      if (courseResult.status === "fulfilled") {
-        setCourse(courseResult.value);
-      } else {
-        setCourse(null);
-        setCourseError(
-          errorMessage(
-            courseResult.reason,
-            "No se pudo cargar el curso."
-          )
-        );
-      }
-
-      if (studentsResult.status === "fulfilled") {
-        setStudents(studentsResult.value.filter((student) => student.active));
-      } else {
-        setStudentsError(
-          errorMessage(
-            studentsResult.reason,
-            "No se pudieron cargar los estudiantes."
-          )
-        );
-      }
-
-      if (enrollmentsResult.status === "fulfilled") {
-        setEnrollments(enrollmentsResult.value);
-      } else {
-        setEnrollmentsError(
-          errorMessage(
-            enrollmentsResult.reason,
-            "No se pudieron cargar las matrículas."
-          )
-        );
-      }
-    } finally {
-      if (!signal.aborted) {
-        setLoading(false);
-      }
+    if (courseResult.status === "fulfilled") {
+      setCourse(courseResult.value);
+    } else {
+      setCourse(null);
+      setCourseError(errorMessage(courseResult.reason, "No se pudo cargar el curso."));
     }
+
+    if (studentsResult.status === "fulfilled") {
+      setStudents(Array.isArray(studentsResult.value) ? studentsResult.value : []);
+    } else {
+      setStudentsError(errorMessage(studentsResult.reason, "No se pudieron cargar los estudiantes."));
+    }
+
+    if (enrollmentsResult.status === "fulfilled") {
+      setEnrollments(Array.isArray(enrollmentsResult.value) ? enrollmentsResult.value : []);
+    } else {
+      setEnrollmentsError(errorMessage(enrollmentsResult.reason, "No se pudieron cargar las matrículas."));
+    }
+    if (assessmentsResult.status === "fulfilled") {
+      setAssessments(Array.isArray(assessmentsResult.value) ? assessmentsResult.value : []);
+    } else {
+      setAssessmentsError(errorMessage(assessmentsResult.reason, "No se pudieron cargar las evaluaciones del curso."));
+    }
+    if (correctionsResult.status === "fulfilled") {
+      setCorrections(Array.isArray(correctionsResult.value) ? correctionsResult.value : []);
+    } else {
+      setCorrectionsError(errorMessage(correctionsResult.reason, "No se pudieron cargar las correcciones del curso."));
+    }
+    setLoading(false);
   }, [id, validCourseId]);
 
-  // Cancela las solicitudes de lectura al abandonar el curso o cambiar de ID.
   useEffect(() => {
     const controller = new AbortController();
-
     void load(controller.signal);
-
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [load, loadAttempt]);
 
   const activeEnrollments = useMemo(
     () => enrollments.filter((enrollment) => enrollment.status === "active"),
-    [enrollments]
+    [enrollments],
   );
-
   const inactiveEnrollments = useMemo(
     () => enrollments.filter((enrollment) => enrollment.status === "inactive"),
-    [enrollments]
+    [enrollments],
   );
-
-  // Una matrícula inactiva sigue existiendo en la base de datos.
-  // Esos estudiantes deben reactivarse, no volver a crearse o matricularse.
-  const previouslyEnrolledStudentIds = useMemo(
+  const alreadyEnrolledStudentIds = useMemo(
     () => new Set(enrollments.map((enrollment) => enrollment.student)),
-    [enrollments]
+    [enrollments],
   );
-
   const availableStudents = useMemo(
-    () =>
-      students.filter(
-        (student) => !previouslyEnrolledStudentIds.has(student.id)
-      ),
-    [students, previouslyEnrolledStudentIds]
+    () => students.filter((student) => student.active && !alreadyEnrolledStudentIds.has(student.id)),
+    [students, alreadyEnrolledStudentIds],
   );
+  const courseAssessments = useMemo(
+    () => assessments.filter((assessment) => String(assessment.course ?? "") === String(id)),
+    [assessments, id],
+  );
+  const courseCorrections = useMemo(
+    () => corrections.filter((correction) => String(correction.course_id ?? "") === String(id)),
+    [corrections, id],
+  );
+  const pendingCorrections = courseCorrections.filter((correction) => correction.status === "pending_review").length;
 
-  async function runMutation(
-    fallback: string,
-    operation: () => Promise<void>
-  ): Promise<void> {
+  const refreshStudents = useCallback(async () => {
+    try {
+      const result = await api<Student[]>("/students/");
+      setStudents(Array.isArray(result) ? result : []);
+      setStudentsError("");
+    } catch (cause) {
+      setStudentsError(errorMessage(cause, "No se pudieron actualizar los estudiantes."));
+    }
+  }, []);
+
+  const refreshEnrollments = useCallback(async () => {
+    try {
+      const result = await api<Enrollment[]>(`/enrollments/?course=${encodeURIComponent(id)}`);
+      setEnrollments(Array.isArray(result) ? result : []);
+      setEnrollmentsError("");
+    } catch (cause) {
+      setEnrollmentsError(errorMessage(cause, "No se pudieron actualizar las matrículas."));
+    }
+  }, [id]);
+
+  async function runMutation(fallback: string, operation: () => Promise<void>): Promise<void> {
     if (operationInProgress.current) return;
-
     operationInProgress.current = true;
     setBusy(true);
     setError("");
     setMessage("");
-
     try {
       await operation();
     } catch (cause) {
@@ -204,158 +207,82 @@ export default function CourseDetailPage() {
     }
   }
 
-  // Recargamos solamente los datos que cambiaron.
-  // Los errores de actualización se informan por sección.
-  const refreshStudents = useCallback(async () => {
-    try {
-      const result = await api<Student[]>("/students/");
-
-      setStudents(result.filter((student) => student.active));
-      setStudentsError("");
-    } catch (cause) {
-      setStudentsError(
-        errorMessage(cause, "No se pudieron actualizar los estudiantes.")
-      );
-    }
-  }, []);
-
-  const refreshEnrollments = useCallback(async () => {
-    try {
-      const result = await api<Enrollment[]>(
-        `/enrollments/?course=${id}`
-      );
-
-      setEnrollments(result);
-      setEnrollmentsError("");
-    } catch (cause) {
-      setEnrollmentsError(
-        errorMessage(cause, "No se pudieron actualizar las matrículas.")
-      );
-    }
-  }, [id]);
-
   async function enroll(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!studentId) {
-      setError("Seleccioná un estudiante.");
+    if (!studentId || !Number.isSafeInteger(Number(studentId)) || Number(studentId) <= 0) {
+      setError("Seleccioná un estudiante válido.");
       return;
     }
 
-    await runMutation(
-      "No se pudo vincular al estudiante.",
-      async () => {
-        await api("/enrollments/", {
-          method: "POST",
-          body: JSON.stringify({
-            course: Number(id),
-            student: Number(studentId),
-            status: "active",
-          }),
-        });
-
-        setStudentId("");
-        setMessage("Estudiante vinculado al curso.");
-
-        await refreshEnrollments();
-      }
-    );
+    await runMutation("No se pudo vincular al estudiante.", async () => {
+      await api("/enrollments/", {
+        method: "POST",
+        body: JSON.stringify({ course: Number(id), student: Number(studentId), status: "active" }),
+      });
+      setStudentId("");
+      setMessage("Estudiante vinculado al curso.");
+      await refreshEnrollments();
+    });
   }
 
   async function createAndEnroll(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    const cleanName = name.trim();
-
-    if (!cleanName) {
+    const cleanName = name.trim().replace(/\s+/g, " ");
+    if (cleanName.length < 2) {
       setError("Ingresá el nombre y apellido del estudiante.");
       return;
     }
 
-    await runMutation(
-      "No se pudo crear el estudiante.",
-      async () => {
-        await api<Student>("/students/", {
-          method: "POST",
-          body: JSON.stringify({
-            name: cleanName,
-            email: email.trim(),
-            external_code: code.trim(),
-            active: true,
-            course: Number(id),
-          }),
-        });
-
-        setName("");
-        setEmail("");
-        setCode("");
-        setMessage("Estudiante creado y matriculado en el curso.");
-
-        await Promise.all([
-          refreshStudents(),
-          refreshEnrollments(),
-        ]);
-      }
-    );
+    await runMutation("No se pudo crear el estudiante.", async () => {
+      await api<Student>("/students/", {
+        method: "POST",
+        body: JSON.stringify({
+          name: cleanName,
+          email: email.trim(),
+          external_code: code.trim(),
+          active: true,
+          course: Number(id),
+        }),
+      });
+      setName("");
+      setEmail("");
+      setCode("");
+      setMessage("Estudiante creado y matriculado en el curso.");
+      await Promise.all([refreshStudents(), refreshEnrollments()]);
+    });
   }
 
   async function remove(enrollment: Enrollment) {
-    const confirmed = window.confirm(
-      `¿Desvincular a ${enrollment.student_name} de este curso? ` +
-      "Se conservan sus datos e historial."
-    );
-
-    if (!confirmed) return;
-
-    await runMutation(
-      "No se pudo modificar la matrícula.",
-      async () => {
-        await api(`/enrollments/${enrollment.id}/`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "inactive" }),
-        });
-
-        setMessage(
-          "Matrícula desactivada; el historial se conserva."
-        );
-
-        await refreshEnrollments();
-      }
-    );
+    if (!window.confirm(`¿Desvincular a ${enrollment.student_name} de este curso? Se conservan sus datos e historial.`)) return;
+    await runMutation("No se pudo modificar la matrícula.", async () => {
+      await api(`/enrollments/${enrollment.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "inactive" }),
+      });
+      setMessage("Matrícula desactivada; el historial se conserva.");
+      await refreshEnrollments();
+    });
   }
 
   async function reactivate(enrollment: Enrollment) {
-    // Solo permitimos reactivar si el estudiante sigue activo.
-    if (!students.some((student) => student.id === enrollment.student)) {
-      setError(
-        "El estudiante está inactivo. Revisá su estado antes de reactivar la matrícula."
-      );
+    const student = students.find((item) => item.id === enrollment.student);
+    if (!student?.active) {
+      setError("El estudiante está inactivo. Revisá su estado antes de reactivar la matrícula.");
       return;
     }
-
-    await runMutation(
-      "No se pudo reactivar la matrícula.",
-      async () => {
-        await api(`/enrollments/${enrollment.id}/`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "active" }),
-        });
-
-        setMessage("Matrícula reactivada.");
-        await refreshEnrollments();
-      }
-    );
+    await runMutation("No se pudo reactivar la matrícula.", async () => {
+      await api(`/enrollments/${enrollment.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "active" }),
+      });
+      setMessage("Matrícula reactivada.");
+      await refreshEnrollments();
+    });
   }
 
   if (loading) {
     return (
-      <main
-        className="simple-page"
-        id="main-content"
-        tabIndex={-1}
-        aria-busy="true"
-        aria-live="polite"
-      >
+      <main className="simple-page" id="main-content" tabIndex={-1} aria-busy="true" aria-live="polite">
         Cargando curso…
       </main>
     );
@@ -366,14 +293,8 @@ export default function CourseDetailPage() {
       <main className="simple-page" id="main-content" tabIndex={-1}>
         <Link href="/app/cursos">← Cursos</Link>
         <h1>Curso no disponible</h1>
-        <p className="error-message" role="alert">
-          {courseError || "No se pudo cargar el curso."}
-        </p>
-        <button
-          className="button button-primary"
-          type="button"
-          onClick={() => setLoadAttempt((attempt) => attempt + 1)}
-        >
+        <p className="error-message" role="alert">{courseError || "No se pudo cargar el curso."}</p>
+        <button className="button button-primary" type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
           Reintentar
         </button>
       </main>
@@ -383,262 +304,89 @@ export default function CourseDetailPage() {
   return (
     <div className="app-shell">
       <AppSidebar />
+      <main className="app-main" id="main-content" tabIndex={-1}>
+        <Link href="/app/cursos" className="back-link">← Todas las materias</Link>
+        <header className="app-header course-hub-header">
+          <div><span className="eyebrow">ESPACIO DE LA MATERIA</span><h1>{course.name}</h1><p>{[course.subject, course.level, course.academic_year].filter(Boolean).join(" · ") || "Curso o comisión"}</p>{course.description && <p className="course-description">{course.description}</p>}</div>
+          <span className={`status-pill ${course.active ? "delivery-status-approved" : "delivery-status-rejected"}`}>{course.active ? "Curso activo" : "Curso archivado"}</span>
+        </header>
 
-      <main
-        className="app-main narrow-main"
-        id="main-content"
-        tabIndex={-1}
-      >
-        <Link href="/app/cursos" className="back-link">
-          ← Volver a cursos
-        </Link>
+        {error && <p className="error-message" role="alert">{error}</p>}
+        {message && <p className="success-message" role="status" aria-live="polite">{message}</p>}
 
-        <span className="eyebrow">CURSO</span>
-        <h1>{course.name}</h1>
-
-        <p className="page-intro">
-          {[course.subject, course.level, course.academic_year]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-
-        {course.description && <p>{course.description}</p>}
-
-        {error && (
-          <p className="error-message" role="alert">
-            {error}
-          </p>
-        )}
-
-        {message && (
-          <p className="success-message" role="status" aria-live="polite">
-            {message}
-          </p>
-        )}
-
-        <section className="form-card" aria-busy={busy}>
-          <h2>Vincular estudiante existente</h2>
-
-          {studentsError ? (
-            <>
-              <p className="error-message" role="alert">
-                {studentsError}
-              </p>
-              <button
-                className="button button-quiet"
-                type="button"
-                disabled={busy}
-                onClick={() => void refreshStudents()}
-              >
-                Reintentar carga de estudiantes
-              </button>
-            </>
-          ) : availableStudents.length === 0 ? (
-            <p className="muted">
-              No hay estudiantes disponibles para vincular.
-              Si el estudiante ya tuvo una matrícula en este curso,
-              revisá el historial para reactivarla.
-            </p>
-          ) : (
-            <form onSubmit={enroll}>
-              <label htmlFor="student-existing">Estudiante</label>
-
-              <select
-                id="student-existing"
-                value={studentId}
-                onChange={(event) => setStudentId(event.target.value)}
-                required
-                disabled={busy}
-              >
-                <option value="">Seleccionar…</option>
-                {availableStudents.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.name}
-                    {student.email ? ` · ${student.email}` : ""}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                className="button button-primary"
-                type="submit"
-                disabled={busy || !studentId}
-              >
-                {busy ? "Guardando…" : "Vincular al curso"}
-              </button>
-            </form>
-          )}
+        <section className="course-hub-metrics" aria-label="Resumen de la materia">
+          <div className="course-hub-metric"><strong>{enrollmentsError ? "—" : activeEnrollments.length}</strong><span>Estudiantes activos</span></div>
+          <div className="course-hub-metric"><strong>{assessmentsError ? "—" : courseAssessments.length}</strong><span>Evaluaciones</span></div>
+          <div className="course-hub-metric"><strong>{correctionsError ? "—" : pendingCorrections}</strong><span>Correcciones por revisar</span></div>
         </section>
 
-        <section className="form-card" aria-busy={busy}>
-          <h2>Crear estudiante y matricular</h2>
+        <div className="course-hub-deliveries-action">
+          <Link className="button button-quiet button-small" href={`/app/entregas?course=${id}`}>📥 Abrir entregas de la materia <span aria-hidden="true">→</span></Link>
+        </div>
 
-          <p className="muted">
-            Guardá solo los datos necesarios. El correo no se envía
-            al proveedor de IA; se utiliza únicamente para las
-            comunicaciones que el docente solicite.
-          </p>
-
-          <form onSubmit={createAndEnroll}>
-            <label htmlFor="new-student-name">
-              Nombre y apellido <span>*</span>
-            </label>
-            <input
-              id="new-student-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={180}
-              autoComplete="name"
-              required
-              disabled={busy}
-            />
-
-            <label htmlFor="new-student-email">
-              Correo electrónico (opcional)
-            </label>
-            <input
-              id="new-student-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              maxLength={254}
-              autoComplete="email"
-              disabled={busy}
-            />
-
-            <label htmlFor="new-student-code">
-              Legajo o código (opcional)
-            </label>
-            <input
-              id="new-student-code"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              maxLength={80}
-              disabled={busy}
-            />
-
-            <button
-              className="button button-quiet"
-              type="submit"
-              disabled={busy || !name.trim()}
-            >
-              {busy ? "Guardando…" : "Crear y matricular"}
-            </button>
-          </form>
-        </section>
-
-        <section className="list-section">
-          <div className="section-row">
-            <div>
-              <h2>
-                Estudiantes del curso{" "}
-                <span className="count">{activeEnrollments.length}</span>
-              </h2>
-              <p>
-                Las matrículas se pueden desactivar sin borrar
-                el historial de entregas.
-              </p>
-            </div>
+        <details className="course-add-details">
+          <summary>Agregar estudiantes a esta materia</summary>
+          <div className="course-add-grid">
+            <section aria-busy={busy}>
+              <h3>Vincular estudiante existente</h3>
+              <p>Usá esta opción si ya está registrado en MaestrIA.</p>
+              {studentsError ? <><p className="error-message" role="alert">{studentsError}</p><button className="button button-quiet" type="button" disabled={busy} onClick={() => void refreshStudents()}>Reintentar</button></> : availableStudents.length === 0 ? <p className="muted">No hay estudiantes disponibles para vincular.</p> : (
+                <form onSubmit={enroll}>
+                  <label htmlFor="student-existing">Estudiante</label>
+                  <select id="student-existing" value={studentId} onChange={(event) => setStudentId(event.target.value)} required disabled={busy}>
+                    <option value="">Seleccionar…</option>{availableStudents.map((student) => <option key={student.id} value={student.id}>{student.name}{student.email ? ` · ${student.email}` : ""}</option>)}
+                  </select>
+                  <button className="button button-primary" type="submit" disabled={busy || !studentId}>{busy ? "Guardando…" : "Vincular estudiante"}</button>
+                </form>
+              )}
+            </section>
+            <section aria-busy={busy}>
+              <h3>Crear estudiante nuevo</h3>
+              <p>Se creará y quedará matriculado en esta materia.</p>
+              <form onSubmit={createAndEnroll}>
+                <label htmlFor="new-student-name">Nombre y apellido <span>*</span></label>
+                <input id="new-student-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={180} autoComplete="name" required disabled={busy} />
+                <label htmlFor="new-student-email">Correo electrónico (opcional)</label>
+                <input id="new-student-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={254} autoComplete="email" disabled={busy} />
+                <label htmlFor="new-student-code">Legajo o código (opcional)</label>
+                <input id="new-student-code" value={code} onChange={(event) => setCode(event.target.value)} maxLength={80} disabled={busy} />
+                <button className="button button-quiet" type="submit" disabled={busy || name.trim().length < 2}>{busy ? "Guardando…" : "Crear y matricular"}</button>
+              </form>
+            </section>
           </div>
+        </details>
 
-          {enrollmentsError && (
-            <div className="error-message" role="alert">
-              <p>{enrollmentsError}</p>
-              <button
-                className="button button-quiet"
-                type="button"
-                disabled={busy}
-                onClick={() => void refreshEnrollments()}
-              >
-                Reintentar carga de matrículas
-              </button>
-            </div>
-          )}
+        <details className="course-hub-section" id="course-students" open>
+          <summary className="course-hub-section-summary"><div><h2 id="course-students-title">Estudiantes <span className="count">{enrollmentsError ? "—" : activeEnrollments.length}</span></h2><p>Solo se muestran las matrículas de esta materia.</p></div><span className="course-section-chevron" aria-hidden="true">⌄</span></summary>
+          <div className="course-hub-section-body"><div className="section-row"><div><h3>Lista de estudiantes</h3><p>Administrá las matrículas y consultá los datos identificatorios.</p></div><Link href={`/app/alumnos?course=${id}`} className="text-link">Gestionar estudiantes →</Link></div>
+          {enrollmentsError && <div className="error-message" role="alert"><p>{enrollmentsError}</p><button className="button button-quiet" type="button" disabled={busy} onClick={() => void refreshEnrollments()}>Reintentar carga</button></div>}
+          {activeEnrollments.length > 0 ? <div className="course-hub-small-list">{activeEnrollments.map((enrollment) => <article className="course-hub-small-row" key={enrollment.id}><div className="course-hub-student-details"><strong>{enrollment.student_name}</strong><small>{enrollment.student_email || "Sin correo informado"}</small><small><b>Legajo:</b> {enrollment.student_external_code?.trim() || "Sin legajo informado"}</small></div><button className="button button-quiet button-small" type="button" onClick={() => void remove(enrollment)} disabled={busy} aria-label={`Desvincular a ${enrollment.student_name}`}>Desvincular</button></article>)}</div> : !enrollmentsError ? <div className="empty-state"><h3>Esta materia todavía no tiene estudiantes</h3><p>Podés agregar uno desde “Agregar estudiantes a esta materia”.</p></div> : null}
+          {inactiveEnrollments.length > 0 && <details className="course-add-details"><summary>Historial de matrículas inactivas ({inactiveEnrollments.length})</summary><div className="course-hub-small-list">{inactiveEnrollments.map((enrollment) => { const studentIsActive = students.some((student) => student.id === enrollment.student && student.active); return <article className="course-hub-small-row" key={enrollment.id}><div className="course-hub-student-details"><strong>{enrollment.student_name}</strong><small>{enrollment.student_email || "Sin correo informado"}</small><small><b>Legajo:</b> {enrollment.student_external_code?.trim() || "Sin legajo informado"}</small></div><button className="button button-quiet button-small" type="button" disabled={busy || !studentIsActive} onClick={() => void reactivate(enrollment)}>{studentIsActive ? "Reactivar" : "Estudiante inactivo"}</button></article>;})}</div></details>}
+          </div>
+        </details>
 
-          {activeEnrollments.length === 0 ? (
-            <div className="empty-state">
-              <h3>El curso todavía no tiene estudiantes activos</h3>
-              <p>
-                Vinculá estudiantes existentes o crealos desde
-                los formularios anteriores.
-              </p>
-            </div>
-          ) : (
-            <div className="assessment-list">
-              {activeEnrollments.map((enrollment) => (
-                <article className="assessment-row" key={enrollment.id}>
-                  <div className="avatar">
-                    {enrollment.student_name.slice(0, 1).toUpperCase()}
-                  </div>
+        <details className="course-hub-section" id="course-assessments" open>
+          <summary className="course-hub-section-summary"><div><h2 id="course-assessments-title">Evaluaciones <span className="count">{assessmentsError ? "—" : courseAssessments.length}</span></h2><p>Consignas y criterios pertenecientes a esta materia.</p></div><span className="course-section-chevron" aria-hidden="true">⌄</span></summary>
+          <div className="course-hub-section-body"><div className="section-row"><div><h3>Evaluaciones de la materia</h3></div><Link className="button button-primary button-small" href={`/app/evaluaciones/nueva?course=${id}`}>＋ Nueva evaluación</Link></div>
+          {assessmentsError ? <p className="error-message" role="alert">{assessmentsError}</p> : courseAssessments.length > 0 ? <div className="assessment-list">{courseAssessments.map((assessment) => <Link className="assessment-row assessment-row-link" href={`/app/evaluaciones/${assessment.id}`} key={assessment.id}><span className="assessment-icon" aria-hidden="true">▤</span><span className="assessment-info"><strong>{assessment.title}</strong><span>{assessment.subject || course.subject || "Sin materia adicional"}</span></span><span className={`status-pill ${assessment.status === "ready" ? "delivery-status-approved" : assessment.status === "archived" ? "delivery-status-rejected" : "delivery-status-review"}`}>{assessment.status === "ready" ? "Lista" : assessment.status === "archived" ? "Archivada" : "Borrador"}</span><span className="row-arrow" aria-hidden="true">→</span></Link>)}</div> : <div className="empty-state"><h3>Sin evaluaciones para esta materia</h3><p>Creá la primera para asociar consignas, entregas y correcciones a este curso.</p><Link className="button button-primary" href={`/app/evaluaciones/nueva?course=${id}`}>Crear evaluación</Link></div>}
+          </div>
+        </details>
 
-                  <div className="assessment-info">
-                    <h3>{enrollment.student_name}</h3>
-                    <p>
-                      {enrollment.student_email || "Sin correo informado"}
-                    </p>
-                  </div>
-
-                  <button
-                    className="text-link"
-                    type="button"
-                    onClick={() => void remove(enrollment)}
-                    disabled={busy}
-                    aria-label={`Desvincular a ${enrollment.student_name}`}
-                  >
-                    Desvincular
-                  </button>
-                </article>
-              ))}
-            </div>
-          )}
-
-          {inactiveEnrollments.length > 0 && (
-            <div className="list-section">
-              <h3>Historial de matrículas inactivas</h3>
-              <p className="muted">
-                Podés reactivar una matrícula sin crear un registro duplicado.
-              </p>
-
-              <div className="assessment-list">
-                {inactiveEnrollments.map((enrollment) => {
-                  const studentIsActive = students.some(
-                    (student) => student.id === enrollment.student
-                  );
-
-                  return (
-                    <article
-                      className="assessment-row"
-                      key={enrollment.id}
-                    >
-                      <div className="avatar">
-                        {enrollment.student_name.slice(0, 1).toUpperCase()}
-                      </div>
-
-                      <div className="assessment-info">
-                        <h3>{enrollment.student_name}</h3>
-                        <p>
-                          {enrollment.student_email || "Sin correo informado"}
-                        </p>
-                      </div>
-
-                      <button
-                        className="text-link"
-                        type="button"
-                        disabled={busy || !studentIsActive}
-                        onClick={() => void reactivate(enrollment)}
-                        aria-label={`Reactivar matrícula de ${enrollment.student_name}`}
-                      >
-                        {studentIsActive
-                          ? "Reactivar matrícula"
-                          : "Estudiante inactivo"}
-                      </button>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </section>
+        <details className="course-hub-section" id="course-corrections" open>
+          <summary className="course-hub-section-summary"><div><h2 id="course-corrections-title">Correcciones <span className="count">{correctionsError ? "—" : courseCorrections.length}</span></h2><p>Historial de devoluciones de las evaluaciones de esta materia.</p></div><span className="course-section-chevron" aria-hidden="true">⌄</span></summary>
+          <div className="course-hub-section-body"><div className="section-row"><div><h3>Historial de correcciones</h3></div><Link href={`/app/correcciones?course=${id}`} className="text-link">Ver historial →</Link></div>
+          {correctionsError ? <p className="error-message" role="alert">{correctionsError}</p> : courseCorrections.length > 0 ? <div className="assessment-list">{courseCorrections.map((correction) => {
+            const hasScore = correction.total_score !== undefined && correction.total_score !== null && String(correction.total_score).trim() !== "" && Number.isFinite(Number(correction.total_score));
+            return <article className="course-hub-small-row" key={correction.id}>
+              <div><strong>{correction.student_name || "Estudiante sin identificar"}</strong><small>{correction.submission_title}</small></div>
+              <span className="course-correction-score">{hasScore ? `${Number(correction.total_score).toLocaleString("es-AR", { maximumFractionDigits: 2 })} pts` : "Sin nota"}</span>
+              <span className={`status-pill ${correction.status === "approved" ? "delivery-status-approved" : correction.status === "rejected" ? "delivery-status-rejected" : "delivery-status-review"}`}>{correction.status === "approved" ? "Aprobada" : correction.status === "rejected" ? "Rechazada" : "Pendiente"}</span>
+              <Link className="button button-quiet button-small" href={`/app/espacio-correccion?assessment=${encodeURIComponent(String(correction.submission_assessment_id))}&submission=${correction.submission}`}>Abrir</Link>
+            </article>;
+          })}</div> : <div className="empty-state"><h3>Todavía no hay correcciones</h3><p>Cuando generes una propuesta para una entrega de esta materia, aparecerá acá.</p><Link className="button button-quiet" href={`/app/entregas?course=${id}`}>Ver entregas</Link></div>}
+          </div>
+        </details>
+        <p className="app-disclaimer">La evaluación, los estudiantes y las devoluciones de esta página pertenecen a este curso. La decisión final de cada nota siempre es docente.</p>
       </main>
     </div>
   );

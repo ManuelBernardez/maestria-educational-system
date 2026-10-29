@@ -70,15 +70,30 @@ class StudentSerializer(OwnedSerializer):
             raise serializers.ValidationError("El nombre del estudiante es obligatorio.")
         return value
 
+    def validate_external_code(self, value):
+        code = value.strip()
+        if not code:
+            return ""
+        request_user = getattr(self.context.get("request"), "user", None)
+        owner_id = getattr(request_user, "id", None)
+        if owner_id:
+            queryset = Student.objects.filter(owner_id=owner_id, external_code=code)
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            if queryset.exists():
+                raise serializers.ValidationError("Ya existe un estudiante con ese código externo.")
+        return code
+
 
 class EnrollmentSerializer(OwnedSerializer):
     student_name = serializers.CharField(source="student.name", read_only=True)
     student_email = serializers.EmailField(source="student.email", read_only=True)
+    student_external_code = serializers.CharField(source="student.external_code", read_only=True, allow_blank=True)
     course_name = serializers.CharField(source="course.name", read_only=True)
 
     class Meta(OwnedSerializer.Meta):
         model = Enrollment
-        read_only_fields = (*OwnedSerializer.Meta.read_only_fields, "enrolled_at", "student_name", "student_email", "course_name")
+        read_only_fields = (*OwnedSerializer.Meta.read_only_fields, "enrolled_at", "student_name", "student_email", "student_external_code", "course_name")
 
     def validate(self, attrs):
         user_id = str(self.context["request"].user.id)
@@ -88,6 +103,18 @@ class EnrollmentSerializer(OwnedSerializer):
             raise serializers.ValidationError({"course": "Curso no disponible."})
         if student and str(student.owner_id) != user_id:
             raise serializers.ValidationError({"student": "Estudiante no disponible."})
+        if self.instance:
+            if "course" in attrs and course.pk != self.instance.course_id:
+                raise serializers.ValidationError({"course": "No se puede cambiar el curso de una matrícula existente."})
+            if "student" in attrs and student.pk != self.instance.student_id:
+                raise serializers.ValidationError({"student": "No se puede cambiar el estudiante de una matrícula existente."})
+            activating = attrs.get("status") == "active"
+        else:
+            activating = attrs.get("status", "active") == "active"
+        if activating and course and not course.active:
+            raise serializers.ValidationError({"course": "No se puede activar una matrícula en un curso archivado."})
+        if activating and student and not student.active:
+            raise serializers.ValidationError({"student": "No se puede activar una matrícula para un estudiante inactivo."})
         return attrs
 
 
@@ -156,6 +183,10 @@ class QuestionSerializer(OwnedSerializer):
             raise serializers.ValidationError({"assessment": "Evaluación no disponible."})
         if rubric and str(rubric.owner_id) != user_id:
             raise serializers.ValidationError({"rubric": "Rúbrica no disponible."})
+        if self.instance and "assessment" in attrs and assessment.pk != self.instance.assessment_id:
+            # Moving a question would silently change the meaning of historical
+            # answers/corrections linked to its original assessment.
+            raise serializers.ValidationError({"assessment": "No se puede mover una consigna a otra evaluación después de crearla."})
         return attrs
 
 
@@ -218,8 +249,15 @@ class SubmissionAnswerSerializer(OwnedSerializer):
         user_id = str(self.context["request"].user.id)
         submission = attrs.get("submission", getattr(self.instance, "submission", None))
         question = attrs.get("question", getattr(self.instance, "question", None))
+        if self.instance:
+            if "submission" in attrs and submission.pk != self.instance.submission_id:
+                raise serializers.ValidationError({"submission": "No se puede mover una respuesta a otra entrega existente."})
+            if "question" in attrs and (question.pk if question else None) != self.instance.question_id:
+                raise serializers.ValidationError({"question": "No se puede cambiar la pregunta vinculada a una respuesta existente."})
         if submission and str(submission.owner_id) != user_id:
             raise serializers.ValidationError({"submission": "Entrega no disponible."})
+        if submission and submission.status == "processing":
+            raise serializers.ValidationError({"submission": "No se pueden modificar respuestas mientras se procesa una corrección."})
         if question and str(question.owner_id) != user_id:
             raise serializers.ValidationError({"question": "Pregunta no disponible."})
         if submission and question and question.assessment_id != submission.assessment_id:
@@ -228,6 +266,32 @@ class SubmissionAnswerSerializer(OwnedSerializer):
         if not text.strip() or len(text) > 50000:
             raise serializers.ValidationError({"answer_text": "La respuesta debe contener entre 1 y 50.000 caracteres."})
         return attrs
+
+
+class SubmissionListSerializer(serializers.ModelSerializer):
+    """Bound list payloads; full answer bodies are fetched only in correction workspace/detail."""
+    student_display_name = serializers.SerializerMethodField()
+    answer_text = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Submission
+        fields = (
+            "id", "assessment", "question", "student", "student_name",
+            "student_display_name", "answer_text", "source_type", "source_filename",
+            "status", "created_at",
+        )
+
+    def get_student_display_name(self, obj):
+        return obj.student.name if obj.student_id else (obj.student_name or "Estudiante sin identificar")
+
+    def get_answer_text(self, obj):
+        # ViewSet annotates only the first 301 characters from PostgreSQL and
+        # defers the full answer_text field on the list action. Detailed views
+        # intentionally continue to return complete answer content.
+        value = (getattr(obj, "answer_preview", "") or "").strip()
+        if not value:
+            value = (getattr(obj, "first_answer_preview", "") or "").strip()
+        return value[:300] + ("…" if len(value) > 300 else "")
 
 
 class SubmissionSerializer(OwnedSerializer):
@@ -243,12 +307,23 @@ class SubmissionSerializer(OwnedSerializer):
 
     def validate(self, attrs):
         owner_id = str(self.context["request"].user.id)
-        answer_text = attrs.get("answer_text", getattr(self.instance, "answer_text", ""))
-        if len(answer_text) > 50000:
-            raise serializers.ValidationError({"answer_text": "La respuesta supera el límite de 50.000 caracteres."})
+        if self.instance and self.instance.status == "processing":
+            raise serializers.ValidationError({"status": "No se puede modificar una entrega mientras se está procesando una corrección."})
         assessment = attrs.get("assessment", getattr(self.instance, "assessment", None))
         student = attrs.get("student", getattr(self.instance, "student", None))
         question = attrs.get("question", getattr(self.instance, "question", None))
+        if self.instance:
+            # Resource identity is immutable after ingestion. Reassignment could
+            # make an existing correction refer to a different student/course.
+            if "assessment" in attrs and assessment.pk != self.instance.assessment_id:
+                raise serializers.ValidationError({"assessment": "No se puede mover una entrega a otra evaluación."})
+            if "student" in attrs and (student.pk if student else None) != self.instance.student_id:
+                raise serializers.ValidationError({"student": "No se puede reasignar una entrega a otro estudiante."})
+            if "question" in attrs and (question.pk if question else None) != self.instance.question_id:
+                raise serializers.ValidationError({"question": "No se puede cambiar la pregunta vinculada a una entrega existente."})
+        answer_text = attrs.get("answer_text", getattr(self.instance, "answer_text", ""))
+        if len(answer_text) > 50000:
+            raise serializers.ValidationError({"answer_text": "La respuesta supera el límite de 50.000 caracteres."})
         if not answer_text.strip() and not (self.instance and self.instance.answers.exists()):
             raise serializers.ValidationError({"answer_text": "Ingresá una respuesta o usá la carga de archivo."})
         if assessment and str(assessment.owner_id) != owner_id:
@@ -268,6 +343,28 @@ class CorrectionCriterionResultSerializer(serializers.ModelSerializer):
         fields = ("id", "question", "criterion_name", "score", "max_score", "evidence", "justification", "feedback", "position")
 
 
+class CorrectionSummarySerializer(serializers.ModelSerializer):
+    """Compact correction row for course dashboards and delivery filters."""
+    submission_assessment_id = serializers.IntegerField(source="submission.assessment_id", read_only=True)
+    submission_title = serializers.CharField(source="submission.assessment.title", read_only=True)
+    course_id = serializers.IntegerField(source="submission.assessment.course_id", read_only=True, allow_null=True)
+    course_name = serializers.CharField(source="submission.assessment.course.name", read_only=True, allow_null=True)
+    subject = serializers.CharField(source="submission.assessment.subject", read_only=True)
+    student_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Correction
+        fields = (
+            "id", "submission", "status", "provider", "total_score", "created_at",
+            "submission_assessment_id", "submission_title", "course_id", "course_name",
+            "subject", "student_name",
+        )
+
+    def get_student_name(self, obj):
+        submission = obj.submission
+        return submission.student.name if submission.student_id else (submission.student_name or "Estudiante sin identificar")
+
+
 class CorrectionSerializer(OwnedSerializer):
     criterion_results = CorrectionCriterionResultSerializer(many=True, read_only=True)
 
@@ -277,10 +374,17 @@ class CorrectionSerializer(OwnedSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["submission_title"] = instance.submission.assessment.title
+        assessment = instance.submission.assessment
+        course = assessment.course
+        student = instance.submission.student
+        data["submission_title"] = assessment.title
         data["submission_assessment_id"] = instance.submission.assessment_id
-        data["student_name"] = instance.submission.student.name if instance.submission.student else instance.submission.student_name
-        data["student_email"] = instance.submission.student.email if instance.submission.student else ""
+        data["student_id"] = instance.submission.student_id
+        data["student_name"] = student.name if student else (instance.submission.student_name or "Estudiante sin identificar")
+        data["student_email"] = student.email if student else ""
+        data["course_id"] = assessment.course_id
+        data["course_name"] = course.name if course else None
+        data["subject"] = assessment.subject
         return data
 
 

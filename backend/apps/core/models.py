@@ -5,6 +5,7 @@ verified bearer token; the API never trusts owner_id supplied by a client.
 """
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
 
 
 class OwnedModel(models.Model):
@@ -27,7 +28,7 @@ class Course(OwnedModel):
     class Meta:
         ordering = ["-updated_at", "name"]
         constraints = [
-            models.UniqueConstraint(fields=["owner_id", "name"], name="uniq_course_name_per_owner"),
+            models.UniqueConstraint(Lower("name"), "owner_id", name="uniq_course_owner_name_ci"),
             models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_course_id_owner"),
         ]
         indexes = [models.Index(fields=["owner_id", "active"], name="course_owner_active_idx")]

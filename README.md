@@ -40,6 +40,14 @@ Navegador
 
 > **Estado:** v0.2.5 — navegación más simple, espacio de corrección reorganizado en tres áreas y campos secundarios bajo demanda; publicación en staging pendiente. Proyecto en desarrollo/MVP; no se debe considerar listo para producción hasta completar CI, pruebas de aislamiento con dos cuentas y evaluación pedagógica con docentes.
 
+## Revisión técnica y validación
+
+Los cambios de eficiencia, concurrencia, seguridad, accesibilidad y los límites de validación técnica se documentan en [docs/REVISION-NFR-2026-10-28.md](docs/REVISION-NFR-2026-10-28.md). Antes de publicar, ejecutá los checks de frontend/backend y la lista de pruebas de producción allí indicada.
+
+## Revisión UX/UI
+
+La reorganización del espacio docente, la clasificación de componentes, los cambios en correcciones y las recomendaciones de prueba se documentan en [docs/REVISION-UX-2026-10-28.md](docs/REVISION-UX-2026-10-28.md). La revisión UX se basó también en el prototipo HTML de referencia entregado; build de Next.js, pruebas visuales en navegador y test con docentes siguen pendientes.
+
 ## Puesta en marcha local
 
 Requisitos: Python 3.11+, Node.js 22 recomendado, npm y Git. Supabase se necesita para probar Auth; SQLite sirve para desarrollo aislado del backend, pero las restricciones tenant específicas de PostgreSQL se validan en Supabase/PostgreSQL.
