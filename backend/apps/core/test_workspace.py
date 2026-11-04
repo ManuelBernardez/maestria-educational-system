@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 
 from .authentication import SupabasePrincipal
 from .models import Assessment, Course, Correction, Enrollment, Rubric, RubricCriterion, RubricLevel, Student, Submission
+from .test_support import ensure_auth_users
 
 
 
@@ -14,6 +15,7 @@ class DashboardOverviewApiTests(TestCase):
     def setUp(self):
         self.owner_id = uuid4()
         self.other_owner_id = uuid4()
+        ensure_auth_users(self.owner_id, self.other_owner_id)
         self.client = APIClient()
         self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
 
@@ -74,6 +76,7 @@ class CorrectionWorkspaceApiTests(TestCase):
     def setUp(self):
         self.owner_id = uuid4()
         self.other_owner_id = uuid4()
+        ensure_auth_users(self.owner_id, self.other_owner_id)
         self.client = APIClient()
         self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
         self.assessment = Assessment.objects.create(
@@ -355,6 +358,7 @@ class CorrectionWorkspaceApiTests(TestCase):
 class AtomicRubricCreationTests(TestCase):
     def setUp(self):
         self.owner_id = uuid4()
+        ensure_auth_users(self.owner_id)
         self.client = APIClient()
         self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
 
@@ -398,6 +402,7 @@ class StudentCourseAssignmentTests(TestCase):
     def setUp(self):
         self.owner_id = uuid4()
         self.other_owner_id = uuid4()
+        ensure_auth_users(self.owner_id, self.other_owner_id)
         self.course = Course.objects.create(
             owner_id=self.owner_id, name="Ciencias 2.º año", subject="Ciencias Naturales"
         )
@@ -455,6 +460,7 @@ class DemoDatasetSeedTests(TestCase):
     def setUp(self):
         self.owner_id = uuid4()
         self.other_owner_id = uuid4()
+        ensure_auth_users(self.owner_id, self.other_owner_id)
         self.client = APIClient()
         self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
 
@@ -486,3 +492,23 @@ class DemoDatasetSeedTests(TestCase):
         other = other_client.post("/api/demo/seed/", {}, format="json")
         self.assertNotEqual(first.data["assessment_id"], other.data["assessment_id"])
         self.assertEqual(Course.objects.filter(owner_id=self.other_owner_id, name="Ejemplo MaestrIA · Ciencias Naturales").count(), 1)
+
+class CourseNavigationApiTests(TestCase):
+    def setUp(self):
+        self.owner_id, self.other_owner_id = uuid4(), uuid4()
+        ensure_auth_users(self.owner_id, self.other_owner_id)
+        self.own_course = Course.objects.create(
+            owner_id=self.owner_id, name="Curso propio", description="Descripción que no debe incluirse en navegación.",
+        )
+        Course.objects.create(owner_id=self.other_owner_id, name="Curso ajeno")
+        self.client = APIClient()
+        self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
+
+    def test_course_navigation_mode_is_compact_and_owner_scoped(self):
+        response = self.client.get("/api/courses/?nav=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row["id"] for row in response.data], [self.own_course.pk])
+        self.assertNotIn("description", response.data[0])
+        self.assertNotIn("owner_id", response.data[0])
+        self.assertNotIn("Curso ajeno", str(response.data))
+

@@ -29,18 +29,19 @@ from rest_framework.response import Response
 
 from .ai import default_rubric_for_question, generate_correction, generate_questions, generate_rubric
 from .models import (
-    AIGeneration, Assessment, AuditEvent, ContactMessage, Correction,
+    AIProviderConfig, AIGeneration, Assessment, AuditEvent, ContactMessage, Correction,
     CorrectionCriterionResult, CorrectionRevision, Course, Enrollment,
     Question, Rubric, RubricCriterion, RubricLevel, Student, Submission,
-    SubmissionAnswer,
+    SubmissionAnswer, UserProfile,
 )
 from .serializers import (
-    AssessmentEditorSerializer, AssessmentListSerializer, AssessmentSerializer, AssessmentWorkspaceSerializer, ContactMessageSerializer, CorrectionSerializer,
+    AssessmentEditorSerializer, AssessmentListSerializer, AssessmentSerializer, AssessmentWorkspaceSerializer, CorrectionSerializer,
     CourseDashboardSerializer, CourseNavigationSerializer, CourseOptionSerializer, CourseSerializer, EnrollmentSerializer, QuestionSerializer,
     CorrectionSummarySerializer, RubricCriterionSerializer, RubricLevelSerializer, RubricOptionSerializer, RubricSerializer,
     StudentOptionSerializer, StudentSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
 )
-from .throttles import AIUserRateThrottle, ContactRateThrottle
+from .throttles import AIUserRateThrottle, ContactRateThrottle, ContactUserRateThrottle
+from .admin_api import PublicContactMessageSerializer
 
 logger = logging.getLogger(__name__)
 MAX_ANSWER_CHARS = 50_000
@@ -51,22 +52,48 @@ MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
 MAX_DOCX_MEMBERS = 1_000
 
 
-def record_audit(owner_id, event_type, object_type, object_id, detail=None):
-    """Write minimal trace data; never pass response content, email or credentials."""
+def record_audit(owner_id, event_type, object_type, object_id, detail=None, request=None):
+    """Persist minimal trace metadata; never include response content or secrets."""
+    actor_role = "system"
+    actor_user_id = None
+    request_id = None
+    ip_address = None
+    user_agent = None
+    if request is not None and getattr(request, "user", None) and getattr(request.user, "is_authenticated", False):
+        actor_user_id = request.user.id
+        actor_role = UserProfile.objects.filter(user_id=actor_user_id, status="active").values_list("role", flat=True).first() or "teacher"
+        request_id = getattr(request, "request_id", None)
+        ip_address = request.META.get("REMOTE_ADDR")
+        user_agent = request.META.get("HTTP_USER_AGENT", "")[:1000] or None
     AuditEvent.objects.create(
-        owner_id=owner_id, event_type=event_type, object_type=object_type,
-        object_id=str(object_id), detail=detail or {},
+        owner_id=owner_id, actor_user_id=actor_user_id, actor_role=actor_role,
+        event_type=event_type, object_type=object_type, object_id=str(object_id),
+        detail=detail or {}, request_id=request_id, ip_address=ip_address, user_agent=user_agent,
     )
 
 
-def record_ai_generation(owner_id, task, started, ok, fingerprint="", error_code="", assessment=None, submission=None):
-    provider = os.getenv("AI_PROVIDER", "mock")
+def active_ai_provider_config():
+    """Read non-secret routing configuration; provider credentials stay in env."""
+    selected = AIProviderConfig.objects.filter(enabled=True).order_by("priority", "provider").first()
+    if not selected:
+        return None
+    return {
+        "provider": selected.provider,
+        "model_name": selected.model_name,
+        "timeout_seconds": selected.timeout_seconds,
+    }
+
+
+def record_ai_generation(owner_id, task, started, ok, fingerprint="", error_code="", assessment=None, submission=None, provider_config=None):
+    provider_config = provider_config or active_ai_provider_config() or {}
+    provider = provider_config.get("provider") or os.getenv("AI_PROVIDER", "mock")
     elapsed = min(max(int((time.monotonic() - started) * 1000), 0), 2_147_483_647)
     model_name = {
-        "gemini": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        "gemini": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
     }.get(provider, "")
+    model_name = provider_config.get("model_name") or model_name
     AIGeneration.objects.create(
         owner_id=owner_id, task=task, provider=provider,
         model_name=model_name[:100],
@@ -375,7 +402,7 @@ def seed_demo_dataset(request):
         "course_id": course.id,
         "assessment_id": assessment.id,
         "submission_ids": [item.id for item in submissions],
-    })
+    }, request=request)
     return Response({
         "created": True,
         "course_id": course.id,
@@ -423,7 +450,7 @@ def correction_workspace(request):
             "submissions": [],
             "corrections": [],
             "enrollments": [],
-            "ai_provider": os.getenv("AI_PROVIDER", "mock").strip().lower(),
+            "ai_provider": (active_ai_provider_config() or {}).get("provider") or os.getenv("AI_PROVIDER", "mock").strip().lower(),
         })
     # Do not load teacher rosters or full rubric structures on the empty state.
     # When an assessment has a course, fetch only its active enrolled students.
@@ -560,7 +587,7 @@ def correction_workspace(request):
         "submissions": submissions,
         "corrections": corrections,
         "enrollments": enrollments,
-        "ai_provider": os.getenv("AI_PROVIDER", "mock").strip().lower(),
+        "ai_provider": (active_ai_provider_config() or {}).get("provider") or os.getenv("AI_PROVIDER", "mock").strip().lower(),
     })
 
 
@@ -570,16 +597,65 @@ def health(request):
     return Response({"status": "ok", "service": "maestria-api"})
 
 
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def client_config(request):
+    """Expose only browser-safe Supabase Auth settings; never expose service-role/JWT secrets."""
+    return Response({
+        "supabase_url": os.getenv("SUPABASE_URL", "").rstrip("/"),
+        "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY", ""),
+    })
+
+
+@api_view(["GET"])
+def current_user_profile(request):
+    """Return the authenticated identity's MaestrIA role and scoped memberships."""
+    from .permissions import active_memberships
+    profile = UserProfile.objects.filter(user_id=request.user.id).first()
+    memberships = list(
+        active_memberships(request.user).select_related("institution")
+        .values("id", "institution_id", "institution__name", "role", "status")
+    )
+    role = profile.role if profile and profile.status == "active" else "teacher"
+    return Response({
+        "user_id": str(request.user.id),
+        "email": getattr(request.user, "email", "") or (profile.email if profile else ""),
+        "full_name": profile.full_name if profile else "",
+        "role": role,
+        "status": profile.status if profile else "active",
+        "memberships": memberships,
+    })
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@throttle_classes([ContactRateThrottle])
+@throttle_classes([ContactRateThrottle, ContactUserRateThrottle])
 def contact(request):
-    """Public contact form with validation and a honeypot field."""
-    serializer = ContactMessageSerializer(data=request.data)
+    """Persist public messages; privileged workflow fields are never accepted."""
+    serializer = PublicContactMessageSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    payload = {key: value for key, value in serializer.validated_data.items() if key != "website"}
-    message = ContactMessage.objects.create(**payload)
-    # Email notification is best-effort. Never expose SMTP errors to an anonymous caller.
+    user = getattr(request, "user", None)
+    user_id = user.id if user and getattr(user, "is_authenticated", False) else None
+    # The message and its authenticated audit event commit together. SMTP is
+    # deliberately performed after the transaction so it cannot hold DB locks.
+    with transaction.atomic():
+        message = ContactMessage.objects.create(
+            name=serializer.validated_data["name"],
+            email=serializer.validated_data["email"],
+            subject=serializer.validated_data["subject"],
+            message=serializer.validated_data["message"],
+            category=serializer.validated_data.get("category", "general"),
+            source="public_web",
+            user_id=user_id,
+        )
+        if user_id:
+            record_audit(
+                user_id, "contact_message.created", "contact_message", message.pk,
+                {"category": message.category, "source": "public_web"}, request=request,
+            )
+    # Email notification is best-effort and independent from database persistence.
     if os.getenv("CONTACT_NOTIFY_EMAIL") and os.getenv("DEFAULT_FROM_EMAIL"):
         try:
             send_mail(
@@ -622,13 +698,23 @@ class CourseViewSet(OwnerViewSet):
         return super().get_serializer_class()
 
     def _save_course(self, serializer, **kwargs):
-        try:
-            with transaction.atomic():
-                serializer.save(**kwargs)
-        except IntegrityError as exc:
-            # The case-insensitive DB constraint is the final guard against two
-            # concurrent create/update requests bypassing serializer validation.
-            raise ValidationError({"name": "Ya existe una materia o curso con ese nombre en tu cuenta."}) from exc
+        owner_id = kwargs.get("owner_id") or self.request.user.id
+        with transaction.atomic():
+            # The canonical database schema has no case-insensitive unique index.
+            # Lock the Auth identity row so concurrent API writes for one owner
+            # serialize duplicate checks without inventing a database constraint.
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(owner_id)])
+                if cursor.fetchone() is None:
+                    raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
+            name = serializer.validated_data.get("name", getattr(serializer.instance, "name", ""))
+            duplicates = Course.objects.filter(owner_id=owner_id, name__iexact=name.strip())
+            if serializer.instance:
+                duplicates = duplicates.exclude(pk=serializer.instance.pk)
+            if duplicates.exists():
+                raise ValidationError({"name": "Ya existe un curso con ese nombre en tu cuenta."})
+            serializer.save(**kwargs)
 
     def perform_create(self, serializer):
         self._save_course(serializer, owner_id=self.request.user.id)
@@ -647,13 +733,33 @@ class EnrollmentViewSet(OwnerViewSet):
     serializer_class = EnrollmentSerializer
 
     def perform_create(self, serializer):
-        try:
-            with transaction.atomic():
-                serializer.save(owner_id=self.request.user.id)
-        except IntegrityError as exc:
-            # The serializer catches ordinary duplicates; the database constraint
-            # remains the final arbiter when two requests race.
-            raise ValidationError({"student": "Ya existe una matrícula para este estudiante y curso. Revisá si está inactiva para reactivarla."}) from exc
+        with transaction.atomic():
+            course = serializer.validated_data["course"]
+            student = serializer.validated_data["student"]
+            Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
+            Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
+            if serializer.validated_data.get("status", "active") == "active" and Enrollment.objects.filter(
+                owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active",
+            ).exists():
+                raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
+            serializer.save(owner_id=self.request.user.id)
+
+    def perform_update(self, serializer):
+        from django.db import connection
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(self.request.user.id)])
+            if cursor.fetchone() is None:
+                raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
+            course = serializer.validated_data.get("course", serializer.instance.course)
+            student = serializer.validated_data.get("student", serializer.instance.student)
+            course = Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
+            student = Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
+            next_status = serializer.validated_data.get("status", serializer.instance.status)
+            if next_status == "active":
+                duplicate = Enrollment.objects.filter(owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active").exclude(pk=serializer.instance.pk)
+                if duplicate.exists():
+                    raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
+            serializer.save()
 
     def get_queryset(self):
         queryset = super().get_queryset().filter(course__owner_id=self.request.user.id, student__owner_id=self.request.user.id)
@@ -746,7 +852,7 @@ class AssessmentViewSet(OwnerViewSet):
                 raise ValidationError({"file": "El material combinado supera los 50.000 caracteres. Reemplazá el material existente o resumí los documentos."})
             assessment.reference_material = combined
             assessment.save(update_fields=["reference_material", "updated_at"])
-            record_audit(request.user.id, "assessment.reference_imported", "assessment", assessment.id, {"source_type": source_type, "chars": len(text), "mode": mode})
+            record_audit(request.user.id, "assessment.reference_imported", "assessment", assessment.id, {"source_type": source_type, "chars": len(text), "mode": mode}, request=request)
         return Response({"assessment_id": assessment.id, "source_type": source_type, "chars": len(text), "total_chars": len(combined), "reference_material": combined})
 
     @action(detail=True, methods=["post"], url_path="generate-questions", throttle_classes=[AIUserRateThrottle])
@@ -761,17 +867,18 @@ class AssessmentViewSet(OwnerViewSet):
                 raise ValidationError({"count": "La cantidad debe ser un número entero entre 1 y 5."}) from exc
             if not 1 <= count <= 5:
                 raise ValidationError({"count": "Solicitá entre 1 y 5 preguntas por vez."})
+            provider_config = active_ai_provider_config()
             result = async_to_sync(generate_questions)(
                 title=assessment.title, subject=assessment.subject, level=assessment.level,
                 objectives=assessment.objectives, instructions=assessment.instructions,
-                reference_material=assessment.reference_material, count=count,
+                reference_material=assessment.reference_material, count=count, provider_config=provider_config,
             )
-            record_ai_generation(request.user.id, "generate_questions", started, True, fingerprint(context), assessment=assessment)
-            record_audit(request.user.id, "questions.proposed", "assessment", assessment.id, {"count": len(result.get("questions", [])), "demo": bool(result.get("demo"))})
+            record_ai_generation(request.user.id, "generate_questions", started, True, fingerprint(context), assessment=assessment, provider_config=provider_config)
+            record_audit(request.user.id, "questions.proposed", "assessment", assessment.id, {"count": len(result.get("questions", [])), "demo": bool(result.get("demo"))}, request=request)
         except ValidationError:
             raise
         except Exception as exc:
-            record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), type(exc).__name__, assessment=assessment)
+            record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), type(exc).__name__, assessment=assessment, provider_config=locals().get("provider_config"))
             logger.warning("AI questions generation failed (%s)", type(exc).__name__)
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(result, status=status.HTTP_200_OK)
@@ -781,27 +888,39 @@ class StudentViewSet(OwnerViewSet):
     queryset = Student.objects.all().prefetch_related("enrollments__course").order_by("name")
     serializer_class = StudentSerializer
 
+    def perform_update(self, serializer):
+        from django.db import connection
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(self.request.user.id)])
+            if cursor.fetchone() is None:
+                raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
+            code = str(serializer.validated_data.get("external_code", getattr(serializer.instance, "external_code", ""))).strip()
+            if code:
+                duplicates = Student.objects.filter(owner_id=self.request.user.id, external_code=code).exclude(pk=serializer.instance.pk)
+                if duplicates.exists():
+                    raise ValidationError({"external_code": "Ya existe un estudiante con ese código externo."})
+            serializer.save()
+
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        # Every newly created student must start in a course. The underlying
-        # Enrollment model still allows a student to join additional courses later.
+        # Lock the Auth identity row so duplicate external_code checks serialize
+        # across requests, since the canonical physical schema has no unique index.
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(request.user.id)])
+            if cursor.fetchone() is None:
+                raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
         course_id = request.data.get("course")
         try:
-            course = Course.objects.get(pk=course_id, owner_id=request.user.id, active=True)
+            course = Course.objects.select_for_update().get(pk=course_id, owner_id=request.user.id, active=True)
         except (Course.DoesNotExist, ValueError, TypeError):
             raise ValidationError({"course": "Elegí una materia o curso activo antes de agregar al estudiante."})
         payload = request.data.copy()
         payload.pop("course", None)
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        try:
-            # A savepoint lets us catch the DB uniqueness guard cleanly without
-            # leaving the outer atomic request transaction in a broken state.
-            with transaction.atomic():
-                student = serializer.save(owner_id=request.user.id)
-                Enrollment.objects.create(owner_id=request.user.id, course=course, student=student, status="active")
-        except IntegrityError as exc:
-            raise ValidationError({"external_code": "Ya existe un estudiante con ese código externo. Revisá el código e intentá nuevamente."}) from exc
+        student = serializer.save(owner_id=request.user.id)
+        Enrollment.objects.create(owner_id=request.user.id, course=course, student=student, status="active")
         student = self.get_queryset().get(pk=student.pk)
         return Response(self.get_serializer(student).data, status=status.HTTP_201_CREATED)
 
@@ -824,6 +943,12 @@ class StudentViewSet(OwnerViewSet):
                 raise ValidationError({"file": "El CSV debe incluir una columna name."})
             created, skipped, errors = 0, 0, []
             owner_id = request.user.id
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(owner_id)])
+                if cursor.fetchone() is None:
+                    raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
+            course = Course.objects.select_for_update().get(pk=course.pk, owner_id=owner_id, active=True)
             seen_codes = set(Student.objects.filter(owner_id=owner_id).exclude(external_code="").values_list("external_code", flat=True))
             for row_number, row in enumerate(reader, start=2):
                 if row_number > 501:
@@ -840,20 +965,11 @@ class StudentViewSet(OwnerViewSet):
                         skipped += 1; errors.append({"row": row_number, "reason": "Correo inválido."}); continue
                 if code and code in seen_codes:
                     skipped += 1; errors.append({"row": row_number, "reason": "external_code duplicado."}); continue
-                try:
-                    # Each row has a savepoint so one concurrent duplicate does
-                    # not poison the whole import transaction.
-                    with transaction.atomic():
-                        student = Student.objects.create(owner_id=owner_id, name=name, email=email, phone=(row.get("phone") or "").strip()[:32], external_code=code)
-                        Enrollment.objects.create(owner_id=owner_id, course=course, student=student, status="active")
-                except IntegrityError:
-                    skipped += 1
-                    reason = "external_code duplicado." if code else "No se pudo registrar la matrícula por un conflicto de integridad."
-                    errors.append({"row": row_number, "reason": reason})
-                    continue
+                student = Student.objects.create(owner_id=owner_id, name=name, email=email, phone=(row.get("phone") or "").strip()[:32], external_code=code)
+                Enrollment.objects.create(owner_id=owner_id, course=course, student=student, status="active")
                 if code: seen_codes.add(code)
                 created += 1
-            record_audit(owner_id, "students.imported", "student_import", "csv", {"created": created, "skipped": skipped})
+            record_audit(owner_id, "students.imported", "student_import", "csv", {"created": created, "skipped": skipped}, request=request)
             return Response({"created": created, "skipped": skipped, "errors": errors[:100]}, status=status.HTTP_200_OK)
         except UnicodeDecodeError as exc:
             raise ValidationError({"file": "El archivo debe estar codificado en UTF-8."}) from exc
@@ -919,7 +1035,7 @@ class RubricViewSet(OwnerViewSet):
                     level_serializer.is_valid(raise_exception=True)
                     level_serializer.save(owner_id=request.user.id)
 
-        record_audit(request.user.id, "rubric.created", "rubric", rubric.id, {"criteria_count": len(raw_criteria), "scale_type": rubric.scale_type})
+        record_audit(request.user.id, "rubric.created", "rubric", rubric.id, {"criteria_count": len(raw_criteria), "scale_type": rubric.scale_type}, request=request)
         rubric = Rubric.objects.prefetch_related("criteria__levels").get(pk=rubric.pk, owner_id=request.user.id)
         return Response(RubricSerializer(rubric, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
@@ -942,12 +1058,13 @@ class RubricViewSet(OwnerViewSet):
             raise ValidationError({"count": "Solicitá entre 2 y 6 criterios para la rúbrica sugerida."})
         started = time.monotonic()
         context = {"title": title, "subject": subject, "level": level, "count": count, "question_count": len(question_prompts)}
+        provider_config = active_ai_provider_config()
         try:
             reference_material = str(request.data.get("reference_material", ""))[:12000]
-            result = async_to_sync(generate_rubric)(title=title, subject=subject, level=level, objectives=objectives, instructions=instructions, question_prompts=question_prompts, reference_material=reference_material, count=count)
-            record_ai_generation(request.user.id, "generate_rubric", started, True, fingerprint(context))
+            result = async_to_sync(generate_rubric)(title=title, subject=subject, level=level, objectives=objectives, instructions=instructions, question_prompts=question_prompts, reference_material=reference_material, count=count, provider_config=provider_config)
+            record_ai_generation(request.user.id, "generate_rubric", started, True, fingerprint(context), provider_config=provider_config)
         except Exception as exc:
-            record_ai_generation(request.user.id, "generate_rubric", started, False, fingerprint(context), type(exc).__name__)
+            record_ai_generation(request.user.id, "generate_rubric", started, False, fingerprint(context), type(exc).__name__, provider_config=provider_config)
             logger.warning("AI rubric generation failed (%s)", type(exc).__name__)
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudo proponer la rúbrica. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(result)
@@ -1197,7 +1314,7 @@ class SubmissionViewSet(OwnerViewSet):
             student_name=str(request.data.get("student_name", ""))[:180], answer_text=text,
             source_type=source_type, source_filename=Path(uploaded.name).name[:255], status="pending",
         )
-        record_audit(request.user.id, "submission.imported", "submission", submission.id, {"source_type": source_type, "chars": len(text)})
+        record_audit(request.user.id, "submission.imported", "submission", submission.id, {"source_type": source_type, "chars": len(text)}, request=request)
         return Response(self.get_serializer(submission).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="generate-correction", throttle_classes=[AIUserRateThrottle])
@@ -1336,6 +1453,8 @@ class SubmissionViewSet(OwnerViewSet):
             # while limiting request bursts and provider quota/cost amplification.
             max_concurrency = min(max(int(os.getenv("AI_MAX_CONCURRENT_ANSWERS", "3")), 1), 3)
 
+            provider_config = active_ai_provider_config()
+
             async def generate_all_proposals():
                 semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -1347,6 +1466,7 @@ class SubmissionViewSet(OwnerViewSet):
                             rubric=item["criteria"],
                             max_score=item["effective_max"],
                             feedback_style=feedback_style,
+                            provider_config=provider_config,
                         )
 
                 return await asyncio.gather(*(generate_one(item) for item in prepared_items))
@@ -1423,7 +1543,7 @@ class SubmissionViewSet(OwnerViewSet):
         except Exception as exc:
             if reservation_acquired:
                 release_reservation()
-            record_ai_generation(request.user.id, "generate_correction", started, False, fingerprint(context), type(exc).__name__, assessment=submission.assessment, submission=submission)
+            record_ai_generation(request.user.id, "generate_correction", started, False, fingerprint(context), type(exc).__name__, assessment=submission.assessment, submission=submission, provider_config=locals().get("provider_config"))
             logger.warning("AI correction generation failed (%s)", type(exc).__name__)
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")}, status=status.HTTP_502_BAD_GATEWAY)
 
@@ -1447,16 +1567,16 @@ class SubmissionViewSet(OwnerViewSet):
                 correction = Correction.objects.create(
                     owner_id=request.user.id, submission=locked_submission,
                     rubric=used_rubrics[0] if len(set(r.id for r in used_rubrics)) == 1 else requested_rubric,
-                    provider=os.getenv("AI_PROVIDER", "mock"), proposal=aggregate,
+                    provider=(provider_config or {}).get("provider") or os.getenv("AI_PROVIDER", "mock"), proposal=aggregate,
                     teacher_feedback=aggregate.get("feedback", ""), total_score=total,
                 )
                 locked_submission.status = "review"
                 locked_submission.save(update_fields=["status", "updated_at"])
-                record_audit(request.user.id, "correction.proposed", "correction", correction.id, {"provider": correction.provider, "demo": bool(aggregate.get("demo")), "criteria": len(aggregate["criteria"])})
+                record_audit(request.user.id, "correction.proposed", "correction", correction.id, {"provider": correction.provider, "demo": bool(aggregate.get("demo")), "criteria": len(aggregate["criteria"])}, request=request)
                 # Persist operational telemetry in the same transaction as the
                 # proposal so an audit/logging failure cannot return a false 500
                 # after the correction was already committed.
-                record_ai_generation(request.user.id, "generate_correction", started, True, fingerprint(context), assessment=submission.assessment, submission=submission)
+                record_ai_generation(request.user.id, "generate_correction", started, True, fingerprint(context), assessment=submission.assessment, submission=submission, provider_config=provider_config)
         except ValidationError:
             if reservation_acquired:
                 release_reservation()
@@ -1692,7 +1812,7 @@ class CorrectionViewSet(OwnerViewSet):
                 )
             locked_submission.status = "approved"
             locked_submission.save(update_fields=["status", "updated_at"])
-            record_audit(request.user.id, "correction.approved", "correction", correction.id, {"score": str(correction.total_score), "demo": bool(final_result.get("demo"))})
+            record_audit(request.user.id, "correction.approved", "correction", correction.id, {"demo": bool(final_result.get("demo"))}, request=request)
         correction.refresh_from_db()
         return Response(self.get_serializer(correction).data)
 

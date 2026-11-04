@@ -110,12 +110,14 @@ from uuid import uuid4
 from django.test import TestCase
 from rest_framework.test import APIClient
 from .models import Course
+from .test_support import ensure_auth_users
 
 
 class TenantIsolationTests(TestCase):
     def setUp(self):
         self.owner_a = str(uuid4())
         self.owner_b = str(uuid4())
+        ensure_auth_users(self.owner_a, self.owner_b)
         Course.objects.create(owner_id=self.owner_a, name="Curso A")
         self.course_b = Course.objects.create(owner_id=self.owner_b, name="Curso B")
         self.client = APIClient()
@@ -148,11 +150,11 @@ class TenantIsolationTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("name", response.data)
 
-    def test_database_constraint_prevents_case_only_duplicate_course_names(self):
-        from django.db import IntegrityError, transaction
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Course.objects.create(owner_id=self.owner_a, name="curso a")
+    def test_reference_schema_does_not_claim_a_database_unique_course_name_index(self):
+        # The canonical SQL has no case-insensitive unique index for course.name.
+        # The API enforces this for application writes under an owner-row lock.
+        duplicate = Course.objects.create(owner_id=self.owner_a, name="curso a")
+        self.assertTrue(Course.objects.filter(owner_id=self.owner_a, pk=duplicate.pk).exists())
 
     def test_student_creation_requires_a_course(self):
         from .authentication import SupabasePrincipal
@@ -268,6 +270,7 @@ class DemoDatasetTests(TestCase):
         from rest_framework.test import APIClient
         from .authentication import SupabasePrincipal
         self.owner_id = str(uuid4())
+        ensure_auth_users(self.owner_id)
         self.client = APIClient()
         self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_id))
 

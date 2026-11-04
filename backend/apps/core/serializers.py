@@ -86,7 +86,7 @@ class StudentSerializer(OwnedSerializer):
 
     class Meta(OwnedSerializer.Meta):
         model = Student
-        read_only_fields = (*OwnedSerializer.Meta.read_only_fields, "enrollments")
+        read_only_fields = (*OwnedSerializer.Meta.read_only_fields, "enrollments", "account_user_id")
 
     def validate_email(self, value):
         return value.strip().lower()
@@ -142,6 +142,14 @@ class EnrollmentSerializer(OwnedSerializer):
             raise serializers.ValidationError({"course": "No se puede activar una matrícula en un curso archivado."})
         if activating and student and not student.active:
             raise serializers.ValidationError({"student": "No se puede activar una matrícula para un estudiante inactivo."})
+        if activating and course and student:
+            duplicate = Enrollment.objects.filter(
+                owner_id=user_id, course_id=course.pk, student_id=student.pk, status="active",
+            )
+            if self.instance:
+                duplicate = duplicate.exclude(pk=self.instance.pk)
+            if duplicate.exists():
+                raise serializers.ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
         return attrs
 
 

@@ -1,340 +1,374 @@
-"""MaestrIA domain models.
+"""ORM mapping for Supabase's externally managed public schema.
 
-Identity is owned by Supabase Auth. The UUID in owner_id must always come from a
-verified bearer token; the API never trusts owner_id supplied by a client.
+Supabase SQL owns the physical schema. Every model is unmanaged and maps an
+existing public table. ForeignKey fields provide ORM navigation only; PostgreSQL
+keeps the composite (foreign_id, owner_id) constraints authoritative.
+Supabase Auth UUIDs are never mapped to django.contrib.auth.User.
 """
 from django.db import models
-from django.db.models import Q
-from django.db.models.functions import Lower
 
 
-class OwnedModel(models.Model):
-    owner_id = models.UUIDField(db_index=True, editable=False)
+class PublicTable(models.Model):
+    class Meta:
+        abstract = True
+        managed = False
+
+
+class OwnedTable(PublicTable):
+    owner_id = models.UUIDField(editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True
+        managed = False
 
 
-class Course(OwnedModel):
+class Course(OwnedTable):
     name = models.CharField(max_length=160)
-    subject = models.CharField(max_length=120, blank=True)
-    level = models.CharField(max_length=120, blank=True)
-    academic_year = models.CharField(max_length=20, blank=True)
-    description = models.TextField(blank=True)
+    subject = models.CharField(max_length=120, blank=True, default="")
+    level = models.CharField(max_length=120, blank=True, default="")
+    academic_year = models.CharField(max_length=20, blank=True, default="")
+    description = models.TextField(blank=True, default="")
     active = models.BooleanField(default=True)
 
     class Meta:
+        managed = False
+        db_table = "course"
         ordering = ["-updated_at", "name"]
-        constraints = [
-            models.UniqueConstraint(Lower("name"), "owner_id", name="uniq_course_owner_name_ci"),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_course_id_owner"),
-        ]
-        indexes = [models.Index(fields=["owner_id", "active"], name="course_owner_active_idx")]
 
     def __str__(self):
         return self.name
 
 
-class Student(OwnedModel):
+class Student(OwnedTable):
     name = models.CharField(max_length=180)
-    # Email is optional by design: collect it only when there is a defined need.
-    email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=32, blank=True)
-    external_code = models.CharField(max_length=80, blank=True)
+    email = models.EmailField(blank=True, default="")
+    phone = models.CharField(max_length=32, blank=True, default="")
+    external_code = models.CharField(max_length=80, blank=True, default="")
+    account_user_id = models.UUIDField(null=True, blank=True)
     active = models.BooleanField(default=True)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["owner_id", "external_code"],
-                condition=~Q(external_code=""),
-                name="uniq_student_external_code_per_owner",
-            ),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_student_id_owner"),
-        ]
+        managed = False
+        db_table = "student"
         ordering = ["name"]
-        indexes = [models.Index(fields=["owner_id", "active"], name="student_owner_active_idx")]
 
     def __str__(self):
         return self.name
 
 
-class Enrollment(OwnedModel):
+class Rubric(OwnedTable):
+    SCALE_CHOICES = [("numeric", "Numérica"), ("levels", "Niveles"), ("both", "Ambas")]
+    title = models.CharField(max_length=180)
+    description = models.TextField(blank=True, default="")
+    scale_type = models.CharField(max_length=16, choices=SCALE_CHOICES, default="both")
+
+    class Meta:
+        managed = False
+        db_table = "rubric"
+
+    def __str__(self):
+        return self.title
+
+
+class RubricCriterion(OwnedTable):
+    rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="criteria")
+    name = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default="")
+    max_score = models.DecimalField(max_digits=38, decimal_places=18, default=10)
+    weight = models.DecimalField(max_digits=38, decimal_places=18, default=1)
+    position = models.IntegerField(default=1)
+
+    class Meta:
+        managed = False
+        db_table = "rubric_criterion"
+        ordering = ["position", "id"]
+
+
+class RubricLevel(OwnedTable):
+    criterion = models.ForeignKey(RubricCriterion, db_constraint=False, on_delete=models.PROTECT, related_name="levels")
+    name = models.CharField(max_length=80)
+    description = models.TextField(blank=True, default="")
+    score = models.DecimalField(max_digits=38, decimal_places=18)
+    position = models.IntegerField(default=1)
+
+    class Meta:
+        managed = False
+        db_table = "rubric_level"
+        ordering = ["position", "id"]
+
+
+class Assessment(OwnedTable):
+    STATUS_CHOICES = [("draft", "Borrador"), ("ready", "Lista"), ("archived", "Archivada")]
+    title = models.CharField(max_length=180)
+    subject = models.CharField(max_length=120, blank=True, default="")
+    level = models.CharField(max_length=120, blank=True, default="")
+    objectives = models.TextField(blank=True, default="")
+    instructions = models.TextField(blank=True, default="")
+    reference_material = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="draft")
+    course = models.ForeignKey(Course, db_constraint=False, on_delete=models.PROTECT, related_name="assessments", null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "assessment"
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return self.title
+
+
+class Question(OwnedTable):
+    TYPE_CHOICES = [("open", "Respuesta abierta"), ("short", "Respuesta breve"), ("case", "Caso")]
+    prompt = models.TextField()
+    expected_answer = models.TextField(blank=True, default="")
+    question_type = models.CharField(max_length=16, choices=TYPE_CHOICES, default="open")
+    max_score = models.DecimalField(max_digits=38, decimal_places=18, default=10)
+    position = models.IntegerField(default=1)
+    assessment = models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="questions")
+    rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="questions", null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "question"
+        ordering = ["position", "id"]
+
+
+class Enrollment(OwnedTable):
     STATUS_CHOICES = [("active", "Activa"), ("inactive", "Inactiva")]
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="enrollments")
-    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="enrollments")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="active")
     enrolled_at = models.DateTimeField(auto_now_add=True)
-    notes = models.CharField(max_length=250, blank=True)
+    notes = models.CharField(max_length=250, blank=True, default="")
+    course = models.ForeignKey(Course, db_constraint=False, on_delete=models.PROTECT, related_name="enrollments")
+    student = models.ForeignKey(Student, db_constraint=False, on_delete=models.PROTECT, related_name="enrollments")
 
     class Meta:
+        managed = False
+        db_table = "enrollment"
         ordering = ["student__name"]
-        constraints = [
-            models.UniqueConstraint(fields=["course", "student"], name="uniq_enrollment_course_student"),
-            models.CheckConstraint(condition=Q(status__in=["active", "inactive"]), name="enrollment_status_valid"),
-        ]
-        indexes = [models.Index(fields=["owner_id", "course", "status"], name="enroll_owner_course_status_idx")]
 
     def __str__(self):
         return f"{self.student} — {self.course}"
 
 
-class Rubric(OwnedModel):
-    SCALE_CHOICES = [("numeric", "Numérica"), ("levels", "Niveles de desempeño"), ("both", "Ambas")]
-    title = models.CharField(max_length=180)
-    description = models.TextField(blank=True)
-    scale_type = models.CharField(max_length=16, choices=SCALE_CHOICES, default="both")
-
-    class Meta:
-        constraints = [
-            models.CheckConstraint(condition=Q(scale_type__in=["numeric", "levels", "both"]), name="rubric_scale_type_valid"),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_rubric_id_owner"),
-        ]
-
-    def __str__(self):
-        return self.title
-
-
-class RubricCriterion(OwnedModel):
-    rubric = models.ForeignKey(Rubric, on_delete=models.CASCADE, related_name="criteria")
-    name = models.CharField(max_length=160)
-    description = models.TextField(blank=True)
-    max_score = models.DecimalField(max_digits=7, decimal_places=2, default=10)
-    weight = models.DecimalField(max_digits=6, decimal_places=3, default=1)
-    position = models.PositiveIntegerField(default=1)
-
-    class Meta:
-        ordering = ["position", "id"]
-        constraints = [
-            models.UniqueConstraint(fields=["rubric", "position"], name="uniq_criterion_position_per_rubric"),
-            models.CheckConstraint(condition=Q(max_score__gt=0) & Q(max_score__lte=1000), name="criterion_score_range"),
-            models.CheckConstraint(condition=Q(weight__gte=0) & Q(weight__lte=100), name="criterion_weight_range"),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_rubriccriterion_id_owner"),
-        ]
-
-
-class RubricLevel(OwnedModel):
-    criterion = models.ForeignKey(RubricCriterion, on_delete=models.CASCADE, related_name="levels")
-    name = models.CharField(max_length=80)
-    description = models.TextField(blank=True)
-    score = models.DecimalField(max_digits=7, decimal_places=2)
-    position = models.PositiveIntegerField(default=1)
-
-    class Meta:
-        ordering = ["position", "id"]
-        constraints = [
-            models.UniqueConstraint(fields=["criterion", "position"], name="uniq_rubric_level_position"),
-            models.CheckConstraint(condition=Q(score__gte=0), name="rubric_level_score_nonnegative"),
-        ]
-
-
-class Assessment(OwnedModel):
-    STATUS_CHOICES = [("draft", "Borrador"), ("ready", "Lista"), ("archived", "Archivada")]
-    title = models.CharField(max_length=180)
-    subject = models.CharField(max_length=120, blank=True)
-    level = models.CharField(max_length=120, blank=True)
-    objectives = models.TextField(blank=True)
-    instructions = models.TextField(blank=True)
-    # Text extracted from teacher-provided course material; binary files are not retained.
-    reference_material = models.TextField(blank=True, default="")
-    status = models.CharField(max_length=24, default="draft", choices=STATUS_CHOICES)
-    # Nullable only to preserve existing evaluations during the migration; new UI asks for a course.
-    course = models.ForeignKey(Course, on_delete=models.SET_NULL, related_name="assessments", null=True, blank=True)
-
-    class Meta:
-        ordering = ["-updated_at"]
-        indexes = [models.Index(fields=["owner_id", "status"], name="assessment_owner_status_idx")]
-        constraints = [
-            models.CheckConstraint(condition=Q(status__in=["draft", "ready", "archived"]), name="assessment_status_valid"),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_assessment_id_owner"),
-        ]
-
-    def __str__(self):
-        return self.title
-
-
-class Question(OwnedModel):
-    TYPE_CHOICES = [("open", "Respuesta abierta"), ("short", "Respuesta breve"), ("case", "Caso aplicado")]
-    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name="questions")
-    rubric = models.ForeignKey(Rubric, on_delete=models.SET_NULL, related_name="questions", null=True, blank=True)
-    prompt = models.TextField()
-    expected_answer = models.TextField(blank=True)
-    question_type = models.CharField(max_length=16, choices=TYPE_CHOICES, default="open")
-    max_score = models.DecimalField(max_digits=7, decimal_places=2, default=10)
-    position = models.PositiveIntegerField(default=1)
-
-    class Meta:
-        ordering = ["position", "id"]
-        constraints = [
-            models.UniqueConstraint(fields=["assessment", "position"], name="uniq_question_position_per_assessment"),
-            models.CheckConstraint(condition=Q(max_score__gt=0) & Q(max_score__lte=1000), name="question_score_range"),
-            models.CheckConstraint(condition=Q(question_type__in=["open", "short", "case"]), name="question_type_valid"),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_question_id_owner"),
-        ]
-
-
-class Submission(OwnedModel):
+class Submission(OwnedTable):
     STATUS_CHOICES = [("pending", "Pendiente"), ("processing", "Procesando"), ("review", "A revisar"), ("approved", "Aprobada")]
     SOURCE_CHOICES = [("text", "Texto"), ("txt", "TXT"), ("pdf", "PDF"), ("docx", "DOCX")]
-    assessment = models.ForeignKey(Assessment, on_delete=models.PROTECT, related_name="submissions")
-    # Backwards-compatible single-answer fields. Multi-question submissions use SubmissionAnswer.
-    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="submissions", null=True, blank=True)
-    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="submissions", null=True, blank=True)
-    student_name = models.CharField(max_length=180, blank=True)
+    student_name = models.CharField(max_length=180, blank=True, default="")
     answer_text = models.TextField(blank=True, default="")
     source_type = models.CharField(max_length=16, choices=SOURCE_CHOICES, default="text")
-    source_filename = models.CharField(max_length=255, blank=True)
-    status = models.CharField(max_length=24, default="pending", choices=STATUS_CHOICES)
+    source_filename = models.CharField(max_length=255, blank=True, default="")
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="pending")
+    assessment = models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="submissions")
+    question = models.ForeignKey(Question, db_constraint=False, on_delete=models.PROTECT, related_name="submissions", null=True, blank=True)
+    student = models.ForeignKey(Student, db_constraint=False, on_delete=models.PROTECT, related_name="submissions", null=True, blank=True)
 
     class Meta:
+        managed = False
+        db_table = "submission"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["owner_id", "status"], name="submission_owner_status_idx")]
-        constraints = [
-            models.CheckConstraint(condition=Q(status__in=["pending", "processing", "review", "approved"]), name="submission_status_valid"),
-            models.CheckConstraint(condition=Q(source_type__in=["text", "txt", "pdf", "docx"]), name="submission_source_type_valid"),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_submission_id_owner"),
-        ]
 
 
-class SubmissionAnswer(OwnedModel):
-    submission = models.ForeignKey(Submission, on_delete=models.CASCADE, related_name="answers")
-    question = models.ForeignKey(Question, on_delete=models.PROTECT, related_name="submitted_answers")
+class SubmissionAnswer(OwnedTable):
     answer_text = models.TextField()
-    source_filename = models.CharField(max_length=255, blank=True)
+    source_filename = models.CharField(max_length=255, blank=True, default="")
+    submission = models.ForeignKey(Submission, db_constraint=False, on_delete=models.PROTECT, related_name="answers")
+    question = models.ForeignKey(Question, db_constraint=False, on_delete=models.PROTECT, related_name="submitted_answers")
 
     class Meta:
+        managed = False
+        db_table = "submission_answer"
         ordering = ["question__position", "id"]
-        constraints = [models.UniqueConstraint(fields=["submission", "question"], name="uniq_submission_question_answer")]
 
 
-class Correction(OwnedModel):
+class Correction(OwnedTable):
     STATUS_CHOICES = [("pending_review", "Pendiente de revisión"), ("approved", "Aprobada"), ("rejected", "Rechazada")]
-    submission = models.ForeignKey(Submission, on_delete=models.CASCADE, related_name="corrections")
-    rubric = models.ForeignKey(Rubric, on_delete=models.PROTECT, related_name="corrections", null=True, blank=True)
     provider = models.CharField(max_length=32, default="mock")
     proposal = models.JSONField(default=dict)
-    final_result = models.JSONField(default=dict, blank=True)
-    teacher_feedback = models.TextField(blank=True)
-    total_score = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    status = models.CharField(max_length=24, default="pending_review", choices=STATUS_CHOICES)
+    final_result = models.JSONField(default=dict)
+    teacher_feedback = models.TextField(blank=True, default="")
+    total_score = models.DecimalField(max_digits=38, decimal_places=18, default=0)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="pending_review")
     approved_at = models.DateTimeField(null=True, blank=True)
+    rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="corrections", null=True, blank=True)
+    submission = models.ForeignKey(Submission, db_constraint=False, on_delete=models.PROTECT, related_name="corrections")
 
     class Meta:
+        managed = False
+        db_table = "correction"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["owner_id", "status"], name="correction_owner_status_idx")]
-        constraints = [
-            models.CheckConstraint(condition=Q(total_score__gte=0), name="correction_total_nonnegative"),
-            models.CheckConstraint(condition=Q(status__in=["pending_review", "approved", "rejected"]), name="correction_status_valid"),
-            models.UniqueConstraint(fields=["id", "owner_id"], name="uniq_correction_id_owner"),
-        ]
 
 
-class CorrectionCriterionResult(OwnedModel):
-    correction = models.ForeignKey(
-        Correction,
-        on_delete=models.CASCADE,
-        related_name="criterion_results",
-    )
-    question = models.ForeignKey(
-        Question,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="criterion_results",
-    )
+class CorrectionCriterionResult(OwnedTable):
     criterion_name = models.CharField(max_length=160)
-    score = models.DecimalField(max_digits=7, decimal_places=2)
-    max_score = models.DecimalField(max_digits=7, decimal_places=2)
-    evidence = models.TextField(blank=True)
-    justification = models.TextField(blank=True)
-    feedback = models.TextField(blank=True)
-    position = models.PositiveIntegerField(default=1)
+    score = models.DecimalField(max_digits=38, decimal_places=18)
+    max_score = models.DecimalField(max_digits=38, decimal_places=18)
+    evidence = models.TextField(blank=True, default="")
+    justification = models.TextField(blank=True, default="")
+    feedback = models.TextField(blank=True, default="")
+    position = models.IntegerField(default=1)
+    correction = models.ForeignKey(Correction, db_constraint=False, on_delete=models.PROTECT, related_name="criterion_results")
+    question = models.ForeignKey(Question, db_constraint=False, on_delete=models.PROTECT, related_name="criterion_results", null=True, blank=True)
 
     class Meta:
+        managed = False
+        db_table = "correction_criterion_result"
         ordering = ["position", "id"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["correction", "position"],
-                name="uniq_criterion_result_position",
-            ),
-            models.CheckConstraint(
-                condition=Q(score__gte=0)
-                & Q(max_score__gte=0)
-                & Q(score__lte=models.F("max_score")),
-                name="criterion_result_score_range",
-            ),
-        ]
-        indexes = [
-            models.Index(
-                fields=["owner_id", "criterion_name"],
-                name="corr_crit_owner_name_idx",
-            ),
-        ]
 
 
-class CorrectionRevision(models.Model):
-    correction = models.ForeignKey(Correction, on_delete=models.CASCADE, related_name="revisions")
-    owner_id = models.UUIDField(db_index=True, editable=False)
-    revision_number = models.PositiveIntegerField()
-    previous_result = models.JSONField(default=dict, blank=True)
+class CorrectionRevision(PublicTable):
+    correction = models.ForeignKey(Correction, db_constraint=False, on_delete=models.PROTECT, related_name="revisions")
+    owner_id = models.UUIDField(editable=False)
+    revision_number = models.IntegerField()
+    previous_result = models.JSONField(default=dict)
     new_result = models.JSONField(default=dict)
-    reason = models.CharField(max_length=250, blank=True)
+    reason = models.CharField(max_length=250, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        managed = False
+        db_table = "correction_revision"
         ordering = ["revision_number"]
-        constraints = [models.UniqueConstraint(fields=["correction", "revision_number"], name="uniq_correction_revision_number")]
 
 
-class AIGeneration(models.Model):
-    """Operational trace only. Never store the prompt, answer text, email, or access token."""
+class AIGeneration(PublicTable):
     STATUS_CHOICES = [("succeeded", "Exitosa"), ("failed", "Fallida")]
-    owner_id = models.UUIDField(db_index=True, editable=False)
-    assessment = models.ForeignKey(Assessment, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_generations")
-    submission = models.ForeignKey(Submission, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_generations")
-    task = models.CharField(max_length=40, db_index=True)
+    owner_id = models.UUIDField(editable=False)
+    task = models.CharField(max_length=80)
     provider = models.CharField(max_length=32)
-    model_name = models.CharField(max_length=100, blank=True)
+    model_name = models.CharField(max_length=120, blank=True, default="")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES)
-    duration_ms = models.PositiveIntegerField(default=0)
-    prompt_fingerprint = models.CharField(max_length=64, blank=True)
-    error_code = models.CharField(max_length=80, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    duration_ms = models.IntegerField(default=0)
+    input_tokens = models.IntegerField(default=0)
+    output_tokens = models.IntegerField(default=0)
+    estimated_cost_usd = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
+    prompt_fingerprint = models.CharField(max_length=128, blank=True, default="")
+    error_code = models.CharField(max_length=80, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    assessment = models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="ai_generations", null=True, blank=True)
+    submission = models.ForeignKey(Submission, db_constraint=False, on_delete=models.PROTECT, related_name="ai_generations", null=True, blank=True)
 
     class Meta:
+        managed = False
+        db_table = "ai_generation"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["owner_id", "task", "created_at"], name="ai_generation_owner_task_idx")]
-        constraints = [models.CheckConstraint(condition=Q(status__in=["succeeded", "failed"]), name="ai_generation_status_valid")]
 
 
-class AuditEvent(models.Model):
-    """Minimal traceability events. Do not store student answer text or secrets."""
-    owner_id = models.UUIDField(db_index=True)
-    event_type = models.CharField(max_length=80, db_index=True)
-    object_type = models.CharField(max_length=80)
-    object_id = models.CharField(max_length=80)
-    detail = models.JSONField(default=dict, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+class AuditEvent(PublicTable):
+    ACTOR_ROLE_CHOICES = [(role, role) for role in ("teacher", "student", "admin", "superadmin", "system")]
+    owner_id = models.UUIDField(editable=False)
+    event_type = models.CharField(max_length=120)
+    object_type = models.CharField(max_length=120)
+    object_id = models.CharField(max_length=160)
+    detail = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    actor_user_id = models.UUIDField(null=True, blank=True)
+    actor_role = models.CharField(max_length=24, choices=ACTOR_ROLE_CHOICES, null=True, blank=True)
+    request_id = models.CharField(max_length=128, null=True, blank=True)
+    ip_address = models.GenericIPAddressField(protocol="both", unpack_ipv4=True, null=True, blank=True)
+    user_agent = models.TextField(null=True, blank=True)
 
     class Meta:
+        managed = False
+        db_table = "audit_event"
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["owner_id", "-created_at"], name="audit_owner_created_idx")]
 
 
-class ContactMessage(models.Model):
-    STATUS_CHOICES = [("new", "Nuevo"), ("handled", "Atendido"), ("spam", "Spam")]
-    name = models.CharField(max_length=120)
-    email = models.EmailField()
-    subject = models.CharField(max_length=160)
+class ContactMessage(PublicTable):
+    STATUS_CHOICES = [("new", "Nuevo"), ("in_progress", "En gestión"), ("handled", "Atendido"), ("spam", "Spam")]
+    name = models.CharField(max_length=180)
+    email = models.EmailField(max_length=254)
+    subject = models.CharField(max_length=240)
     message = models.TextField(max_length=4000)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="new")
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    # Honeypot must remain empty; the API rejects submissions where it is filled.
+    internal_notes = models.TextField(blank=True, default="")
+    assigned_to = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    user_id = models.UUIDField(null=True, blank=True)
+    category = models.CharField(max_length=80, default="general")
+    source = models.CharField(max_length=80, default="public_web")
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    handled_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict)
+
     class Meta:
+        managed = False
+        db_table = "contact_message"
         ordering = ["-created_at"]
-        constraints = [
-            models.CheckConstraint(condition=Q(status__in=["new", "handled", "spam"]), name="contact_status_valid"),
-            models.CheckConstraint(condition=Q(message__length__lte=4000), name="contact_message_max_length"),
-        ]
+
+
+class UserProfile(PublicTable):
+    ROLE_CHOICES = [(r, r) for r in ("teacher", "student", "admin", "superadmin")]
+    STATUS_CHOICES = [(s, s) for s in ("active", "suspended", "deleted")]
+    user_id = models.UUIDField(unique=True)
+    email = models.EmailField(max_length=254, blank=True, default="")
+    full_name = models.CharField(max_length=180, blank=True, default="")
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default="teacher")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="active")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    role_updated_at = models.DateTimeField(null=True, blank=True)
+    role_updated_by = models.UUIDField(null=True, blank=True)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    suspended_by = models.UUIDField(null=True, blank=True)
+    suspension_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        managed = False
+        db_table = "user_profile"
+        ordering = ["-created_at"]
+
+
+class Institution(PublicTable):
+    STATUS_CHOICES = [(s, s) for s in ("active", "suspended", "archived")]
+    name = models.CharField(max_length=180)
+    slug = models.SlugField(max_length=180, unique=True)
+    contact_email = models.EmailField(max_length=254, blank=True, default="")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="active")
+    created_by = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "institution"
+        ordering = ["name"]
+
+
+class InstitutionMembership(PublicTable):
+    ROLE_CHOICES = [(r, r) for r in ("teacher", "department_admin", "institution_admin")]
+    STATUS_CHOICES = [(s, s) for s in ("invited", "active", "suspended")]
+    institution = models.ForeignKey(Institution, db_constraint=False, on_delete=models.PROTECT, related_name="memberships")
+    user_id = models.UUIDField()
+    role = models.CharField(max_length=24, choices=ROLE_CHOICES, default="teacher")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="active")
+    invited_by = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "institution_membership"
+        ordering = ["-created_at"]
+
+
+class AIProviderConfig(PublicTable):
+    PROVIDER_CHOICES = [(p, p) for p in ("mock", "gemini", "openai", "ollama")]
+    provider = models.CharField(max_length=24, choices=PROVIDER_CHOICES, unique=True)
+    model_name = models.CharField(max_length=160, blank=True, default="")
+    enabled = models.BooleanField(default=False)
+    priority = models.SmallIntegerField(default=10)
+    timeout_seconds = models.SmallIntegerField(default=45)
+    input_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
+    output_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
+    updated_by = models.UUIDField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        managed = False
+        db_table = "ai_provider_config"
+        ordering = ["priority", "provider"]

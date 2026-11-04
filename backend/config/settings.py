@@ -21,6 +21,15 @@ if not DEBUG and ("change-me" in SECRET_KEY.lower() or "replace-with" in SECRET_
     raise RuntimeError("DJANGO_SECRET_KEY parece una clave de ejemplo o demasiado corta; generá una clave privada de al menos 40 caracteres.")
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
+# Render supplies the public hostname at runtime; avoid hard-coding a deployment URL.
+render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if render_hostname and render_hostname not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(render_hostname)
+
+# One-origin deployment: Django serves the public HTML5 frontend and the API.
+FRONTEND_DIR = BASE_DIR.parent / "frontend"
+if not FRONTEND_DIR.is_dir():
+    raise RuntimeError("No se encontró el directorio frontend/ junto a backend/.")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 # Avoid the confusing PostgreSQL password error caused by leaving Supabase's
@@ -47,8 +56,11 @@ if DATABASE_URL:
         engine="django.db.backends.postgresql" if parsed_db_url.scheme in {"postgres", "postgresql"} else "django.db.backends.sqlite3",
     )
     if parsed_db_url.scheme in {"postgres", "postgresql"}:
-        # Preserve sslmode from the URI/ssl_require while adding a short connect timeout.
-        db_config.setdefault("OPTIONS", {})["connect_timeout"] = 10
+        # PostgreSQL Supabase schema is externally managed and resolves by public search_path.
+        db_options = db_config.setdefault("OPTIONS", {})
+        db_options["connect_timeout"] = 10
+        current_options = db_options.get("options", "").strip()
+        db_options["options"] = f"{current_options} -c search_path=public".strip()
     DATABASES = {"default": db_config}
 else:
     # SQLite is intentionally limited to local development and isolated tests.
@@ -57,12 +69,18 @@ else:
 # Supabase Auth is the only identity provider. Django's built-in auth/session apps
 # are intentionally not installed because the API authenticates bearer JWTs directly.
 INSTALLED_APPS = [
+    "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
     "apps.core",
 ]
+
+# Supabase SQL owns public.*. The legacy core migration graph creates core_* and
+# targets obsolete tables; do not replay/fake it. The ORM models are unmanaged.
+MIGRATION_MODULES = {"core": None}
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "apps.core.middleware.ApiServerTimingMiddleware",
@@ -78,15 +96,24 @@ LANGUAGE_CODE = "es-ar"
 TIME_ZONE = "America/Argentina/Buenos_Aires"
 USE_I18N = True
 USE_TZ = True
-STATIC_URL = "static/"
+STATIC_URL = "/assets/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [FRONTEND_DIR / "assets"]
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+WHITENOISE_MAX_AGE = 60 * 60 * 24
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CORS_ALLOWED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",") if x.strip()]
-CSRF_TRUSTED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",") if x.strip()]
+# In the combined deployment, browser requests are same-origin. Keep optional
+# explicit origins for local development or a future separately hosted client.
+CORS_ALLOWED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500").split(",") if x.strip()]
+CSRF_TRUSTED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500").split(",") if x.strip()]
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.authentication.SupabaseJWTAuthentication"],
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PERMISSION_CLASSES": ["apps.core.permissions.IsWorkspaceUser"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     # Avoid loading django.contrib.auth.models.AnonymousUser for unauthenticated API requests.
     "UNAUTHENTICATED_USER": None,
@@ -110,6 +137,10 @@ SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False  # Django's CSRF token may be read by trusted frontend code if needed.
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 X_FRAME_OPTIONS = "DENY"
+
+# SITE_URL is the public origin. FRONTEND_URL remains supported for compatibility.
+SITE_URL = os.getenv("SITE_URL", os.getenv("FRONTEND_URL", "http://localhost:5500")).strip().rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", SITE_URL).strip().rstrip("/")
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_HOST", "")
