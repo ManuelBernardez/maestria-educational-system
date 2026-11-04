@@ -1,41 +1,49 @@
 services:
   - type: web
-    name: maestria-api
+    name: maestria
     runtime: python
     plan: starter
-    rootDir: backend
-    buildCommand: pip install -r requirements-prod.txt
-    preDeployCommand: python manage.py migrate --noinput
-    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 90
+    buildCommand: pip install -r backend/requirements-prod.txt && cd backend && python manage.py collectstatic --noinput
+    startCommand: cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 90 --access-logfile - --error-logfile -
     healthCheckPath: /api/health/
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
       - key: DEBUG
         value: "False"
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: ALLOWED_HOSTS
-        value: maestria-api.onrender.com
+        value: maestria.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
         sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
       - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SITE_URL
         sync: false
       - key: FRONTEND_URL
         sync: false
-      - key: CORS_ALLOWED_ORIGINS
-        sync: false
-      - key: CSRF_TRUSTED_ORIGINS
-        sync: false
       - key: AI_PROVIDER
-        value: mock
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: AI_TIMEOUT_SECONDS
+        value: "35"
       - key: AI_EXTERNAL_PROCESSING_APPROVED
-        value: "False"
+        value: "True"
       - key: AI_GEMINI_PAID_TIER_CONFIRMED
-        value: "False"
+        value: "True"
       - key: AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL
         value: "False"
-      - key: AI_TIMEOUT_SECONDS
-        value: "45"
       - key: AI_MAX_CONCURRENT_ANSWERS
         value: "3"
+      - key: CORS_ALLOWED_ORIGINS
+        value: ""
+      - key: CSRF_TRUSTED_ORIGINS
+        value: ""

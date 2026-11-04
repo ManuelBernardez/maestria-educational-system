@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#173d31"><meta name="robots" content="noindex,nofollow">
+  <title>Restablecer contraseña — MaestrIA</title>
+  <link rel="icon" href="assets/images/maestria-mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/styles.css"><link rel="stylesheet" href="assets/css/public-enhancements.css"><link rel="stylesheet" href="assets/css/auth.css"><link rel="stylesheet" href="assets/css/responsive-refinements.css">
+  <script defer src="assets/js/config.js"></script><script defer src="assets/js/api.js"></script><script defer src="assets/js/auth-reset.js"></script>
+</head>
+<body class="auth-page">
+  <a class="skip-link" href="#reset-title">Saltar al formulario</a>
+  <header class="site-header"><a class="brand" href="index.html" aria-label="MaestrIA, inicio"><img class="brand-logo" src="assets/images/maestria-logo.png" alt="MaestrIA"></a><nav class="main-nav" aria-label="Navegación principal"><a href="index.html">Inicio</a><a href="como-funciona.html">Cómo funciona</a><a href="nosotros.html">Nosotros</a></nav><a class="nav-cta" href="acceso.html">Volver al acceso</a></header>
+  <main class="auth-shell" style="min-height:65vh;grid-template-columns:1fr;">
+    <section class="auth-content"><div class="auth-card" style="max-width:520px;margin:auto" aria-labelledby="reset-title">
+      <div class="auth-heading"><h1 id="reset-title">Elegí una nueva contraseña</h1><p>Usá al menos 8 caracteres. El enlace de recuperación es temporal.</p></div>
+      <form id="reset-form" class="auth-form" novalidate>
+        <div class="field"><label for="new-password">Nueva contraseña</label><div class="password-wrap"><input id="new-password" type="password" autocomplete="new-password" minlength="8" required><button class="toggle-password" type="button" data-toggle-password="new-password">Mostrar</button></div></div>
+        <div class="field"><label for="confirm-password">Repetí la contraseña</label><div class="password-wrap"><input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required><button class="toggle-password" type="button" data-toggle-password="confirm-password">Mostrar</button></div></div>
+        <p id="reset-message" class="form-message" role="status" aria-live="polite"></p>
+        <button class="auth-submit" type="submit"><span>Actualizar contraseña</span><span class="submit-arrow" aria-hidden="true"></span></button>
+      </form>
+    </div></section>
+  </main>
+</body></html>

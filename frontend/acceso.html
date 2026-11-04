@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#173d31">
+  <title>Ingresar — MaestrIA</title>
+  <meta name="description" content="Ingresá o creá tu espacio docente de MaestrIA.">
+  <link rel="icon" href="assets/images/maestria-mark.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="stylesheet" href="assets/css/public-enhancements.css">
+  <link rel="stylesheet" href="assets/css/auth.css">
+  <link rel="stylesheet" href="assets/css/responsive-refinements.css">
+  <script defer src="assets/js/config.js"></script>
+  <script defer src="assets/js/api.js"></script>
+  <script defer src="assets/js/auth.js"></script>
+</head>
+<body class="auth-page">
+  <a class="skip-link" href="#auth-title">Saltar al formulario</a>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="MaestrIA, inicio"><img class="brand-logo" src="assets/images/maestria-logo.png" alt="MaestrIA"></a>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav" aria-label="Abrir menú"><span></span><span></span></button>
+    <nav id="main-nav" class="main-nav" aria-label="Navegación principal">
+      <a href="index.html">Inicio</a><a href="como-funciona.html">Cómo funciona</a><a href="nosotros.html">Nosotros</a>
+    </nav>
+    <a class="nav-cta" href="index.html">Volver al sitio</a>
+  </header>
+  <div class="auth-shell">
+    <aside class="auth-art" aria-label="Presentación de MaestrIA">
+      <div class="art-orbit art-orbit-one" aria-hidden="true"></div>
+      <div class="art-orbit art-orbit-two" aria-hidden="true"></div>
+      <div class="art-copy">
+        <h1>Tu trabajo,<br><em>más simple</em></h1>
+        <p>Un lugar para reunir cursos, diseñar evaluaciones y preparar devoluciones de forma organizada. La mirada pedagógica sigue siendo tuya.</p>
+      </div>
+      <div class="float-object float-folder" aria-hidden="true"><svg viewBox="0 0 100 86"><path d="M10 21a8 8 0 0 1 8-8h23l10 10h31a8 8 0 0 1 8 8v36a8 8 0 0 1-8 8H18a8 8 0 0 1-8-8z" fill="#fff0a0" stroke="#20372e" stroke-width="3"/><path d="M10 32h80l-8 36H18z" fill="#f7d66f" stroke="#20372e" stroke-width="3"/></svg></div>
+      <div class="float-object float-clock" aria-hidden="true"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="32" fill="#fefcf7" stroke="#20372e" stroke-width="3"/><path d="M40 18v23l17 0" fill="none" stroke="#d77c65" stroke-width="4" stroke-linecap="round"/><circle cx="40" cy="40" r="4" fill="#20372e"/></svg></div>
+      <div class="float-object float-pencil" aria-hidden="true"><svg viewBox="0 0 80 80"><g transform="rotate(38 40 40)"><rect x="31" y="8" width="18" height="53" rx="4" fill="#fff0a0" stroke="#20372e" stroke-width="3"/><path d="M31 61h18L40 75z" fill="#e6b07b" stroke="#20372e" stroke-width="3"/><path d="M31 18h18" stroke="#ff7865" stroke-width="6"/></g></svg></div>
+      <div class="float-object float-note" aria-hidden="true"><svg viewBox="0 0 80 90"><path d="M10 7h60v76H10z" fill="#b8f060" stroke="#20372e" stroke-width="3"/><path d="M21 25h38M21 38h31M21 51h36" stroke="#41654a" stroke-width="3" stroke-linecap="round"/></svg></div>
+      <div class="art-bottom">MAESTRÍA EN EL PROCESO · MÁS ALLÁ DE LA AUTOMATIZACIÓN</div>
+    </aside>
+
+    <main class="auth-content">
+      <section class="auth-card" aria-labelledby="auth-title">
+        <div class="auth-heading"><h2 id="auth-title">Qué bueno verte</h2><p id="auth-description">Ingresá para continuar con tu trabajo docente.</p></div>
+        <nav class="auth-switch" id="auth-switch" aria-label="Acceso" role="tablist"><button class="auth-tab is-active" type="button" id="tab-login" role="tab" aria-selected="true" aria-controls="panel-login">Ingresar</button><button class="auth-tab" type="button" id="tab-register" role="tab" aria-selected="false" aria-controls="panel-register">Crear cuenta</button></nav>
+
+        <form id="panel-login" class="auth-form" role="tabpanel" aria-labelledby="tab-login" novalidate>
+          <div class="field"><label for="login-email">Correo electrónico</label><input id="login-email" name="email" type="email" autocomplete="email" placeholder="nombre@institucion.edu" required></div>
+          <div class="field"><label for="login-password">Contraseña</label><div class="password-wrap"><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Tu contraseña" minlength="8" required><button class="toggle-password" type="button" data-toggle-password="login-password" aria-label="Mostrar contraseña">Mostrar</button></div></div>
+          <div class="form-row form-row-end"><button class="quiet-link" id="forgot-password" type="button">¿Olvidaste tu contraseña?</button></div>
+          <p class="form-message" id="login-message" role="status" aria-live="polite"></p>
+          <button class="auth-submit" type="submit"><span>Ingresar</span><span class="submit-arrow" aria-hidden="true"></span></button>
+        </form>
+
+        <form id="panel-register" class="auth-form" role="tabpanel" aria-labelledby="tab-register" hidden novalidate>
+          <div class="form-grid"><div class="field"><label for="register-first-name">Nombre</label><input id="register-first-name" name="first_name" autocomplete="given-name" placeholder="Tu nombre" required></div><div class="field"><label for="register-last-name">Apellido</label><input id="register-last-name" name="last_name" autocomplete="family-name" placeholder="Tu apellido" required></div></div>
+          <div class="field"><label for="register-email">Correo electrónico</label><input id="register-email" name="email" type="email" autocomplete="email" placeholder="nombre@institucion.edu" required></div>
+          <div class="field"><label for="register-password">Contraseña</label><div class="password-wrap"><input id="register-password" name="password" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres" minlength="8" required><button class="toggle-password" type="button" data-toggle-password="register-password" aria-label="Mostrar contraseña">Mostrar</button></div></div>
+          <div class="field"><label for="register-confirm">Repetí la contraseña</label><div class="password-wrap"><input id="register-confirm" name="confirm" type="password" autocomplete="new-password" placeholder="Volvé a escribirla" minlength="8" required><button class="toggle-password" type="button" data-toggle-password="register-confirm" aria-label="Mostrar contraseña">Mostrar</button></div></div>
+          <p class="form-message" id="register-message" role="status" aria-live="polite"></p>
+          <button class="auth-submit" type="submit"><span>Crear cuenta</span><span class="submit-arrow" aria-hidden="true"></span></button>
+        </form>
+
+        <form id="panel-recover" class="auth-form" hidden novalidate>
+          <div class="field"><label for="recover-email">Correo electrónico</label><input id="recover-email" name="email" type="email" autocomplete="email" placeholder="nombre@institucion.edu" required></div>
+          <p class="form-message" id="recover-message" role="status" aria-live="polite"></p>
+          <button class="auth-submit" type="submit"><span>Enviar enlace de recuperación</span><span class="submit-arrow" aria-hidden="true"></span></button>
+          <button class="quiet-link recover-back" type="button" id="back-to-login">Volver al ingreso</button>
+        </form>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

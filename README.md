@@ -1,170 +1,153 @@
 # MaestrIA
 
-**Asistente docente para crear evaluaciones y rúbricas, revisar respuestas con IA y preparar devoluciones educativas editables bajo aprobación del docente.**
-
-MaestrIA ayuda a organizar el proceso de evaluación: desde definir qué se quiere evaluar, redactar consignas y establecer criterios, hasta cargar respuestas, revisar sugerencias de IA y preparar una devolución. La IA no decide la nota definitiva: el docente revisa, edita y aprueba cada corrección.
-
-
-## Qué ofrece el MVP
-
-- Inicio de sesión y recuperación de acceso con Supabase Auth. El registro pide nombre y apellido; las cuentas antiguas sin nombre completan el perfil al entrar.
-- Cursos, estudiantes y matrículas privadas por docente.
-- Evaluaciones, objetivos, materiales de referencia, consignas y rúbricas editables.
-- Carga de respuestas como texto o archivos PDF, DOCX, TXT y Markdown compatibles (no incluye OCR de manuscritos o escaneos).
-- Propuestas de preguntas, rúbricas y correcciones asistidas por IA.
-- Puntajes por criterio, justificación, evidencia literal, fortalezas y próximos pasos sugeridos.
-- Revisión y aprobación docente, historial de cambios de puntaje, exportación Markdown y compartir devoluciones desde el navegador (correo, WhatsApp, portapapeles o impresión/PDF, con confirmación manual).
-- Sitio público responsive: las funciones están integradas en Inicio y la demostración visual está dentro de Cómo funciona.
-- Botón **Probar con ejemplo**: prepara una vez por docente un curso de práctica con estudiantes y respuestas ficticios, una evaluación y una rúbrica. La corrección requiere un proveedor de IA real configurado; el modo `mock` está bloqueado para este conjunto y no puede generar una puntuación simulada presentada como real.
+Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
 
 ## Arquitectura
 
-```text
-Navegador
-  ├─ Sitio y panel docente: Next.js + React + TypeScript (Vercel)
-  ├─ Inicio de sesión: Supabase Auth (JWT)
-  └─ API REST autenticada: Django REST Framework (Render)
-          ├─ Validaciones, permisos, reglas del negocio y auditoría mínima
-          ├─ Adaptador IA de servidor: Gemini / OpenAI / Ollama / mock
-          └─ PostgreSQL en Supabase
-```
+- `frontend/`: sitio público y espacio docente HTML5 estáticos. Django los sirve en producción; no utiliza Next.js, React, Node ni un proceso de compilación.
+- `frontend/assets/js/api.js`: cliente HTTP, sesión Supabase por pestaña, renovación controlada de tokens y llamadas autenticadas a Django.
+- `frontend/assets/js/workspace.js`: navegación y flujos docentes/administrativos conectados a la API.
+- `backend/`: Django REST Framework, autenticación JWT Supabase, permisos, reglas de negocio, Gemini y servicio del frontend con WhiteNoise.
+- `docs/`: contratos y decisiones técnicas.
 
-| Parte | Tecnología | Responsabilidad |
-|---|---|---|
-| Frontend | Next.js App Router, React, TypeScript | Interfaz, páginas públicas, rutas, UX responsive y llamadas a la API. |
-| Backend | Python, Django REST Framework | Autenticación JWT, autorización por propietario, lógica de negocio, archivos, IA y exportaciones. |
-| Identidad | Supabase Auth | Registro, inicio de sesión, recuperación y emisión de JWT. No existe una cuenta paralela de Django. |
-| Datos | PostgreSQL/Supabase | Datos académicos, rúbricas, entregas, correcciones y trazabilidad mínima. |
-| IA | Gemini API (primera opción externa) | Propuestas JSON desde el servidor; nunca asigna ni publica una nota definitiva por sí misma. |
-| Despliegue sugerido | Vercel + Render + Supabase | Frontend, API y datos/autenticación desplegados por separado. |
+## Requisitos
 
-> **Estado:** v0.2.5 — navegación más simple, espacio de corrección reorganizado en tres áreas y campos secundarios bajo demanda; publicación en staging pendiente. Proyecto en desarrollo/MVP; no se debe considerar listo para producción hasta completar CI, pruebas de aislamiento con dos cuentas y evaluación pedagógica con docentes.
+- Python 3.12 (backend).
+- PostgreSQL/Supabase con el esquema `public` existente.
+- Cuenta/proyecto Supabase Auth.
+- Proveedor IA configurado en servidor para generación real. Por defecto, `mock` es sólo demostrativo.
+- Para producción, un único Render Web Service sirve frontend y backend. Para preview local separado, Python 3 puede servir el frontend estático.
 
-## Revisión técnica y validación
+No se necesita `npm install`, `npm run build` ni `node_modules` para ejecutar el frontend.
 
-Los cambios de eficiencia, concurrencia, seguridad, accesibilidad y los límites de validación técnica se documentan en [docs/REVISION-NFR-2026-10-28.md](docs/REVISION-NFR-2026-10-28.md). Antes de publicar, ejecutá los checks de frontend/backend y la lista de pruebas de producción allí indicada.
-
-## Revisión UX/UI
-
-La reorganización del espacio docente, la clasificación de componentes, los cambios en correcciones y las recomendaciones de prueba se documentan en [docs/REVISION-UX-2026-10-28.md](docs/REVISION-UX-2026-10-28.md). La revisión UX se basó también en el prototipo HTML de referencia entregado; build de Next.js, pruebas visuales en navegador y test con docentes siguen pendientes.
-
-## Puesta en marcha local
-
-Requisitos: Python 3.11+, Node.js 22 recomendado, npm y Git. Supabase se necesita para probar Auth; SQLite sirve para desarrollo aislado del backend, pero las restricciones tenant específicas de PostgreSQL se validan en Supabase/PostgreSQL.
+## Ejecución local
 
 ### 1. Backend
 
-PowerShell:
-
 ```powershell
 cd backend
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-python manage.py check
-python manage.py migrate
+```
+
+Completá `backend/.env` con `DJANGO_SECRET_KEY`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` si corresponde y la configuración Gemini. `backend/.env` está excluido de Git. En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`.
+
+Iniciá la aplicación integrada:
+
+```powershell
 python manage.py runserver 127.0.0.1:8000
 ```
 
-En desarrollo local sin Supabase, dejá `DATABASE_URL` comentada para SQLite. Para probar las migraciones `0006` y `0007`, usá un proyecto Supabase/PostgreSQL de prueba, ya que estas se conectan con `auth.users`.
+La API queda en `http://127.0.0.1:8000/api`. `GET /api/client-config/` entrega únicamente `SUPABASE_URL` y la clave pública anon. La API key Gemini y todos los secretos permanecen en el backend.
 
-### 2. Frontend
+### 2. Frontend HTML5
 
-En otra terminal:
+En otra terminal, desde la raíz del repositorio:
 
 ```powershell
-cd frontend
-npm install
-Copy-Item .env.example .env.local
-npm run dev
+py -m http.server 5500 --directory frontend
 ```
 
-Configurá en `frontend/.env.local` las variables `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL` y `NEXT_PUBLIC_SITE_URL` con el mismo proyecto y API configurados en el backend. No pongas secretos en esas variables públicas.
+Abrí:
 
-- Web: `http://localhost:3000`
-- Login: `http://localhost:3000/login`
-- API: `http://127.0.0.1:8000`
-- Salud API: `http://127.0.0.1:8000/api/health/`
+- Sitio público: `http://localhost:5500/`
+- Acceso: `http://localhost:5500/acceso.html`
+- Cómo funciona: `http://localhost:5500/como-funciona.html`
+- Nosotros y contacto: `http://localhost:5500/nosotros.html`
+- Espacio docente: `http://localhost:5500/espacio-docente/`
 
-## Probar el flujo de corrección
+Para un preview estático en `localhost:5500`, `config.js` apunta al backend local `127.0.0.1:8000`. En producción, detecta el mismo origen y usa `/api`; no hay que configurar una URL interna.
 
-1. Registrate con tu nombre o ingresá con tu cuenta. Si una cuenta existente no tiene nombre de perfil, MaestrIA lo pedirá antes de abrir el panel.
-2. En el resumen, elegí **Probar con ejemplo**. El ejemplo se guarda en tu propia cuenta y es idempotente: volver a pulsar el botón no duplica el conjunto.
-3. En el espacio de corrección, seleccioná una de las tres entregas ficticias y elegí **Guardar entrega y proponer corrección**.
-4. El botón consulta el proveedor configurado y no abre el flujo de práctica si está en `mock`. Con Gemini/OpenAI/Ollama, elegí una entrega y generá la propuesta. Si falta una clave o aprobación, la app muestra un error de configuración; no reemplaza la respuesta por una puntuación simulada.
+## Funcionalidades conectadas
 
-El ejemplo usa nombres inventados con el sufijo “Ejemplo”, correos y teléfonos vacíos y respuestas sintéticas. No cargues datos reales hasta haber revisado las condiciones de privacidad y el proveedor de IA.
+### Sitio público
 
-## Evaluar la calidad de IA
+- Portada, presentación, preguntas frecuentes y demostración visual.
+- Registro e inicio de sesión por Supabase Auth.
+- Confirmación de correo y recuperación/restablecimiento de contraseña.
+- Formulario de contacto público persistido en `public.contact_message`; el backend determina `user_id`, `source` y estado, y no acepta notas ni campos administrativos del cliente.
 
-El comando incluido usa exclusivamente respuestas inventadas (no datos reales):
+### Espacio docente
+
+- Resumen y actividad de cuenta.
+- Cursos: alta, edición, archivado/reactivación y detalle.
+- Estudiantes: alta, edición, activación, importación CSV y matrículas.
+- Evaluaciones: creación, edición, consignas, material de referencia y propuestas de consignas asistidas por IA.
+- Rúbricas: CRUD de rúbricas, criterios, niveles y generación asistida.
+- Entregas: texto/archivo, vinculación de estudiante, respuestas por consigna y detalle.
+- Correcciones: generar propuesta, revisar y editar criterios/evidencias, ajustar puntajes con motivo, aprobar con trazabilidad y exportar/compartir devolución.
+- Perfil de identidad y cierre de sesión.
+
+### Administración
+
+- Administradores globales: perfiles asociados a identidades Supabase existentes, instituciones, membresías, mensajes de contacto, proveedores IA y auditoría.
+- Administradores institucionales: consulta acotada de sus instituciones, gestión de sus miembros y edición limitada de nombre/contacto.
+- Administradores de departamento: consulta acotada a la membresía propia porque el esquema actual no contiene un `department_id` que permita aislar grupos departamentales.
+- No se crean usuarios Auth desde la interfaz: para invitar identidades nuevas hace falta una acción segura del lado servidor con Supabase Auth Admin.
+
+## Comportamiento IA y revisión humana
+
+La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue selecciona Gemini (`gemini-3.5-flash-lite`) y guarda `GEMINI_API_KEY` exclusivamente en el backend. Activar el procesamiento externo sólo después de revisar condiciones, informar a usuarios y confirmar el nivel pago del proyecto. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno. No utilizar respuestas reales de estudiantes con tiers que permitan entrenamiento del proveedor.
+
+Los datos de práctica se crean mediante `POST /api/demo/seed/` bajo confirmación explícita y se identifican como ficticios. No son datos de producción ni una autenticación simulada del frontend.
+
+## Esquema de datos y migraciones
+
+El esquema físico existente `public.*` de PostgreSQL/Supabase es la fuente de verdad. Django mapea los 20 modelos con `db_table` y `managed = False`; el dominio `core` no debe reconstruirse mediante migraciones Django. No ejecutar `migrate`, `makemigrations` ni `--fake` para reconstruir tablas de negocio.
+
+Verificación de sólo lectura:
 
 ```powershell
 cd backend
-# En .env: AI_PROVIDER=gemini, AI_EXTERNAL_PROCESSING_APPROVED=True,
-# AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL=True, GEMINI_API_KEY=...
-python manage.py evaluate_ai --output ai-evaluation.json
+python manage.py verify_public_schema
 ```
 
-El nivel gratuito queda habilitado solo para este comando de ejemplos sintéticos; el flujo normal de la app seguirá bloqueado hasta confirmar el nivel pago. El reporte mide estructura JSON, alineación de criterios, puntajes dentro de límites, evidencia literal, feedback, rangos orientativos de nota y latencia. Los rangos son una guía para revisar, no una verdad universal. La calidad pedagógica requiere revisión humana.
+La herramienta contrasta tablas, columnas, tipos, identidades, FK compuestas, índices y triggers con el esquema esperado. No cambia la base.
 
-## Base de datos desde cero
+## Pruebas y chequeos
 
-En un proyecto Supabase nuevo, las migraciones Django son la vía ejecutable. En `backend/`, ejecutar `python manage.py migrate` crea el dominio y las restricciones de propiedad. **No pegar `database/schema.sql` como un bootstrap**: se mantiene como esquema de referencia y no registra el historial de migraciones.
+Chequeo frontend estático (no requiere npm):
 
-- [`database/SCHEMA-DISENO-v0.2.0.md`](database/SCHEMA-DISENO-v0.2.0.md): entidades, relaciones y decisiones de qué guardar.
-- [`database/README.md`](database/README.md): orden de inicialización y reglas de identidad/propiedad.
-- [`database/diagnostico-pendientes-v0.2.0.sql`](database/diagnostico-pendientes-v0.2.0.sql): diagnósticos SQL de solo lectura para revisar migraciones, relaciones, RLS y permisos.
-- [`database/supabase-rls.sql`](database/supabase-rls.sql): defensa en profundidad opcional; aplicar solo después de migraciones y revisión.
+```powershell
+python scripts/check_static_frontend.py
+Get-ChildItem frontend/assets/js -Filter *.js | ForEach-Object { node --check $_.FullName }
+```
 
-Antes de migrar una base usada, hacer backup y correr primero el diagnóstico. Si las restricciones encuentran datos huérfanos o relaciones de otra cuenta, arreglarlos en una copia; no usar `--fake` ni borrar filas a ciegas.
-
-## Pruebas y CI
+Chequeos backend, en un entorno Python con las dependencias instaladas y PostgreSQL de prueba:
 
 ```powershell
 cd backend
 python -m compileall -q config apps manage.py
 python manage.py check
-python manage.py makemigrations --check --dry-run
-python manage.py test
+pytest -q
 ```
 
-```powershell
-cd frontend
-npm run lint
-npm run typecheck
-npm run build
-```
+La suite backend usa PostgreSQL y un esquema de prueba separado. No apunta a Supabase de producción. Las pruebas contra la instancia real requieren una conexión configurada y una ventana controlada.
 
-GitHub Actions ejecuta los chequeos de backend y frontend en cada push/PR relevante. El `package-lock.json` recibido no coincidía con `package.json`: bloqueaba `eslint-config-next` y `@next/eslint-plugin-next` en la versión 14.2.35 mientras la app declara Next 16. Se quitó ese lockfile inconsistente y CI usa `npm install` de manera temporal. Antes de publicar, generá y validá un lockfile nuevo en un entorno con acceso al registro npm, versionalo y cambiá CI a `npm ci`.
+## Despliegue en Render
 
-## Seguridad y propiedad de los datos
+El `render.yaml` publica `frontend/` como sitio estático sin build y despliega la API Django como servicio Python independiente. Configurá `FRONTEND_URL`, `CORS_ALLOWED_ORIGINS` y `CSRF_TRUSTED_ORIGINS` con el dominio estático de Render. Configurá Supabase URL/anon key/JWT secret y `DATABASE_URL` sólo en el backend. Confirmá también Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
 
-- Supabase Auth es la única fuente de identidad; `owner_id` viene del `sub` de un JWT validado por Django, no del cuerpo enviado por el navegador.
-- Cada lista/operación de datos se filtra por el docente. Las migraciones `0006` y `0007` agregan referencia a `auth.users` y restricciones relacionales compuestas para impedir asociaciones entre cuentas distintas.
-- El navegador solo usa la URL y la clave pública/anon de Supabase Auth y llama a Django. `DATABASE_URL`, `DJANGO_SECRET_KEY`, credenciales de IA y cualquier clave administrativa son secretos de servidor.
-- Los documentos de referencia se procesan en memoria y se guarda el texto extraído, no el archivo binario original.
-- La telemetría de IA no guarda las respuestas; registra tarea, proveedor/modelo, estado, duración, código de error y una huella del contexto.
-- No uses datos de estudiantes reales durante la evaluación inicial. Configurá retención, eliminación, privacidad, backups y restauración antes de un piloto.
+No habilites despliegue final hasta comprobar login, logout, recuperación de contraseña, contacto, CRUD docente, aislamiento de dos propietarios, permisos administrativos y generación IA real con una configuración de privacidad aprobada.
 
-## IA: modo de demostración y Gemini
+## Límites conocidos
 
-La configuración por defecto es `AI_PROVIDER=mock` para desarrollo y pruebas de interfaz. El modo `mock` es solo demostrativo y no puede generar correcciones para el conjunto «Probar con ejemplo». Para probar ese recorrido, configurá un proveedor real y sus autorizaciones en el servidor.
+- No se implementa portal de estudiantes ni rendición de exámenes en línea.
+- No hay invitación/creación de Auth users en la API actual.
+- Los administradores de departamento sólo pueden acceder a su membresía; falta modelar departamentos para ampliar esa gestión de forma segura.
+- La edición de datos personales del perfil se mantiene de sólo lectura porque no existe una ruta API específica.
+- OCR manuscrito, detección de plagio, pagos y analítica institucional avanzada quedan fuera del MVP.
+- Las páginas de privacidad y términos son referencias informativas del MVP y requieren revisión legal antes de su publicación como documentos vinculantes.
 
-La integración Gemini está implementada en el backend con respuesta JSON y validación de puntajes, criterios y evidencia. Para habilitarla:
+## Documentos
 
-1. Copiá `backend/.env.example` a `backend/.env` y guardá `GEMINI_API_KEY` solo allí.
-2. Revisá las condiciones de tratamiento de datos y configurá `AI_EXTERNAL_PROCESSING_APPROVED=True` solo tras aprobar el envío externo.
-3. Para el uso normal con contenido docente/estudiantil, confirmá el nivel pago con `AI_GEMINI_PAID_TIER_CONFIRMED=True`. El nivel gratuito de Gemini indica que el contenido puede usarse para mejorar productos, por lo que no debe usarse con respuestas reales de estudiantes.
-4. Antes de habilitar el flujo normal, corré el benchmark con los seis casos ficticios de la sección siguiente.
+- `docs/API.md`: contrato de API.
+- `docs/ADAPTACION-DJANGO-POSTGRESQL-SUPABASE-2026-11-04.md`: adaptación del ORM, permisos, migraciones y administración.
+- `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
+- `docs/INTEGRACION-FRONTEND-HTML5-NATIVO-2026-11-04.md`: alcance, archivos y validaciones de esta migración.
 
-Ver instrucciones completas en [`docs/AI-EVALUATION-v0.2.0.md`](docs/AI-EVALUATION-v0.2.0.md). La clave API nunca se coloca en `NEXT_PUBLIC_*`.
+## Despliegue
 
-## Alcance que queda fuera del MVP
-
-OCR de manuscritos/escaneos, portal de estudiantes, realización de exámenes dentro de MaestrIA, LMS completo, pagos, detección de plagio y analítica institucional avanzada. No añadir colas distribuidas/microservicios hasta que el uso medido las necesite.
-
-## Rendimiento
-
-Los cambios y validaciones de la última pasada de optimización están documentados en [`docs/OPTIMIZACION-RENDIMIENTO-2026-10-29.md`](docs/OPTIMIZACION-RENDIMIENTO-2026-10-29.md).
+La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Seguí `docs/DEPLOYMENT-v0.2.0.md` para completar las variables privadas y la configuración de Supabase/Gemini. No cargar `backend/.env` en Git.

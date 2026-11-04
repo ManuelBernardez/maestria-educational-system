@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 520" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Aprender haciendo</title>
+  <desc id="desc">Ilustración de un cuaderno abierto con anotaciones, lápiz, libros y una planta.</desc>
+  <defs>
+    <linearGradient id="page" x1="188" y1="184" x2="455" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFEF8"/><stop offset="1" stop-color="#E9E8D9"/>
+    </linearGradient>
+    <linearGradient id="cover" x1="184" y1="330" x2="452" y2="451" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D77C65"/><stop offset="1" stop-color="#A84F3C"/>
+    </linearGradient>
+    <linearGradient id="pencil" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F7D77E"/><stop offset="1" stop-color="#E7A94E"/>
+    </linearGradient>
+    <filter id="shadow" x="94" y="125" width="468" height="363" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="13"/>
+    </filter>
+  </defs>
+
+  <!-- Formas suaves de fondo -->
+  <path d="M119 267c-23-91 37-185 127-203 70-15 112 28 183 23 75-5 134 31 135 108 1 79-44 122-34 184 9 59-54 100-125 84-64-14-117 25-184 5-76-23-78-126-102-201Z" fill="#DCE6DA" opacity=".8"/>
+  <circle cx="496" cy="112" r="52" fill="#F0CA65" opacity=".45"/>
+  <circle cx="131" cy="151" r="22" fill="#D77C65" opacity=".6"/>
+  <path d="m105 222 13-18 13 18-13 18-13-18Z" fill="#F0CA65"/>
+  <path d="M530 255c12-17 17-24 22-24s10 7 22 24c-12 17-17 24-22 24s-10-7-22-24Z" fill="#D77C65" opacity=".7"/>
+
+  <!-- Pequeña planta -->
+  <path d="M504 338c-4-48 9-81 36-104M518 279c-23-24-46-28-66-12 14 27 36 34 66 12ZM533 250c-2-31 11-51 36-60 9 27-3 48-36 60ZM501 313c-31-12-49-9-61 13 20 17 41 14 61-13Z" fill="#6E9A78"/>
+  <path d="m491 336 56 0-8 62c-1 8-8 14-16 14h-8c-8 0-15-6-16-14l-8-62Z" fill="#D77C65"/>
+  <path d="M491 337h56" stroke="#A84F3C" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Sombra de mesa y cuaderno -->
+  <ellipse cx="324" cy="426" rx="220" ry="37" fill="#17362E" opacity=".16" filter="url(#shadow)"/>
+  <path d="M150 379c0-11 9-20 20-20h298c11 0 20 9 20 20v34c0 11-9 20-20 20H170c-11 0-20-9-20-20v-34Z" fill="url(#cover)"/>
+  <path d="M170 365c0-12 10-22 22-22h119c14 0 26 6 37 15 11-9 23-15 37-15h69c12 0 22 10 22 22v31H170v-31Z" fill="#244B3D"/>
+  <path d="M180 351c44-18 91-19 131-2 14 6 25 15 37 26 12-11 23-20 37-26 41-17 88-16 132 2v69c-48-16-90-15-130 2-16 7-27 16-39 28-12-12-23-21-39-28-40-17-82-18-129-2v-69Z" fill="url(#page)" stroke="#D9D7C7" stroke-width="3"/>
+  <path d="M348 375v71" stroke="#D0CDBB" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Apuntes y pequeños trazos -->
+  <path d="M202 374c29-10 57-10 83-1M202 390c32-10 57-9 83 0M202 407c21-6 41-6 61-2" stroke="#A7B6A3" stroke-width="5" stroke-linecap="round"/>
+  <path d="M383 374c27-10 53-10 79-1M383 390c29-9 52-8 78 0M383 407c18-5 38-5 57-1" stroke="#A7B6A3" stroke-width="5" stroke-linecap="round"/>
+  <path d="m276 333 19-18 19 18-19 18-19-18Z" fill="#F0CA65" stroke="#244B3D" stroke-width="3"/>
+  <circle cx="295" cy="333" r="5" fill="#244B3D"/>
+
+  <!-- Lápiz en diagonal -->
+  <g transform="rotate(29 349 240)">
+    <rect x="331" y="139" width="34" height="197" rx="8" fill="url(#pencil)" stroke="#8C6337" stroke-width="3"/>
+    <path d="M331 156h34M331 311h34" stroke="#A87542" stroke-width="3"/>
+    <path d="M331 143c0-10 7-18 17-18s17 8 17 18v12h-34v-12Z" fill="#D77C65" stroke="#8C6337" stroke-width="3"/>
+    <path d="m331 336 17 29 17-29h-34Z" fill="#E7C59A" stroke="#8C6337" stroke-width="3"/>
+    <path d="m342 355 6 10 6-10" fill="#244B3D"/>
+  </g>
+
+  <!-- Destellos -->
+  <path d="M204 111v30M189 126h30M445 75v24M433 87h24" stroke="#D77C65" stroke-width="4" stroke-linecap="round"/>
+  <path d="m390 119 5 12 12 5-12 5-5 12-5-12-12-5 12-5 5-12Z" fill="#F0CA65"/>
+</svg>

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es-AR">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#efe9dc">
+  <meta name="description"
+    content="Conocé al equipo que desarrolla MaestrIA, la iniciativa académica que explora cómo acompañar el trabajo docente con tecnología e inteligencia artificial bajo revisión humana.">
+  <meta name="robots" content="index,follow">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_AR">
+  <meta property="og:title" content="Nosotros — MaestrIA">
+  <meta property="og:description"
+    content="Un proyecto académico para acompañar el trabajo docente sin reemplazar el criterio pedagógico.">
+  <title>Nosotros — MaestrIA</title>
+  <link rel="icon" href="assets/images/maestria-mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="stylesheet" href="assets/css/public-enhancements.css">
+  <link rel="stylesheet" href="assets/css/responsive-refinements.css">
+  <script defer src="assets/js/config.js"></script>
+  <script defer src="assets/js/api.js"></script>
+  <script defer src="assets/js/main.js"></script>
+</head>
+
+<body>
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+  <div class="scroll-progress" aria-hidden="true"></div>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="MaestrIA, inicio"><img class="brand-logo"
+        src="assets/images/maestria-logo.png" alt="MaestrIA"></a>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav"
+      aria-label="Abrir menú"><span></span><span></span></button>
+    <nav id="main-nav" class="main-nav" aria-label="Navegación principal">
+      <a href="index.html">Inicio</a><a href="como-funciona.html">Cómo funciona</a><a class="active" aria-current="page"
+        href="nosotros.html">Nosotros</a>
+    </nav>
+    <a class="nav-cta magnetic" href="acceso.html">Espacio docente </a>
+  </header>
+
+  <main id="contenido">
+
+    <section class="contact-section section-pad" id="contacto" aria-labelledby="contact-title">
+      <div class="contact-copy reveal">
+        <h2 id="contact-title">¿Tenés una pregunta o querés conocer más? <br><em>Nos interesa escucharte</em></h2>
+        <p>Dejanos tu consulta, una sugerencia o tu interés en participar de una instancia de validación. El mensaje se
+          prepara en tu aplicación de correo para que puedas revisarlo antes de enviarlo.</p>
+      </div>
+      <form class="contact-form reveal" id="contact-form" data-contact-form>
+        <input type="hidden" name="category" value="general">
+        <div class="form-field"><label for="contact-name">Nombre</label><input id="contact-name" name="name" type="text"
+            autocomplete="name" maxlength="100" placeholder="nombre" required></div>
+        <div class="form-field"><label for="contact-email">Correo electrónico</label><input id="contact-email"
+            name="email" type="email" autocomplete="email" maxlength="160" placeholder="nombre@correo.com" required>
+        </div>
+        <div class="form-field"><label for="contact-topic">Motivo de contacto</label><select id="contact-topic"
+            name="subject" required>
+            <option value="" disabled selected>Seleccioná una opción</option>
+            <option value="Consulta general">Consulta general</option>
+            <option value="Interés en participar de una validación">Interés en participar de una validación</option>
+            <option value="Sugerencia sobre MaestrIA">Sugerencia sobre MaestrIA</option>
+            <option value="Consulta académica o institucional">Consulta académica o institucional</option>
+          </select></div>
+        <div class="form-field"><label for="contact-message">Tu mensaje</label><textarea id="contact-message"
+            name="message" rows="5" maxlength="3000" placeholder="Contanos en qué podemos ayudarte..."
+            required></textarea></div>
+        <button class="button button-ink magnetic contact-submit" type="submit">Enviar mensaje </button>
+      <p id="contact-status" class="form-message" role="status" aria-live="polite"></p></form>
+    </section>
+
+    <section class="page-hero page-hero--about" aria-labelledby="about-title">
+      <div class="about-hero-copy reveal">
+        <h1 id="about-title">Una idea que nace de <em>aprender haciendo</em></h1>
+        <p>MaestrIA es un proyecto académico desarrollado como Trabajo Final de la Tecnicatura Universitaria en Programación, Universidad Tecnológica Nacional. Nace del interés por
+          aplicar tecnología a un desafío concreto del trabajo docente: organizar y acompañar el proceso de evaluación
+        </p>
+      </div>
+      <div class="about-hero-visual reveal" aria-hidden="true">
+        <div class="about-visual-orbit"></div>
+        <img class="about-learning-illustration" src="assets/images/ilustracion-aprender.svg" alt="">
+        <div class="about-visual-sticker">✳</div>
+        <span class="about-visual-caption">APRENDER · CREAR · ACOMPAÑAR</span>
+      </div>
+    </section>
+
+    <section class="team-section section-pad" id="equipo" aria-labelledby="team-title">
+      <div class="section-heading reveal">
+        <h2 id="team-title">Nuestro equipo</h2>
+        <p>El proyecto se construye en equipo. Estamos reuniendo las presentaciones y perfiles públicos para que puedas
+          conocer qué aporta cada integrante.</p>
+      </div>
+      <div class="team-grid">
+        <article class="team-card team-card--known reveal">
+          <div class="team-avatar" aria-hidden="true">MB</div>
+          <div class="team-card-content">
+            <h3>Manuel Ariel Bernardez</h3>
+            <p class="team-role">Back-end y QA</p>
+            <p class="team-bio">Técnico Universitario en Programación y estudiante de Ingeniería en Sistemas (UTN FRBA)
+            </p>
+            <div class="team-links"><a href="https://www.linkedin.com/in/manuel-bernardez/" target="_blank"
+                rel="noopener noreferrer" aria-label="LinkedIn de Manuel Bernardez">LinkedIn <span
+                  aria-hidden="true"></span></a><a href="https://github.com/ManuelBernardez" target="_blank"
+                rel="noopener noreferrer" aria-label="GitHub de Manuel Bernardez">GitHub <span
+                  aria-hidden="true"></span></a></div>
+          </div>
+
+
+        </article>
+        <article class="team-card team-card--pending reveal">
+          <div class="team-avatar" aria-hidden="true">✳</div>
+          <div class="team-card-content">
+
+            <h3>Felipe García Lopez Boero</h3>
+            <p class="team-role">Seguridad y Despliegue</p>
+            <p class="team-bio">La información de presentación todavía no está publicada.</p>
+            <div class="team-links"><a
+                href="https://www.linkedin.com/in/felipe-garc%C3%ADa-l%C3%B3pez-boero-408396261/ " target="_blank"
+                rel="noopener noreferrer" aria-label="LinkedIn de Felipe García Lopez">LinkedIn <span
+                  aria-hidden="true"></span></a><a href="https://github.com/Pipekpo" target="_blank"
+                rel="noopener noreferrer" aria-label="GitHub de Felipe García Lopez">GitHub <span
+                  aria-hidden="true"></span></a>
+            </div>
+          </div>
+        </article>
+        <article class="team-card team-card--pending reveal">
+          <div class="team-avatar" aria-hidden="true">✳</div>
+          <div class="team-card-content">
+
+            <h3>Tomás Lautaro Acosta</h3>
+            <p class="team-role">Front-end y UX</p>
+            <p class="team-bio">La información de presentación todavía no está publicada.</p>
+            <div class="team-links"><span>LinkedIn pendiente</span></div>
+            <div class="team-links"><a href="" target="_blank" rel="noopener noreferrer"
+                aria-label="LinkedIn de Tomás Acosta">LinkedIn <span aria-hidden="true"></span></a><a
+                href="https://github.com/AcostaTomasLautaro" target="_blank" rel="noopener noreferrer"
+                aria-label="GitHub de Tomás Acosta">GitHub <span aria-hidden="true"></span></a>
+            </div>
+          </div>
+        </article>
+        <article class="team-card team-card--pending reveal">
+          <div class="team-avatar" aria-hidden="true">✳</div>
+          <div class="team-card-content">
+            <h3>Lorenzo Rodriguez Wilson</h3>
+            <p class="team-role">Front-end y UX</p>
+            <p class="team-bio">La información de presentación todavía no está publicada.</p>
+
+            <div class="team-links"><a href="http://www.linkedin.com/in/lorenzo-rodriguez-0331a2449" target="_blank"
+                rel="noopener noreferrer" aria-label="LinkedIn de Lorenzo Rodriguez">LinkedIn <span
+                  aria-hidden="true"></span></a><a href="https://github.com/rlolo5222-hub" target="_blank"
+                rel="noopener noreferrer" aria-label="GitHub de Lorenzo Rodriguez">GitHub <span
+                  aria-hidden="true"></span></a>
+            </div>
+          </div>
+        </article>
+        <article class="team-card team-card--pending reveal">
+          <div class="team-avatar" aria-hidden="true">✳</div>
+          <div class="team-card-content">
+            <h3>Juan Manuel Serrano</h3>
+            <p class="team-role">Base de Datos</p>
+            <p class="team-bio">La información de presentación todavía no está publicada.</p>
+            <div class="team-links"><span>GitHub pendiente</span></div>
+            <div class="team-links"><a href="http://www.linkedin.com/in/lorenzo-rodriguez-0331a2449" target="_blank"
+                rel="noopener noreferrer" aria-label="LinkedIn de Lorenzo Rodriguez">LinkedIn <span
+                  aria-hidden="true"></span></a><a href="https://github.com/rlolo5222-hub" target="_blank"
+                rel="noopener noreferrer" aria-label="GitHub de Lorenzo Rodriguez">GitHub <span
+                  aria-hidden="true"></span></a>
+            </div>
+          </div>
+        </article>
+        <article class="team-card team-card--pending reveal">
+          <div class="team-avatar" aria-hidden="true">✳</div>
+          <div class="team-card-content">
+            <h3>Lautaro Pavan Sarquis</h3>
+            <p class="team-role">Testing</p>
+            <p class="team-bio">La información de presentación todavía no está publicada en el repositorio.</p>
+            <div class="team-links"><span>LinkedIn pendiente</span><span>GitHub pendiente</span></div>
+            <div class="team-links"><a href="http://www.linkedin.com/in/lorenzo-rodriguez-0331a2449" target="_blank"
+                rel="noopener noreferrer" aria-label="LinkedIn de Lorenzo Rodriguez">LinkedIn <span
+                  aria-hidden="true"></span></a><a href="https://github.com/rlolo5222-hub" target="_blank"
+                rel="noopener noreferrer" aria-label="GitHub de Lorenzo Rodriguez">GitHub <span
+                  aria-hidden="true"></span></a>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-identity"><a class="brand footer-brand" href="index.html" aria-label="MaestrIA, inicio"><img
+          class="brand-logo" src="assets/images/maestria-logo-oscuro.png" alt="MaestrIA"></a>
+      <p>Una herramienta para organizar la evaluación y recuperar tiempo para enseñar.</p><small>La IA acompaña. El
+        criterio docente decide.</small>
+    </div>
+    <div class="footer-column"><strong>Explorar</strong><a href="index.html">Inicio</a><a href="como-funciona.html">Cómo
+        funciona</a><a href="nosotros.html">Nosotros</a></div>
+    <div class="footer-column"><strong>MaestrIA</strong><a href="acceso.html">Espacio docente</a><a
+        href="nosotros.html#contacto">Contacto</a><a
+        href="https://github.com/ManuelBernardez/maestria-educational-system" target="_blank"
+        rel="noopener noreferrer">Repositorio del proyecto</a></div>
+    <small class="copyright">© 2026 MaestrIA · Proyecto académico en desarrollo · MVP</small>
+  </footer>
+</body>
+
+</html>
