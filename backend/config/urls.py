@@ -9,7 +9,7 @@ from apps.core.views import health
 def api_root(request):
     """Small health-oriented API description; no secrets are exposed here."""
     return JsonResponse({
-        "service": "MaestrIA",
+        "service": "MaestrIA API",
         "status": "ok",
         "message": "Aplicación MaestrIA disponible.",
         "frontend_url": settings.SITE_URL,
@@ -36,6 +36,7 @@ def frontend_file(request, frontend_path=""):
     response["X-Content-Type-Options"] = "nosniff"
     response["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response["X-Frame-Options"] = "DENY"
+    response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
     if candidate.suffix.lower() in {".html", ".htm"}:
         response["Cache-Control"] = "no-store, max-age=0"
     else:

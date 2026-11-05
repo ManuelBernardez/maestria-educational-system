@@ -36,9 +36,9 @@ services:
       - key: AI_TIMEOUT_SECONDS
         value: "35"
       - key: AI_EXTERNAL_PROCESSING_APPROVED
-        value: "True"
+        sync: false
       - key: AI_GEMINI_PAID_TIER_CONFIRMED
-        value: "True"
+        sync: false
       - key: AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL
         value: "False"
       - key: AI_MAX_CONCURRENT_ANSWERS

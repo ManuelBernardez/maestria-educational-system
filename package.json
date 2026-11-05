@@ -1,5 +1,8 @@
 {
-  "devDependencies": {
-    "eslint-plugin-react-hooks": "^7.1.1"
+  "name": "maestria-native-frontend",
+  "private": true,
+  "description": "Frontend nativo HTML5, CSS y JavaScript ES modules. No requiere build de Node.",
+  "scripts": {
+    "check:frontend": "python scripts/check_static_frontend.py"
   }
 }

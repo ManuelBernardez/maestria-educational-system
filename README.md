@@ -5,9 +5,10 @@ Plataforma educativa para asistir a docentes en la preparación de evaluaciones,
 ## Arquitectura
 
 - `frontend/`: sitio público y espacio docente HTML5 estáticos. Django los sirve en producción; no utiliza Next.js, React, Node ni un proceso de compilación.
-- `frontend/assets/js/api.js`: cliente HTTP, sesión Supabase por pestaña, renovación controlada de tokens y llamadas autenticadas a Django.
-- `frontend/assets/js/workspace.js`: navegación y flujos docentes/administrativos conectados a la API.
-- `backend/`: Django REST Framework, autenticación JWT Supabase, permisos, reglas de negocio, Gemini y servicio del frontend con WhiteNoise.
+- `frontend/assets/js/api.js`: cliente HTTP/Auth, sesión Supabase por pestaña, renovación controlada, cancelación y llamadas autenticadas a Django.
+- `frontend/assets/js/workspace.js`: punto de entrada ES module del espacio docente; `modules/core/api.js` inicializa y expone el cliente como dependencia modular.
+- `frontend/assets/js/modules/`: capas `core`, `data`, `features` y `events`; cada dominio mantiene sus vistas y operaciones.
+- `backend/`: Django REST Framework, autenticación JWT Supabase, permisos, reglas de negocio, integración IA y servicio del frontend con WhiteNoise. Las vistas API están agrupadas en `apps/core/api_views/` por dashboard, catálogo y entregas/correcciones; `apps/core/views.py` conserva el punto de importación compatible.
 - `docs/`: contratos y decisiones técnicas.
 
 ## Requisitos
@@ -44,7 +45,7 @@ La API queda en `http://127.0.0.1:8000/api`. `GET /api/client-config/` entrega �
 
 ### 2. Frontend HTML5
 
-En otra terminal, desde la raíz del repositorio:
+El frontend nativo no necesita instalar paquetes ni compilarse. En otra terminal, desde la raíz del repositorio:
 
 ```powershell
 py -m http.server 5500 --directory frontend
@@ -95,7 +96,7 @@ Los datos de práctica se crean mediante `POST /api/demo/seed/` bajo confirmaci�
 
 ## Esquema de datos y migraciones
 
-El esquema físico existente `public.*` de PostgreSQL/Supabase es la fuente de verdad. Django mapea los 20 modelos con `db_table` y `managed = False`; el dominio `core` no debe reconstruirse mediante migraciones Django. No ejecutar `migrate`, `makemigrations` ni `--fake` para reconstruir tablas de negocio.
+El esquema físico existente `public.*` de PostgreSQL/Supabase es la fuente de verdad. Django mapea los modelos con `db_table` y `managed = False`; el dominio `core` no debe reconstruirse mediante migraciones Django. No ejecutar `migrate`, `makemigrations` ni `--fake` para reconstruir tablas de negocio. Para Shared Pooler en modo transacción, settings desactiva el auto-prepare de psycopg.
 
 Verificación de sólo lectura:
 
@@ -108,18 +109,26 @@ La herramienta contrasta tablas, columnas, tipos, identidades, FK compuestas, í
 
 ## Pruebas y chequeos
 
-Chequeo frontend estático (no requiere npm):
+Chequeo frontend estático (no requiere npm ni dependencias de frontend). Valida referencias HTML, rutas de imports, correspondencia entre imports nombrados/exports y sintaxis JavaScript si Node.js está instalado:
 
 ```powershell
 python scripts/check_static_frontend.py
-Get-ChildItem frontend/assets/js -Filter *.js | ForEach-Object { node --check $_.FullName }
 ```
 
-Chequeos backend, en un entorno Python con las dependencias instaladas y PostgreSQL de prueba:
+El chequeo valida referencias locales, imports ES modules, exports nombrados y sintaxis JavaScript si Node.js está instalado.
+
+Verificador estructural de imports relativos y símbolos locales del backend (no requiere instalar Django):
+
+```powershell
+python scripts/check_backend_imports.py
+```
+
+Chequeos backend, en un entorno Python con las dependencias instaladas y PostgreSQL de prueba (la suite no debe apuntar a Supabase de producción):
 
 ```powershell
 cd backend
 python -m compileall -q config apps manage.py
+python ../scripts/check_backend_imports.py
 python manage.py check
 pytest -q
 ```
@@ -128,7 +137,7 @@ La suite backend usa PostgreSQL y un esquema de prueba separado. No apunta a Sup
 
 ## Despliegue en Render
 
-El `render.yaml` publica `frontend/` como sitio estático sin build y despliega la API Django como servicio Python independiente. Configurá `FRONTEND_URL`, `CORS_ALLOWED_ORIGINS` y `CSRF_TRUSTED_ORIGINS` con el dominio estático de Render. Configurá Supabase URL/anon key/JWT secret y `DATABASE_URL` sólo en el backend. Confirmá también Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
+El `render.yaml` despliega un único Web Service Python: Django sirve el frontend y la API desde el mismo origen. No hay servicio estático separado ni build de Node. Configurá `DATABASE_URL` con Shared Pooler IPv4 de Supabase cuando Render no tenga IPv6; para este backend persistente, preferí session mode (puerto 5432) y copiá la URI exacta desde Supabase > Connect. Configurá Supabase URL/anon key/JWT secret y `GEMINI_API_KEY` sólo en el backend. `AI_EXTERNAL_PROCESSING_APPROVED` y `AI_GEMINI_PAID_TIER_CONFIRMED` quedan sin valor por defecto: activalos únicamente después de aprobar el tratamiento externo y confirmar que el proyecto usa un nivel compatible con datos estudiantiles. Confirmá Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
 
 No habilites despliegue final hasta comprobar login, logout, recuperación de contraseña, contacto, CRUD docente, aislamiento de dos propietarios, permisos administrativos y generación IA real con una configuración de privacidad aprobada.
 
@@ -144,9 +153,12 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 ## Documentos
 
 - `docs/API.md`: contrato de API.
+- `docs/FRONTEND-ARCHITECTURE.md`: organización modular del frontend.
+- `docs/BACKEND-ARCHITECTURE.md`: límites de módulos, dependencias y persistencia del backend.
+- `docs/AUDITORIA-TECNICA-v1.0.1.md`: evaluación, cambios y riesgos pendientes de esta versión.
+- `docs/AUDITORIA-TECNICA-2026-11-05.md`: hallazgos, cambios y riesgos pendientes.
 - `docs/ADAPTACION-DJANGO-POSTGRESQL-SUPABASE-2026-11-04.md`: adaptación del ORM, permisos, migraciones y administración.
 - `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
-- `docs/INTEGRACION-FRONTEND-HTML5-NATIVO-2026-11-04.md`: alcance, archivos y validaciones de esta migración.
 
 ## Despliegue
 

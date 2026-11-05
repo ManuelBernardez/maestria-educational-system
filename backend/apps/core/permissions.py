@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from rest_framework.permissions import BasePermission
 
 from .models import InstitutionMembership, UserProfile
@@ -6,6 +8,12 @@ from .models import InstitutionMembership, UserProfile
 def active_profile(user):
     if not user or not getattr(user, "is_authenticated", False):
         return None
+    # Authentication attaches verified, per-request metadata. Reusing it avoids
+    # a redundant SELECT on every protected API call.
+    role = getattr(user, "role", "")
+    status = getattr(user, "profile_status", "")
+    if role and status:
+        return SimpleNamespace(role=role, status=status) if status == "active" else None
     return UserProfile.objects.filter(user_id=user.id, status="active").only("role", "status").first()
 
 
@@ -38,9 +46,9 @@ class IsWorkspaceUser(BasePermission):
         if not user or not getattr(user, "is_authenticated", False):
             return False
         profile = active_profile(user)
-        # Backwards compatibility: identities that predate user_profile remain
-        # teacher accounts until explicitly provisioned in the profile table.
-        return profile is None or profile.role in {"teacher", "admin", "superadmin"}
+        # Fail closed: the auth.users -> user_profile trigger provisions every
+        # valid identity. A missing profile must never imply a teacher role.
+        return bool(profile and profile.role in {"teacher", "admin", "superadmin"})
 
 
 class IsGlobalAdmin(BasePermission):

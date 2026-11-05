@@ -13,7 +13,7 @@ La decisión de unificar simplifica el MVP y elimina CORS en producción. Render
 ## 1. Configurar Supabase
 
 1. Confirmar que el proyecto contiene el esquema MaestrIA esperado y ejecutar `python manage.py verify_public_schema` desde un entorno con acceso a PostgreSQL.
-2. Copiar la URI PostgreSQL de Supabase a `DATABASE_URL`. Preferir el pooler de Supabase si la conectividad directa no está disponible desde el hosting. Codificar caracteres reservados de la contraseña en formato URL.
+2. Copiar la URI de **Shared Pooler IPv4** de Supabase a `DATABASE_URL` cuando Render no tenga conectividad IPv6. Como Render es un backend persistente, preferir Shared Pooler en modo **session** (normalmente puerto 5432). Usar la URI exacta que muestra Supabase > Connect; el usuario suele incluir el project ref. Codificar caracteres reservados de la contraseña en formato URL. Si se elige transaction mode (puerto 6543), Django desactiva `prepare_threshold` porque ese modo no admite prepared statements; además, transaction mode no conserva estado de sesión entre transacciones. Dado que esta app configura `search_path=public`, no cambiar a transaction mode sin validar expresamente ese comportamiento.
 3. Configurar Supabase Auth → URL Configuration:
    - Site URL: `https://<dominio-final>`.
    - Redirect URLs: `https://<dominio-final>/*` y `http://localhost:5500/*` para desarrollo.
@@ -54,8 +54,8 @@ Cargarlas en Render → servicio → Environment. No agregarlas al repositorio.
 | `GEMINI_API_KEY` | API key privada de Google AI Studio / Gemini |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
 | `AI_TIMEOUT_SECONDS` | `35` |
-| `AI_EXTERNAL_PROCESSING_APPROVED` | `True` sólo después de aprobar y documentar el procesamiento externo |
-| `AI_GEMINI_PAID_TIER_CONFIRMED` | `True` únicamente si se verificó el nivel pago del proyecto Gemini |
+| `AI_EXTERNAL_PROCESSING_APPROVED` | Sin valor por defecto; configurar `True` sólo después de aprobar y documentar el procesamiento externo |
+| `AI_GEMINI_PAID_TIER_CONFIRMED` | Sin valor por defecto; configurar `True` únicamente si se verificó el nivel pago del proyecto Gemini |
 | `AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL` | `False` |
 | `AI_MAX_CONCURRENT_ANSWERS` | `3` |
 

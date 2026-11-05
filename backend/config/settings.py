@@ -68,6 +68,15 @@ if DATABASE_URL:
         # PostgreSQL Supabase schema is externally managed and resolves by public search_path.
         db_options = db_config.setdefault("OPTIONS", {})
         db_options["connect_timeout"] = 10
+        # Supabase Shared Pooler transaction mode (port 6543) does not support
+        # prepared statements. Render is a persistent backend, so session mode
+        # (port 5432) is generally preferred and keeps prepared statements enabled.
+        if (
+            parsed_db_url.hostname
+            and parsed_db_url.hostname.endswith(".pooler.supabase.com")
+            and parsed_db_url.port == 6543
+        ):
+            db_options["prepare_threshold"] = None
         current_options = db_options.get("options", "").strip()
         db_options["options"] = f"{current_options} -c search_path=public".strip()
     DATABASES = {"default": db_config}

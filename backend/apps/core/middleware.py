@@ -15,8 +15,10 @@ class ApiServerTimingMiddleware:
         candidate = request.headers.get("X-Request-ID", "")
         request.request_id = candidate if _REQUEST_ID_RE.fullmatch(candidate) else str(uuid4())
         response = self.get_response(request)
+        response.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
         if request.path.startswith("/api/"):
             duration_ms = max(0.0, (perf_counter() - started) * 1000)
             response["Server-Timing"] = f"django;dur={duration_ms:.1f}"
             response["X-Request-ID"] = request.request_id
+            response["Cache-Control"] = "no-store"
         return response

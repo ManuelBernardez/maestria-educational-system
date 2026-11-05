@@ -105,6 +105,8 @@ class APIRootTests(SimpleTestCase):
         response = Client().get("/api/health/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertIn("camera=()", response["Permissions-Policy"])
 
 from uuid import uuid4
 from django.test import TestCase
@@ -317,3 +319,30 @@ class DemoDatasetTests(TestCase):
             response = self.client.post(f"/api/submissions/{submission.id}/generate-correction/", {}, format="json")
         self.assertEqual(response.status_code, 503)
         self.assertIn("no se generarán puntajes simulados", response.data["detail"])
+
+
+class WorkspacePermissionTests(SimpleTestCase):
+    def setUp(self):
+        from .permissions import IsWorkspaceUser
+        self.permission = IsWorkspaceUser()
+        self.request = type("Request", (), {})()
+        self.request.user = SupabasePrincipal(id="d708b9e3-2b1c-4bce-8b6f-3f91d045d117")
+
+    def test_missing_profile_is_denied(self):
+        from unittest.mock import patch
+        with patch("apps.core.permissions.active_profile", return_value=None):
+            self.assertFalse(self.permission.has_permission(self.request, None))
+
+    def test_teacher_profile_is_allowed(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        profile = SimpleNamespace(role="teacher", status="active")
+        with patch("apps.core.permissions.active_profile", return_value=profile):
+            self.assertTrue(self.permission.has_permission(self.request, None))
+
+    def test_student_profile_is_not_allowed_into_teacher_workspace(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        profile = SimpleNamespace(role="student", status="active")
+        with patch("apps.core.permissions.active_profile", return_value=profile):
+            self.assertFalse(self.permission.has_permission(self.request, None))

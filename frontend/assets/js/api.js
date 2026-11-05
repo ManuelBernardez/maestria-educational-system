@@ -19,6 +19,21 @@
     return error;
   };
 
+  async function fetchWithTimeout(url, options, timeoutMs = 20000, destino = 'Supabase') {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`La solicitud a ${destino} superó el tiempo de espera.`);
+      }
+      throw networkError(error, destino);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
   function getSession() {
     try {
       const raw = sessionStorage.getItem(SESSION_KEY);
@@ -64,10 +79,10 @@
     if (!current?.refresh_token) { clearSession(); return null; }
     refreshPromise = (async () => {
       const auth = await loadClientConfig();
-      const response = await fetch(`${auth.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      const response = await fetchWithTimeout(`${auth.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST', headers: { apikey: auth.supabaseAnonKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: current.refresh_token }), cache: 'no-store', credentials: 'omit'
-      }).catch(error => { throw networkError(error, `Supabase (${auth.supabaseUrl})`); });
+        body: JSON.stringify({ refresh_token: current.refresh_token }), cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer'
+      }, 15000, `Supabase (${auth.supabaseUrl})`);
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.access_token) { clearSession(); return null; }
       return setSession(payload);
@@ -88,11 +103,22 @@
     for (const candidate of values) {
       if (typeof candidate === 'string' && candidate.trim()) return candidate.slice(0, 1200);
       if (candidate && typeof candidate === 'object') {
-        const text = Object.entries(candidate).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`).join('; ');
+        const text = Object.entries(candidate)
+          .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`)
+          .join('; ');
         if (text) return text.slice(0, 1200);
       }
     }
     return `No se pudo completar la operación (HTTP ${statusCode}).`;
+  }
+
+  class ApiError extends Error {
+    constructor(message, status, payload = null) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = Number(status) || 0;
+      this.payload = payload;
+    }
   }
 
   async function request(path, options = {}) {
@@ -101,6 +127,10 @@
     const controller = new AbortController();
     const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs || (method === 'GET' ? 30000 : 90000)), 180000));
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    const externalSignal = options.signal;
+    const abortFromCaller = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) abortFromCaller();
+    else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
     const headers = new Headers(options.headers || {});
     headers.set('Accept', 'application/json');
     let body = options.body;
@@ -110,19 +140,29 @@
     const run = async (token, retry = false) => {
       if (token) headers.set('Authorization', `Bearer ${token}`);
       const response = await fetch(url, { method, headers, body, signal: controller.signal, cache: 'no-store', credentials: 'omit' });
-      if (response.status === 401 && !retry && getSession()?.refresh_token) {
-        const refreshed = await refreshSession();
-        if (refreshed?.access_token) return run(refreshed.access_token, true);
-        clearSession();
-        if (!options.allowAnonymous) window.dispatchEvent(new CustomEvent('maestria:session-expired'));
+      if (response.status === 401) {
+        if (!retry) {
+          const current = getSession();
+          if (current?.refresh_token) {
+            const refreshed = await refreshSession();
+            if (refreshed?.access_token) return run(refreshed.access_token, true);
+          }
+        }
+        if (token && !options.allowAnonymous) {
+          clearSession();
+          window.dispatchEvent(new CustomEvent('maestria:session-expired'));
+        }
       }
       if (response.status === 204) return null;
       const contentType = response.headers.get('content-type') || '';
       if (!response.ok) {
         let payload = {};
         if (contentType.includes('application/json')) payload = await response.json().catch(() => ({}));
-        else await response.text().catch(() => '');
-        throw new Error(errorMessage(payload, response.status));
+        else {
+          const text = await response.text().catch(() => '');
+          if (text) payload = { detail: text.slice(0, 1200) };
+        }
+        throw new ApiError(errorMessage(payload, response.status), response.status, payload);
       }
       if (options.rawResponse) return response;
       if (contentType.includes('application/json')) return response.json();
@@ -130,14 +170,22 @@
     };
     try {
       if (!API_BASE) throw new Error('No está configurada la URL de la API. Revisá assets/js/config.js.');
-      let session = await validSession();
+      const storedSession = getSession();
+      const session = await validSession();
       const token = session?.access_token || null;
+      if (storedSession && !session && !options.allowAnonymous) {
+        window.dispatchEvent(new CustomEvent('maestria:session-expired'));
+        throw new ApiError('La sesión expiró. Volvé a iniciar sesión.', 401);
+      }
       return await run(token);
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('La solicitud excedió el tiempo de espera o fue cancelada.');
       if (error instanceof TypeError) throw new Error(`No se pudo conectar con el backend de MaestrIA (${API_BASE}). Revisá que esté corriendo y la configuración de CORS.`);
       throw error;
-    } finally { clearTimeout(timeout); }
+    } finally {
+      clearTimeout(timeout);
+      externalSignal?.removeEventListener('abort', abortFromCaller);
+    }
   }
 
   async function list(path) {
@@ -148,10 +196,10 @@
   }
   async function authRequest(path, method, body) {
     const auth = await loadClientConfig();
-    const response = await fetch(`${auth.supabaseUrl}/auth/v1/${path}`, {
+    const response = await fetchWithTimeout(`${auth.supabaseUrl}/auth/v1/${path}`, {
       method, headers: { apikey: auth.supabaseAnonKey, 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit'
-    }).catch(error => { throw networkError(error, `Supabase (${auth.supabaseUrl})`); });
+      body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer'
+    }, 20000, `Supabase (${auth.supabaseUrl})`);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(errorMessage(payload, response.status));
     return payload;
@@ -159,10 +207,10 @@
 
   async function authUserRequest(method, body, accessToken) {
     const auth = await loadClientConfig();
-    const response = await fetch(`${auth.supabaseUrl}/auth/v1/user`, {
+    const response = await fetchWithTimeout(`${auth.supabaseUrl}/auth/v1/user`, {
       method, headers: { apikey: auth.supabaseAnonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit'
-    }).catch(error => { throw networkError(error, `Supabase (${auth.supabaseUrl})`); });
+      body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer'
+    }, 20000, `Supabase (${auth.supabaseUrl})`);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(errorMessage(payload, response.status));
     return payload;
@@ -180,6 +228,7 @@
 
   window.MAESTRIA_API = Object.freeze({
     baseUrl: API_BASE,
+    ApiError,
     request, list, download,
     get: (path, opts) => request(path, opts),
     post: (path, body, opts = {}) => request(path, { ...opts, method: 'POST', body }),

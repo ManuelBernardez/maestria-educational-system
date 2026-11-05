@@ -15,6 +15,8 @@ from .models import UserProfile
 class SupabasePrincipal:
     id: str
     email: str = ""
+    role: str = ""
+    profile_status: str = ""
     is_authenticated: bool = True
     is_anonymous: bool = False
 
@@ -73,11 +75,20 @@ class SupabaseJWTAuthentication(BaseAuthentication):
         # Intentionally outside token-validation try/except: a database outage
         # must be reported as a server failure, not mislabeled as an invalid JWT.
         try:
-            profile = UserProfile.objects.filter(user_id=principal.id).only("status").first()
+            profile = UserProfile.objects.filter(user_id=principal.id).only("role", "status").first()
         except DatabaseError:
             raise
-        if profile and profile.status != "active":
+        # The schema trigger provisions a teacher profile for every Auth user.
+        # Missing authorization metadata is therefore a provisioning failure,
+        # not a reason to grant the default teacher permissions.
+        if profile is None:
+            raise AuthenticationFailed("La cuenta todavía no tiene un perfil de acceso en MaestrIA.")
+        if profile.status != "active":
             raise AuthenticationFailed("La cuenta de MaestrIA está suspendida o deshabilitada.")
+        # Cache only non-sensitive authorization metadata on this request's
+        # principal. Permissions reuse it instead of issuing a second profile query.
+        principal.role = profile.role
+        principal.profile_status = profile.status
         return principal, raw_token
 
     def authenticate_header(self, request):

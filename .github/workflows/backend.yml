@@ -1,19 +1,37 @@
 name: backend-checks
 on:
   push:
-    paths: ["backend/**", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "scripts/**", "docs/**", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "scripts/**", "docs/**", ".github/workflows/backend.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: maestria_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d maestria_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: backend
     env:
-      # Local SQLite is used in CI; never connect a pull request to a real database.
       DEBUG: "True"
       ALLOWED_HOSTS: "localhost,127.0.0.1,testserver"
+      DJANGO_SECRET_KEY: "ci-only-not-a-production-secret-key-1234567890"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/maestria_test"
+      SUPABASE_URL: "https://example.supabase.co"
+      AI_PROVIDER: "mock"
+      AI_EXTERNAL_PROCESSING_APPROVED: "False"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +43,6 @@ jobs:
             backend/requirements-prod.txt
       - run: pip install -r requirements.txt
       - run: python -m compileall -q config apps manage.py
+      - run: python ../scripts/check_backend_imports.py
       - run: python manage.py check
-      - run: python manage.py makemigrations --check --dry-run
-    #  - run: python manage.py test
+      - run: pytest -q
