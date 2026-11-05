@@ -116,7 +116,7 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "/assets/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [FRONTEND_DIR / "assets"]
+STATICFILES_DIRS = [(FRONTEND_DIR / "css", "css"), (FRONTEND_DIR / "js", "js"), FRONTEND_DIR / "assets"]
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},

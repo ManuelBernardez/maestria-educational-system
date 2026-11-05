@@ -20,7 +20,10 @@ def api_root(request):
 def frontend_file(request, frontend_path=""):
     """Serve the HTML5 frontend from the same origin without directory listing."""
     relative = (frontend_path or "index.html").lstrip("/")
-    candidate = (settings.FRONTEND_DIR / relative).resolve()
+    if relative == "index.html" or (relative and not relative.startswith(("css/", "js/", "assets/"))):
+        candidate = (settings.FRONTEND_DIR / "html" / relative).resolve()
+    else:
+        candidate = (settings.FRONTEND_DIR / relative).resolve()
     root = settings.FRONTEND_DIR.resolve()
     try:
         candidate.relative_to(root)

@@ -27,7 +27,7 @@ La decisión de unificar simplifica el MVP y elimina CORS en producción. Render
    - Runtime: Python.
    - Root Directory: vacío (raíz del repositorio).
    - Build Command: `pip install -r backend/requirements-prod.txt && cd backend && python manage.py collectstatic --noinput`.
-   - Start Command: `cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 90 --access-logfile - --error-logfile -`.
+   - Start Command: `cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --worker-class gthread --workers 2 --threads 4 --timeout 90 --keep-alive 5 --access-logfile - --error-logfile -`.
    - Health Check Path: `/api/health/`.
 4. En Environment, completar las variables privadas de la sección siguiente. `DJANGO_SECRET_KEY` puede generarse desde Render.
 5. Deploy. La página principal será `/`, el acceso `/acceso.html` y el espacio docente `/espacio-docente/`. La API estará bajo `/api/`.

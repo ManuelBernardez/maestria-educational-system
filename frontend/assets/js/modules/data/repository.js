@@ -22,22 +22,45 @@ async function settleWithConcurrency(resources, concurrency = 4) {
   return results;
 }
 
-export async function refreshCore() {
+export async function refreshCore({ onOverviewReady } = {}) {
   const resources = [
-    ['overview', 'dashboard/overview/'], ['courses', 'courses/'], ['students', 'students/'],
+    ['courses', 'courses/'], ['students', 'students/'],
     ['enrollments', 'enrollments/'], ['assessments', 'assessments/'], ['rubrics', 'rubrics/'],
     ['submissions', 'submissions/'], ['corrections', 'corrections/?summary=1']
   ];
-  const results = await settleWithConcurrency(resources, 4);
+
+  // The overview already contains compact course/assessment cards and exact
+  // aggregate counters. Resolve it independently so the dashboard can paint
+  // without waiting for the longer lists needed by its secondary screens.
+  const overviewTask = api.get('dashboard/overview/').then(
+    value => ({ status: 'fulfilled', value }),
+    reason => ({ status: 'rejected', reason }),
+  );
+  const resourcesTask = settleWithConcurrency(resources, 4);
+  const overviewResult = await overviewTask;
+
   state.errors = Object.fromEntries(Object.entries(state.errors).filter(([key]) => key.startsWith('admin_') || key.startsWith('institution_')));
+  if (overviewResult.status === 'fulfilled') {
+    state.data.overview = overviewResult.value;
+    state.data.courses = listFrom(overviewResult.value.courses);
+    state.data.assessments = listFrom(overviewResult.value.assessments);
+    delete state.errors.overview;
+    try { onOverviewReady?.(overviewResult.value); } catch {
+      // A presentation callback must not turn a successful API response into a data failure.
+    }
+  } else {
+    state.data.overview = null;
+    state.errors.overview = errorText(overviewResult.reason);
+  }
+
+  const results = await resourcesTask;
   results.forEach((result, index) => {
     const [key] = resources[index];
     if (result.status === 'fulfilled') {
-      if (key === 'overview') state.data.overview = result.value;
-      else state.data[key] = listFrom(result.value);
+      state.data[key] = listFrom(result.value);
+      delete state.errors[key];
     } else {
       state.errors[key] = errorText(result.reason);
-      if (key === 'overview') state.data.overview = null;
     }
   });
   state.loading = false;

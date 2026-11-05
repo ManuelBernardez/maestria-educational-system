@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: starter
     buildCommand: pip install -r backend/requirements-prod.txt && cd backend && python manage.py collectstatic --noinput
-    startCommand: cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 90 --access-logfile - --error-logfile -
+    startCommand: cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --worker-class gthread --workers 2 --threads 4 --timeout 90 --keep-alive 5 --access-logfile - --error-logfile -
     healthCheckPath: /api/health/
     envVars:
       - key: PYTHON_VERSION
@@ -34,7 +34,7 @@ services:
       - key: GEMINI_MODEL
         value: gemini-3.5-flash-lite
       - key: AI_TIMEOUT_SECONDS
-        value: "35"
+        value: "18"
       - key: AI_EXTERNAL_PROCESSING_APPROVED
         sync: false
       - key: AI_GEMINI_PAID_TIER_CONFIRMED

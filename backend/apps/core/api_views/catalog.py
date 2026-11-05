@@ -32,6 +32,7 @@ from .common import (
     ValidationError,
     _read_document,
     _safe_ai_error_detail,
+    ai_error_code,
     action,
     active_ai_provider_config,
     async_to_sync,
@@ -249,7 +250,7 @@ class AssessmentViewSet(OwnerViewSet):
         except ValidationError:
             raise
         except Exception as exc:
-            record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), type(exc).__name__, assessment=assessment, provider_config=locals().get("provider_config"))
+            record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), ai_error_code(exc), assessment=assessment, provider_config=locals().get("provider_config"))
             logger.warning("AI questions generation failed (%s)", type(exc).__name__)
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(result, status=status.HTTP_200_OK)
@@ -433,7 +434,7 @@ class RubricViewSet(OwnerViewSet):
             result = async_to_sync(generate_rubric)(title=title, subject=subject, level=level, objectives=objectives, instructions=instructions, question_prompts=question_prompts, reference_material=reference_material, count=count, provider_config=provider_config)
             record_ai_generation(request.user.id, "generate_rubric", started, True, fingerprint(context), provider_config=provider_config)
         except Exception as exc:
-            record_ai_generation(request.user.id, "generate_rubric", started, False, fingerprint(context), type(exc).__name__, provider_config=provider_config)
+            record_ai_generation(request.user.id, "generate_rubric", started, False, fingerprint(context), ai_error_code(exc), provider_config=provider_config)
             logger.warning("AI rubric generation failed (%s)", type(exc).__name__)
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudo proponer la rúbrica. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(result)

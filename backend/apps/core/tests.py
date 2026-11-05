@@ -1,6 +1,6 @@
 import asyncio
 from django.test import SimpleTestCase, Client
-from .ai import _mock, _validate_proposal, default_rubric_for_question, generate_questions
+from .ai import _mock, _validate_proposal, ai_error_code, default_rubric_for_question, generate_questions
 from .authentication import SupabasePrincipal
 
 class AIAdapterTests(SimpleTestCase):
@@ -73,6 +73,22 @@ class AIAdapterTests(SimpleTestCase):
             result = asyncio.run(generate_questions(title="Ciencias", subject="Ciencias Naturales", level="Secundaria", objectives="Comprender", instructions="Fotosíntesis", count=3))
         self.assertEqual(len(result["questions"]), 3)
         self.assertTrue(result["demo"])
+
+
+class AIErrorTelemetryTests(SimpleTestCase):
+    def test_http_errors_store_only_status_code(self):
+        import httpx
+        request = httpx.Request("POST", "https://example.invalid")
+        response = httpx.Response(429, request=request, text="sensitive provider body")
+        error = httpx.HTTPStatusError("sensitive provider body", request=request, response=response)
+        self.assertEqual(ai_error_code(error), "HTTP_429")
+
+    def test_missing_api_key_has_stable_category(self):
+        self.assertEqual(ai_error_code(RuntimeError("Falta GEMINI_API_KEY en el entorno del backend.")), "MISSING_GEMINI_API_KEY")
+
+    def test_timeout_has_stable_category(self):
+        import httpx
+        self.assertEqual(ai_error_code(httpx.ReadTimeout("private timeout data")), "PROVIDER_TIMEOUT")
 
 
 class AIRubricTests(SimpleTestCase):

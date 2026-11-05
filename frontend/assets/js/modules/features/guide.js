@@ -10,9 +10,11 @@ export const GUIDE_STEPS = [
 ];
 
 export let guideStep = 0;
+let guideOpener = null;
 export function setGuideStep(step) { guideStep = step; }
 
 export function guidePreferenceKey() { return `maestria-quickstart-complete:${state.profile?.user_id || state.profile?.email || 'teacher'}`; }
+export function guideDismissedKey() { return `${guidePreferenceKey()}:dismissed`; }
 
 export function renderQuickStart() {
   const root = $('#quickstart-root'); if (!root) return;
@@ -23,15 +25,23 @@ export function renderQuickStart() {
 
 export function openQuickStart() {
   if (['admin', 'superadmin'].includes(state.profile?.role)) return;
+  if (!$('#quickstart-root')?.innerHTML) guideOpener = document.activeElement;
   guideStep = 0; renderQuickStart();
 }
 
 export function closeQuickStart(completed = true) {
   const root = $('#quickstart-root'); if (root) root.innerHTML = '';
-  if (completed) { try { sessionStorage.setItem(guidePreferenceKey(), 'true'); } catch {} }
+  try {
+    if (completed) { sessionStorage.setItem(guidePreferenceKey(), 'true'); sessionStorage.removeItem(guideDismissedKey()); }
+    else sessionStorage.setItem(guideDismissedKey(), 'true');
+  } catch {}
+  const opener = guideOpener; guideOpener = null;
+  if (opener instanceof HTMLElement && opener.isConnected && opener.getClientRects().length) opener.focus({ preventScroll: true });
 }
 
 export function maybeOpenQuickStart() {
   if (['admin', 'superadmin'].includes(state.profile?.role)) return;
-  try { if (sessionStorage.getItem(guidePreferenceKey()) !== 'true') openQuickStart(); } catch {}
+  try {
+    if (sessionStorage.getItem(guidePreferenceKey()) !== 'true' && sessionStorage.getItem(guideDismissedKey()) !== 'true') openQuickStart();
+  } catch {}
 }

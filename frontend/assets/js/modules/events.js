@@ -9,7 +9,7 @@ import { courseForm } from './features/courses.js';
 import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsForm, enrollmentForm, submissionForm, generateQuestionsForm, importReferenceForm, newRubricCriterionForm, editCriterionForm, editLevelForm, newLevelForm, adminUserForm, institutionForm, membershipForm, messageForm, providerForm, generateRubric, handleModalSubmit, handleGenerateCorrection, handleApproveCorrection, handleAddSubmissionAnswer, handleQuestionProposal } from './features/forms.js';
 import { copyCorrection, openCorrectionShareModal, handleShareAction } from './features/share.js';
 import { saveProfilePreferences } from './features/profile.js';
-import { openQuickStart, closeQuickStart } from './features/guide.js';
+import { GUIDE_STEPS, guideStep, setGuideStep, renderQuickStart, openQuickStart, closeQuickStart } from './features/guide.js';
 
 async function openSubmission(id) {
   const submission = await api.get(`submissions/${id}/`);
@@ -248,6 +248,17 @@ modal?.addEventListener('change', async event => {
 });
 
 document.addEventListener('click', event => {
+  const guideAction = event.target.closest?.('[data-guide-action]');
+  if (guideAction) {
+    event.preventDefault();
+    switch (guideAction.dataset.guideAction) {
+      case 'close': closeQuickStart(false); return;
+      case 'previous': setGuideStep(Math.max(0, guideStep - 1)); renderQuickStart(); return;
+      case 'next': setGuideStep(Math.min(GUIDE_STEPS.length - 1, guideStep + 1)); renderQuickStart(); return;
+      case 'go': { const step = GUIDE_STEPS[guideStep]; closeQuickStart(true); if (step?.view) navigate(step.view); return; }
+      default: return;
+    }
+  }
   if (event.target.closest('#retry-workspace-init')) {
     event.preventDefault();
     window.dispatchEvent(new Event('maestria:retry-init'));
@@ -276,7 +287,7 @@ document.addEventListener('click', event => {
   if (event.target.closest('#help-button')) openQuickStart();
 });
 
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeModal(); closeSidebar(); $('#profile-menu').hidden = true; if ($('#quickstart-root')?.innerHTML) closeQuickStart(true); } });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeModal(); closeSidebar(); $('#profile-menu').hidden = true; if ($('#quickstart-root')?.innerHTML) closeQuickStart(false); } });
 window.addEventListener('maestria:session-expired', () => { api.clearSession(); window.location.replace('../acceso.html'); });
 window.addEventListener('online', () => toast('Conexión restablecida. Actualizá la vista para recuperar datos recientes.'));
 window.addEventListener('offline', () => toast('Sin conexión. Las operaciones no se guardarán hasta recuperar la conexión.', 'error'));

@@ -8,4 +8,4 @@ COPY frontend ./frontend
 WORKDIR /app/backend
 RUN DEBUG=True DJANGO_SECRET_KEY=build-only-not-a-production-secret python manage.py collectstatic --noinput
 EXPOSE 8000
-CMD ["sh", "-c", "gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 90 --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --worker-class gthread --workers 2 --threads 4 --timeout 90 --keep-alive 5 --access-logfile - --error-logfile -"]

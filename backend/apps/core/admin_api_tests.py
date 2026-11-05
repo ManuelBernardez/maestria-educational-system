@@ -256,7 +256,7 @@ class GlobalRoleAndInstitutionTests(TestCase):
         forbidden.force_authenticate(user=SupabasePrincipal(id=str(self.teacher_id)))
         self.assertEqual(forbidden.get("/api/admin/ai-providers/").status_code, 403)
         response = self.admin.post("/api/admin/ai-providers/", {
-            "provider": "mock", "enabled": True, "timeout_seconds": 30, "model_name": "",
+            "provider": "mock", "enabled": True, "timeout_seconds": 18, "model_name": "",
         }, format="json")
         self.assertEqual(response.status_code, 201, response.data)
         self.assertNotIn("api_key", response.data)

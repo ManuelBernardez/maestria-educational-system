@@ -159,8 +159,8 @@ CREATE TABLE public.ai_provider_config (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, provider varchar NOT NULL UNIQUE
  CHECK (provider IN ('mock','gemini','openai','ollama')),
  model_name varchar NOT NULL DEFAULT '', enabled boolean NOT NULL DEFAULT false,
- priority smallint NOT NULL DEFAULT 10, timeout_seconds smallint NOT NULL DEFAULT 45
- CHECK (timeout_seconds >= 5 AND timeout_seconds <= 90),
+ priority smallint NOT NULL DEFAULT 10, timeout_seconds smallint NOT NULL DEFAULT 18
+ CHECK (timeout_seconds >= 5 AND timeout_seconds <= 18),
  input_usd_per_1k_tokens numeric CHECK (input_usd_per_1k_tokens IS NULL OR input_usd_per_1k_tokens >= 0),
  output_usd_per_1k_tokens numeric CHECK (output_usd_per_1k_tokens IS NULL OR output_usd_per_1k_tokens >= 0),
  updated_by uuid REFERENCES auth.users(id) ON DELETE SET NULL, updated_at timestamptz NOT NULL DEFAULT now()

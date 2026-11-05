@@ -27,7 +27,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from ..ai import default_rubric_for_question, generate_correction, generate_questions, generate_rubric
+from ..ai import ai_error_code, default_rubric_for_question, generate_correction, generate_questions, generate_rubric
 from ..models import (
     AIProviderConfig, AIGeneration, Assessment, AuditEvent, ContactMessage, Correction,
     CorrectionCriterionResult, CorrectionRevision, Course, Enrollment,

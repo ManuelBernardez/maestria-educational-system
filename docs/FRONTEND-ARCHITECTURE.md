@@ -4,12 +4,12 @@ El frontend se mantiene como HTML5, CSS y JavaScript nativo con módulos ES. No 
 
 ## Punto de entrada
 
-`frontend/espacio-docente/index.html` carga `assets/js/workspace.js` como `type="module"`. El adaptador `modules/core/api.js` importa explícitamente `config.js` y el cliente HTTP/Auth clásico, por lo que la secuencia de inicialización no depende del orden de varios `<script defer>` en el HTML. Las páginas públicas mantienen los scripts clásicos hasta que se migren al mismo modelo.
+`frontend/html/espacio-docente/index.html` carga `assets/js/workspace.js` como `type="module"`. El adaptador `modules/core/api.js` importa explícitamente `config.js` y el cliente HTTP/Auth clásico, por lo que la secuencia de inicialización no depende del orden de varios `<script defer>` en el HTML. Las páginas públicas mantienen los scripts clásicos hasta que se migren al mismo modelo.
 
 ## Capas
 
 ```text
-frontend/assets/js/
+frontend/js/
 ├── config.js                 # Resolución del origen de la API
 ├── api.js                    # HTTP, sesión Supabase y renovación JWT
 ├── auth.js / main.js         # Sitio público y autenticación

@@ -111,7 +111,13 @@ for html_file in html_files:
         if parsed.scheme or parsed.netloc or not parsed.path or parsed.path.startswith(("#", "data:")):
             continue
         if parsed.path.startswith("/"):
-            candidate = FRONTEND / parsed.path.lstrip("/")
+            static_path = parsed.path.lstrip("/")
+            if static_path.startswith("assets/css/"):
+                candidate = FRONTEND / "css" / static_path.removeprefix("assets/css/")
+            elif static_path.startswith("assets/js/"):
+                candidate = FRONTEND / "js" / static_path.removeprefix("assets/js/")
+            else:
+                candidate = FRONTEND / static_path
         else:
             candidate = (html_file.parent / parsed.path).resolve()
         try:
@@ -155,10 +161,22 @@ if node:
 else:
     print("WARN: Node.js no está instalado; se omitió la comprobación de sintaxis JS.")
 
-workspace_html = (FRONTEND / "espacio-docente" / "index.html").read_text(encoding="utf-8")
-if '<script type="module" src="../assets/js/workspace.js"></script>' not in workspace_html:
+workspace_html = (FRONTEND / "html" / "espacio-docente" / "index.html").read_text(encoding="utf-8")
+if '<script type="module" src="/assets/js/workspace.js"></script>' not in workspace_html:
     fail("El espacio docente no está cargando el entrypoint ES module esperado.")
-if not (FRONTEND / "assets/js/api.js").is_file():
-    fail("Falta el cliente HTTP frontend/assets/js/api.js.")
+if workspace_html.count('rel="stylesheet"') < 2 or 'href="/assets/css/workspace.css?v=1.0.3"' not in workspace_html:
+    fail("El espacio docente no está usando el CSS combinado versionado.")
+if 'href="/assets/js/modules/app.js"' not in workspace_html:
+    fail("El espacio docente no está precargando el grafo principal de módulos.")
+if not (FRONTEND / "js/api.js").is_file():
+    fail("Falta el cliente HTTP frontend/js/api.js.")
 
 print(f"OK: {len(html_files)} páginas HTML, {len(js_files)} scripts JS, rutas, exports nombrados y sintaxis verificados.")
+
+guide_module = (ROOT / "frontend/js/modules/features/guide.js").read_text(encoding="utf-8")
+app_module = (ROOT / "frontend/js/modules/app.js").read_text(encoding="utf-8")
+for action in ("close", "previous", "next", "go"):
+    if f"case '{action}'" not in guide_module:
+        fail(f"La acción de guía '{action}' no tiene manejador en su raíz persistente.")
+if "bindQuickStartEvents" not in app_module or "root.addEventListener('click'" not in guide_module:
+    fail("Los controles de guía no están enlazados al contenedor persistente.")

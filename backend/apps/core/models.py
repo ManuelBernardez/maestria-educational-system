@@ -362,7 +362,7 @@ class AIProviderConfig(PublicTable):
     model_name = models.CharField(max_length=160, blank=True, default="")
     enabled = models.BooleanField(default=False)
     priority = models.SmallIntegerField(default=10)
-    timeout_seconds = models.SmallIntegerField(default=45)
+    timeout_seconds = models.SmallIntegerField(default=18)
     input_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
     output_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
     updated_by = models.UUIDField(null=True, blank=True)

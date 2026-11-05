@@ -1,13 +1,13 @@
-# MaestrIA
+# MaestrIA v1.0.3
 
 Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
 
 ## Arquitectura
 
 - `frontend/`: sitio público y espacio docente HTML5 estáticos. Django los sirve en producción; no utiliza Next.js, React, Node ni un proceso de compilación.
-- `frontend/assets/js/api.js`: cliente HTTP/Auth, sesión Supabase por pestaña, renovación controlada, cancelación y llamadas autenticadas a Django.
-- `frontend/assets/js/workspace.js`: punto de entrada ES module del espacio docente; `modules/core/api.js` inicializa y expone el cliente como dependencia modular.
-- `frontend/assets/js/modules/`: capas `core`, `data`, `features` y `events`; cada dominio mantiene sus vistas y operaciones.
+- `frontend/js/api.js`: cliente HTTP/Auth, sesión Supabase por pestaña, renovación controlada, cancelación y llamadas autenticadas a Django.
+- `frontend/js/workspace.js`: punto de entrada ES module del espacio docente; `modules/core/api.js` inicializa y expone el cliente como dependencia modular. El espacio docente usa `assets/css/workspace.css`, un bundle CSS nativo que conserva el orden de cascada de sus seis hojas originales y se sirve comprimido por WhiteNoise.
+- `frontend/js/modules/`: capas `core`, `data`, `features` y `events`; cada dominio mantiene sus vistas y operaciones.
 - `backend/`: Django REST Framework, autenticación JWT Supabase, permisos, reglas de negocio, integración IA y servicio del frontend con WhiteNoise. Las vistas API están agrupadas en `apps/core/api_views/` por dashboard, catálogo y entregas/correcciones; `apps/core/views.py` conserva el punto de importación compatible.
 - `docs/`: contratos y decisiones técnicas.
 
@@ -90,7 +90,7 @@ Para un preview estático en `localhost:5500`, `config.js` apunta al backend loc
 
 ## Comportamiento IA y revisión humana
 
-La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue selecciona Gemini (`gemini-3.5-flash-lite`) y guarda `GEMINI_API_KEY` exclusivamente en el backend. Activar el procesamiento externo sólo después de revisar condiciones, informar a usuarios y confirmar el nivel pago del proyecto. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno. No utilizar respuestas reales de estudiantes con tiers que permitan entrenamiento del proveedor.
+La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue selecciona Gemini (`gemini-3.5-flash-lite`), limita cada llamada a un máximo de 18 segundos y guarda `GEMINI_API_KEY` exclusivamente en el backend. Activar el procesamiento externo sólo después de revisar condiciones, informar a usuarios y confirmar el nivel pago del proyecto. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno. No utilizar respuestas reales de estudiantes con tiers que permitan entrenamiento del proveedor.
 
 Los datos de práctica se crean mediante `POST /api/demo/seed/` bajo confirmación explícita y se identifican como ficticios. No son datos de producción ni una autenticación simulada del frontend.
 
@@ -155,7 +155,9 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - `docs/API.md`: contrato de API.
 - `docs/FRONTEND-ARCHITECTURE.md`: organización modular del frontend.
 - `docs/BACKEND-ARCHITECTURE.md`: límites de módulos, dependencias y persistencia del backend.
-- `docs/AUDITORIA-TECNICA-v1.0.1.md`: evaluación, cambios y riesgos pendientes de esta versión.
+- `docs/AUDITORIA-TECNICA-v1.0.1.md`: evaluación, cambios y riesgos de la versión anterior.
+- `docs/AUDITORIA-TECNICA-v1.0.2.md`: diagnóstico y mejoras de carga inicial, concurrencia, guía, estadísticas, IA y Supabase aplicadas en esta versión.
+- `backend/database/migrations/20261105202119_maestria_v1_0_2_hardening.sql`: registro de la migración aplicada en Supabase.
 - `docs/AUDITORIA-TECNICA-2026-11-05.md`: hallazgos, cambios y riesgos pendientes.
 - `docs/ADAPTACION-DJANGO-POSTGRESQL-SUPABASE-2026-11-04.md`: adaptación del ORM, permisos, migraciones y administración.
 - `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
@@ -163,3 +165,10 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 ## Despliegue
 
 La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Seguí `docs/DEPLOYMENT-v0.2.0.md` para completar las variables privadas y la configuración de Supabase/Gemini. No cargar `backend/.env` en Git.
+
+
+## Frontend v1.0.3
+
+El frontend se organiza en cuatro carpetas: `frontend/html`, `frontend/css`, `frontend/js` y `frontend/assets`. Django sirve las páginas HTML desde `html/`; WhiteNoise publica CSS/JS bajo `/assets/css/` y `/assets/js/`, y las imágenes bajo `/assets/`.
+
+Validaciones: `npm run check:frontend` ejecuta los chequeos de referencias, módulos y contrato del flujo docente.

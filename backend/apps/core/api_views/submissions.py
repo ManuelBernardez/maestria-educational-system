@@ -1,3 +1,4 @@
+import httpx
 from .common import (
     AIUserRateThrottle,
     Assessment,
@@ -33,6 +34,7 @@ from .common import (
     ValidationError,
     _read_document,
     _safe_ai_error_detail,
+    ai_error_code,
     action,
     active_ai_provider_config,
     async_to_sync,
@@ -291,19 +293,26 @@ class SubmissionViewSet(OwnerViewSet):
 
             async def generate_all_proposals():
                 semaphore = asyncio.Semaphore(max_concurrency)
+                limits = httpx.Limits(
+                    max_connections=max_concurrency,
+                    max_keepalive_connections=max_concurrency,
+                )
+                # A single session reuses TLS/HTTP connections across answers in
+                # this correction, then closes deterministically at request end.
+                async with httpx.AsyncClient(limits=limits) as http_client:
+                    async def generate_one(item):
+                        async with semaphore:
+                            return await generate_correction(
+                                question=item["effective_question"],
+                                answer=item["answer_text"],
+                                rubric=item["criteria"],
+                                max_score=item["effective_max"],
+                                feedback_style=feedback_style,
+                                provider_config=provider_config,
+                                http_client=http_client,
+                            )
 
-                async def generate_one(item):
-                    async with semaphore:
-                        return await generate_correction(
-                            question=item["effective_question"],
-                            answer=item["answer_text"],
-                            rubric=item["criteria"],
-                            max_score=item["effective_max"],
-                            feedback_style=feedback_style,
-                            provider_config=provider_config,
-                        )
-
-                return await asyncio.gather(*(generate_one(item) for item in prepared_items))
+                    return await asyncio.gather(*(generate_one(item) for item in prepared_items))
 
             # Reserve atomically before spending time/quota on an external model.
             # Concurrent requests for the same submission will see this lease and
@@ -377,8 +386,8 @@ class SubmissionViewSet(OwnerViewSet):
         except Exception as exc:
             if reservation_acquired:
                 release_reservation()
-            record_ai_generation(request.user.id, "generate_correction", started, False, fingerprint(context), type(exc).__name__, assessment=submission.assessment, submission=submission, provider_config=locals().get("provider_config"))
-            logger.warning("AI correction generation failed (%s)", type(exc).__name__)
+            record_ai_generation(request.user.id, "generate_correction", started, False, fingerprint(context), ai_error_code(exc), assessment=submission.assessment, submission=submission, provider_config=locals().get("provider_config"))
+            logger.warning("AI correction generation failed (%s)", ai_error_code(exc))
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")}, status=status.HTTP_502_BAD_GATEWAY)
 
         total = sum(Decimal(str(item.get("score", 0))) for item in aggregate["criteria"])

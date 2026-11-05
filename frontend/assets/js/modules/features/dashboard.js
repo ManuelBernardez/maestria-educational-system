@@ -9,7 +9,10 @@ export function renderDashboard() {
     ? `${(estimatedMinutes / 60).toLocaleString('es-AR', { maximumFractionDigits: 1 })} h`
     : `${estimatedMinutes} min`;
   const pending = state.data.corrections.filter(item => item.status === 'pending_review');
-  const pendingCount = state.loading ? Number(summary.pending_corrections || 0) : pending.length;
+  const pendingCount = Number(summary.pending_corrections ?? pending.length);
+  const pendingByCourse = new Map((state.data.overview?.course_correction_counts || [])
+    .filter(item => item.status === 'pending_review')
+    .map(item => [String(item.course_id), Number(item.count || 0)]));
   const today = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
   const name = firstName();
   const intro = pendingCount
@@ -26,11 +29,11 @@ export function renderDashboard() {
     return `<article class="queue-item" data-tone="${toneOf(courseId)}"><div class="queue-copy"><strong>${escapeHtml(item.student_name || 'Estudiante')}</strong><small>${escapeHtml(item.submission_title || 'Evaluación')} · ${escapeHtml(courseName(courseId))}</small></div><span class="queue-score" title="Puntaje propuesto">${escapeHtml(item.total_score ?? '—')}</span>${btn('Revisar', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary')}</article>`;
   }).join('');
   const queueBody = pending.length
-    ? `${queue}${pending.length > 5 ? `<p class="queue-more">y ${pending.length - 5} más dentro de tus cursos</p>` : ''}`
-    : `<div class="queue-clear"><span class="stamp">Al día</span><p>${state.loading ? 'Cargando tus devoluciones…' : 'No tenés devoluciones esperando tu decisión.'}</p></div>`;
+    ? `${queue}${pendingCount > 5 ? `<p class="queue-more">y ${pendingCount - 5} más dentro de tus cursos</p>` : ''}`
+    : `<div class="queue-clear"><span class="stamp">${pendingCount ? 'En revisión' : 'Al día'}</span><p>${state.loading ? 'Cargando tus devoluciones…' : state.errors.corrections ? 'No se pudo cargar el detalle de las devoluciones. El contador del resumen sigue actualizado.' : pendingCount ? 'Hay devoluciones pendientes; no se pudo mostrar su detalle.' : 'No tenés devoluciones esperando tu decisión.'}</p></div>`;
 
   const courseItems = state.data.courses.filter(item => item.active)
-    .map(course => ({ course, count: pending.filter(item => String(courseIdForCorrection(item)) === String(course.id)).length }))
+    .map(course => ({ course, count: pendingByCourse.get(String(course.id)) ?? pending.filter(item => String(courseIdForCorrection(item)) === String(course.id)).length }))
     .sort((a, b) => b.count - a.count || String(a.course.name).localeCompare(String(b.course.name), 'es-AR'))
     .slice(0, 6)
     .map(({ course, count }) => `<button type="button" class="mini-course" data-tone="${toneOf(course.id)}" data-action="open-course" data-id="${escapeHtml(course.id)}"><span class="mini-course-name">${escapeHtml(course.name)}</span><small>${escapeHtml([course.subject, course.academic_year].filter(Boolean).join(' · ') || 'Curso activo')}</small>${count ? `<span class="mini-course-badge" title="${count} por revisar">${count}</span>` : ''}</button>`).join('');
@@ -55,7 +58,7 @@ export function renderDashboard() {
   return `<header class="view-header view-header--today"><div class="view-heading-copy"><p class="view-kicker">${escapeHtml(today)}</p><h1>${greeting()}${name ? `, ${escapeHtml(name)}` : ''}</h1><p>${intro}</p></div><div class="view-actions">${btn('Ir a cursos', 'navigate', 'data-view="courses"', 'primary')}</div></header>
     ${state.errors.overview ? `<div class="notice notice-error" role="alert"><strong>No se pudo cargar el resumen.</strong><br>${escapeHtml(state.errors.overview)} ${btn('Reintentar', 'refresh-resource', 'data-resource="overview"')}</div>` : ''}
     <section class="today-stats" aria-label="Resumen de actividad">
-      ${stats.map(stat => `<article class="today-stat${stat.note ? ' today-stat--note' : ''}" data-tone="${stat.tone}"><strong>${state.loading ? '—' : escapeHtml(stat.value)}</strong><span>${escapeHtml(stat.label)}</span><small>${escapeHtml(stat.detail)}</small></article>`).join('')}
+      ${stats.map(stat => `<article class="today-stat${stat.note ? ' today-stat--note' : ''}" data-tone="${stat.tone}"><strong>${state.data.overview ? escapeHtml(stat.value) : '—'}</strong><span>${escapeHtml(stat.label)}</span><small>${escapeHtml(stat.detail)}</small></article>`).join('')}
     </section>
     ${body}`;
 }

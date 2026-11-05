@@ -29,9 +29,9 @@ def _provider_settings(provider_config=None):
     }
     model_name = str(config.get("model_name") or defaults.get(provider, ""))
     try:
-        timeout = min(max(int(config.get("timeout_seconds") or os.getenv("AI_TIMEOUT_SECONDS", "45")), 5), 90)
+        timeout = min(max(int(config.get("timeout_seconds") or os.getenv("AI_TIMEOUT_SECONDS", "18")), 5), 18)
     except (TypeError, ValueError):
-        timeout = 45
+        timeout = 18
     if provider not in {"mock", "gemini", "openai", "ollama"}:
         raise RuntimeError("El proveedor de IA configurado no es válido.")
     return provider, model_name, timeout
@@ -82,7 +82,18 @@ def _extract_gemini_response(payload: dict) -> str:
     return raw
 
 
-async def _gemini_json(*, system_instruction: str, context: dict, temperature: float = 0.2, max_output_tokens: int = 1800, allow_free_tier_synthetic: bool = False, model_name: str | None = None, timeout_seconds: int | None = None) -> str:
+async def _post_json(url: str, *, payload: dict, timeout: float, headers: dict | None = None, http_client: httpx.AsyncClient | None = None):
+    """Reuse a request-scoped client when provided; otherwise own one safely."""
+    if http_client is not None:
+        response = await http_client.post(url, headers=headers, json=payload, timeout=timeout)
+    else:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response
+
+
+async def _gemini_json(*, system_instruction: str, context: dict, temperature: float = 0.2, max_output_tokens: int = 1800, allow_free_tier_synthetic: bool = False, model_name: str | None = None, timeout_seconds: int | None = None, http_client: httpx.AsyncClient | None = None) -> str:
     """Call Gemini only from the server, with structured JSON output and limits."""
     _assert_external_ai_approved("gemini", allow_free_tier_synthetic=allow_free_tier_synthetic)
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -91,7 +102,7 @@ async def _gemini_json(*, system_instruction: str, context: dict, temperature: f
     model = str(model_name or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")).strip()
     if not model or any(char.isspace() for char in model):
         raise RuntimeError("GEMINI_MODEL no tiene un nombre válido.")
-    timeout = min(max(float(timeout_seconds or os.getenv("AI_TIMEOUT_SECONDS", "45")), 5.0), 90.0)
+    timeout = min(max(float(timeout_seconds or os.getenv("AI_TIMEOUT_SECONDS", "18")), 5.0), 18.0)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
@@ -102,28 +113,26 @@ async def _gemini_json(*, system_instruction: str, context: dict, temperature: f
             "responseMimeType": "application/json",
         },
     }
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, headers={"x-goog-api-key": api_key}, json=payload)
-        response.raise_for_status()
-        response_payload = response.json()
+    response = await _post_json(url, headers={"x-goog-api-key": api_key}, payload=payload, timeout=timeout, http_client=http_client)
+    response_payload = response.json()
     return _extract_gemini_response(response_payload)
 
 
-async def generate_correction(*, question: str, answer: str, rubric: list[dict], max_score: float, feedback_style: str = "constructivo", allow_free_tier_synthetic: bool = False, provider_config: dict | None = None):
+async def generate_correction(*, question: str, answer: str, rubric: list[dict], max_score: float, feedback_style: str = "constructivo", allow_free_tier_synthetic: bool = False, provider_config: dict | None = None, http_client: httpx.AsyncClient | None = None):
     provider, model_name, timeout = _provider_settings(provider_config)
     if provider == "openai":
         _assert_external_ai_approved(provider)
-        return await _openai(question, answer, rubric, max_score, feedback_style, model_name, timeout)
+        return await _openai(question, answer, rubric, max_score, feedback_style, model_name, timeout, http_client=http_client)
     if provider == "gemini":
         context = {
             "question": question[:8000], "answer": answer[:50000],
             "rubric": rubric[:30], "max_score": max_score,
             "feedback_style": feedback_style,
         }
-        raw = await _gemini_json(system_instruction=SYSTEM_PROMPT, context=context, temperature=0.1, max_output_tokens=1800, allow_free_tier_synthetic=allow_free_tier_synthetic, model_name=model_name, timeout_seconds=timeout)
+        raw = await _gemini_json(system_instruction=SYSTEM_PROMPT, context=context, temperature=0.1, max_output_tokens=1800, allow_free_tier_synthetic=allow_free_tier_synthetic, model_name=model_name, timeout_seconds=timeout, http_client=http_client)
         return _validate_proposal(json.loads(raw), rubric, max_score, answer)
     if provider == "ollama":
-        return await _ollama(question, answer, rubric, max_score, feedback_style, model_name, timeout)
+        return await _ollama(question, answer, rubric, max_score, feedback_style, model_name, timeout, http_client=http_client)
     if provider == "mock":
         return _mock(question, answer, rubric, max_score, feedback_style)
     raise RuntimeError("AI_PROVIDER debe ser mock, gemini, openai u ollama")
@@ -158,30 +167,52 @@ def _mock(question, answer, rubric, max_score, feedback_style="constructivo"):
         "demo": True,
     }
 
-async def _openai(question, answer, rubric, max_score, feedback_style="constructivo", model_name=None, timeout_seconds=60):
+async def _openai(question, answer, rubric, max_score, feedback_style="constructivo", model_name=None, timeout_seconds=18, http_client: httpx.AsyncClient | None = None):
     key = os.getenv("OPENAI_API_KEY")
     if not key: raise RuntimeError("Falta OPENAI_API_KEY")
     payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps({"question": question, "answer": answer, "rubric": rubric, "max_score": max_score, "feedback_style": feedback_style}, ensure_ascii=False)}
     ], "temperature": 0.1, "max_tokens": 1800}
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=payload)
-        response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"]
+    response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout_seconds, http_client=http_client)
+    raw = response.json()["choices"][0]["message"]["content"]
     return _validate_proposal(json.loads(raw), rubric, max_score, answer)
 
-async def _ollama(question, answer, rubric, max_score, feedback_style="constructivo", model_name=None, timeout_seconds=60):
+async def _ollama(question, answer, rubric, max_score, feedback_style="constructivo", model_name=None, timeout_seconds=18, http_client: httpx.AsyncClient | None = None):
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps({"question": question, "answer": answer, "rubric": rubric, "max_score": max_score, "feedback_style": feedback_style}, ensure_ascii=False)}
     ], "options": {"temperature": 0.1, "num_predict": 1800}}
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        response = await client.post(f"{base}/api/chat", json=payload)
-        response.raise_for_status()
-        raw = response.json()["message"]["content"]
+    response = await _post_json(f"{base}/api/chat", payload=payload, timeout=timeout_seconds, http_client=http_client)
+    raw = response.json()["message"]["content"]
     return _validate_proposal(json.loads(raw), rubric, max_score, answer)
+
+
+def ai_error_code(exc: Exception) -> str:
+    """Persist a stable, non-sensitive category for troubleshooting provider failures."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP_{exc.response.status_code}"[:80]
+    if isinstance(exc, httpx.TimeoutException):
+        return "PROVIDER_TIMEOUT"
+    if isinstance(exc, httpx.ConnectError):
+        return "PROVIDER_CONNECTION_ERROR"
+    message = str(exc)
+    safe_categories = (
+        ("El envío de contenido a un proveedor externo está desactivado.", "EXTERNAL_PROCESSING_NOT_APPROVED"),
+        ("Para usar Gemini con contenido docente o estudiantil", "GEMINI_PAID_TIER_NOT_CONFIRMED"),
+        ("Falta GEMINI_API_KEY", "MISSING_GEMINI_API_KEY"),
+        ("Falta OPENAI_API_KEY", "MISSING_OPENAI_API_KEY"),
+        ("GEMINI_MODEL no tiene un nombre válido.", "INVALID_GEMINI_MODEL"),
+        ("AI_PROVIDER debe ser", "INVALID_AI_PROVIDER"),
+    )
+    for prefix, code in safe_categories:
+        if message.startswith(prefix):
+            return code
+    if isinstance(exc, ValueError):
+        return "INVALID_PROVIDER_RESPONSE"
+    return type(exc).__name__[:80]
+
 
 def _safe_float(value, default=0.0):
     try:

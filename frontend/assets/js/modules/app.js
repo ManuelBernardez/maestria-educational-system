@@ -53,7 +53,7 @@ async function runInit() {
       await refreshAdmin();
     } else {
       state.view = 'dashboard';
-      await refreshCore();
+      await refreshCore({ onOverviewReady: () => render() });
     }
     state.loading = false;
     render();

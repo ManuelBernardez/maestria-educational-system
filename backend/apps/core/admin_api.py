@@ -485,8 +485,8 @@ class AIProviderConfigSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "updated_by", "updated_at")
 
     def validate_timeout_seconds(self, value):
-        if not 5 <= value <= 90:
-            raise serializers.ValidationError("El timeout debe estar entre 5 y 90 segundos.")
+        if not 5 <= value <= 18:
+            raise serializers.ValidationError("El timeout debe estar entre 5 y 18 segundos para respetar el tiempo máximo de la solicitud.")
         return value
 
     def validate_priority(self, value):
