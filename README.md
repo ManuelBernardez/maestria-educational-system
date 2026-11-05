@@ -1,4 +1,4 @@
-# MaestrIA v1.0.3
+# MaestrIA v1.0.5
 
 Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
 
@@ -167,8 +167,35 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Seguí `docs/DEPLOYMENT-v0.2.0.md` para completar las variables privadas y la configuración de Supabase/Gemini. No cargar `backend/.env` en Git.
 
 
-## Frontend v1.0.3
+## Frontend v1.0.5
 
 El frontend se organiza en cuatro carpetas: `frontend/html`, `frontend/css`, `frontend/js` y `frontend/assets`. Django sirve las páginas HTML desde `html/`; WhiteNoise publica CSS/JS bajo `/assets/css/` y `/assets/js/`, y las imágenes bajo `/assets/`.
 
 Validaciones: `npm run check:frontend` ejecuta los chequeos de referencias, módulos y contrato del flujo docente.
+
+## Cambios v1.0.5
+Auditoría estática del tramo «generar corrección → editar → aprobar → compartir» (sin Django ni red en el entorno de revisión: los cambios están verificados por sintaxis y pruebas puras, no por una corrida E2E).
+- IA/Gemini: tope de espera por llamada de 18 s → 85 s (por defecto 60 s, `AI_TIMEOUT_SECONDS`); antes una corrección con varios criterios daba 502 por timeout.
+- IA/Gemini: `maxOutputTokens` 1800 → 8192 en correcciones (4096 en consignas/rúbricas). Los modelos con razonamiento consumen esos tokens y la salida JSON llegaba truncada.
+- IA: un reintento ante 429/5xx/error de conexión; se tolera JSON envuelto en ```; el error indica si fue truncado por tokens.
+- Evidencia literal: la validación tolera espacios, saltos de línea, comillas y guiones tipográficos, y guarda el texto exacto de la fuente. Antes se descartaba evidencia válida y la aprobación fallaba con «debe coincidir literalmente» si la entrega tenía `\r\n`.
+- Mensajes de error accionables para 429 (cuota), 401/403 (clave), 400/404 (modelo), 5xx y timeout.
+- Aprobar: se eliminó una lectura redundante; la entrega queda en estado «review» en pantalla tras generar.
+- Compartir: el correo (`mailto:`) recorta cuerpos largos y copia el texto completo al portapapeles; «Copiar» tiene alternativa si no hay API de portapapeles.
+- Imprimir/PDF: nueva hoja `@media print` (antes se imprimía el menú y los botones).
+- Caché: la ruta de respaldo de Django también envía `no-cache` para JS/CSS/CSV.
+- Despliegue: gunicorn `--timeout 150` (render.yaml y Dockerfile) y `AI_TIMEOUT_SECONDS=60`.
+- Tests puros nuevos: `backend/apps/core/test_ai_evidence.py`.
+
+Pendiente: `db/maestria_schema_v2.sql` desactualizado; 11 tests de backend desactualizados; listas globales de Entregas/Evaluaciones/Correcciones sin acceso desde el menú; prueba E2E con Gemini real en Render (requiere `AI_EXTERNAL_PROCESSING_APPROVED=True` y `AI_GEMINI_PAID_TIER_CONFIRMED=True`; con `mock` las correcciones no se aprueban por diseño).
+
+## Cambios v1.0.4
+- Corregido STATICFILES_DIRS (tuplas prefijo/directorio invertidas): rompía collectstatic y el servido de CSS/JS.
+- Corregido ReferenceError (escapeHtml sin importar) al elegir evaluación en «Registrar entrega».
+- Corregido 500 al eliminar una consigna (select_for_update con LEFT JOIN).
+- Límites: user 900/min, IA 120/hora (configurables por THROTTLE_*); importar archivos ya no cuenta como IA. Antes se obtenía 429 tras ~10 acciones.
+- JS/CSS con Cache-Control: no-cache (evita que queden scripts viejos en el navegador tras un deploy).
+- Los bloques del curso se mantienen abiertos tras guardar.
+- Botones «Volver» de entrega/devolución corregidos; nueva entrada «Rúbricas» en el menú.
+- Plantilla CSV de estudiantes (antes 404); el CSV acepta «;» y muestra filas omitidas.
+- Tests: perfil docente en el helper de Auth (de 43 a 11 fallas; restantes: tests desactualizados).

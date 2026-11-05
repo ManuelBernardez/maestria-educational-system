@@ -27,9 +27,19 @@ const VIEW_RENDERERS = Object.freeze({
   'institution-memberships': renderInstitutionScope, profile: renderProfile
 });
 
+// Al refrescar datos (alta de estudiante, evaluación, etc.) la vista se vuelve a dibujar;
+// se conservan los bloques desplegados del curso para que el docente vea lo que acaba de crear.
+let lastRendered = { view: null, course: null };
+
 window.addEventListener('maestria:render', (e) => {
   const view = e.detail.view;
+  const sameCourse = lastRendered.view === 'course' && view === 'course' && String(lastRendered.course) === String(state.selectedCourse);
+  const openFolds = sameCourse ? $$('details[data-fold][open]', content).map(node => node.dataset.fold) : [];
+  const scrollY = sameCourse ? window.scrollY : null;
   content.innerHTML = (VIEW_RENDERERS[view] || renderDashboard)();
+  lastRendered = { view, course: state.selectedCourse };
+  openFolds.forEach(key => { const fold = content.querySelector(`details[data-fold="${key}"]`); if (fold) fold.open = true; });
+  if (scrollY != null) window.scrollTo({ top: scrollY, behavior: 'auto' });
   $$('.side-link').forEach(link => {
     const active = link.dataset.view === state.view || (state.view === 'course' && link.dataset.view === 'courses') || (state.view === 'assessment' && link.dataset.view === 'assessments') || (state.view === 'submission' && link.dataset.view === 'submissions') || (state.view === 'correction' && link.dataset.view === 'corrections') || (state.view === 'rubric' && link.dataset.view === 'rubrics') || (state.view === 'institution-memberships' && link.dataset.view === 'admin');
     link.classList.toggle('active', active);

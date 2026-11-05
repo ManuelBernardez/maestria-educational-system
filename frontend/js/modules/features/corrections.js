@@ -34,7 +34,7 @@ export function renderCorrection() {
   const criteria = Array.isArray(proposal?.criteria) ? proposal.criteria : [];
   const readonly = correction.status === 'approved' || Boolean(proposal?.demo);
   const warning = proposal?.demo ? `<div class="notice notice-warning"><strong>Propuesta demostrativa.</strong> El proveedor está en modo MOCK. No se puede aprobar ni utilizar como calificación real.</div>` : '';
-  const backLabel = state.correctionOrigin === 'corrections' ? 'Volver al historial' : state.correctionOrigin === 'course' ? 'Volver al curso' : 'Volver a la entrega';
+  const backLabel = state.correctionOrigin === 'course' ? 'Volver al curso' : 'Volver a la entrega';
   const sharingActions = correction.status === 'approved'
     ? btn('Compartir / guardar', 'share-correction', '', 'primary')
     : `${btn('Copiar borrador', 'copy-correction')}${btn('Imprimir', 'print-correction')}`;

@@ -86,14 +86,29 @@ export async function handleShareAction(action) {
     const email = String($('#correction-share-email')?.value || '').trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { if (errorNode) errorNode.textContent = 'Revisá el correo ingresado o dejalo vacío.'; return; }
     const recipient = email ? email.split('@').map((part, index) => index === 0 ? encodeURIComponent(part) : encodeURIComponent(part)).join('@') : '';
-    window.location.href = `mailto:${recipient}?subject=${encodeURIComponent(`Devolución de evaluación: ${data.correction.submission_title || 'MaestrIA'}`)}&body=${encodeURIComponent(text)}`;
-    if (notice) notice.textContent = 'Se solicitó abrir un borrador de correo.';
+    // Muchos clientes de correo truncan o rechazan enlaces mailto muy largos (~2000 caracteres).
+    const MAX_MAILTO_BODY = 1500;
+    let body = text;
+    let clipboardNote = '';
+    if (text.length > MAX_MAILTO_BODY) {
+      body = `${text.slice(0, MAX_MAILTO_BODY).replace(/\s+\S*$/, '')}…\n\n[La devolución completa está copiada en el portapapeles: pegala acá antes de enviar.]`;
+      try { await navigator.clipboard.writeText(text); clipboardNote = ' El texto completo quedó copiado: pegalo en el cuerpo del correo.'; }
+      catch { clipboardNote = ' El texto es largo: usá «Copiar devolución» y pegalo en el correo.'; }
+    }
+    window.location.href = `mailto:${recipient}?subject=${encodeURIComponent(`Devolución de evaluación: ${data.correction.submission_title || 'MaestrIA'}`)}&body=${encodeURIComponent(body)}`;
+    if (notice) notice.textContent = `Se solicitó abrir un borrador de correo.${clipboardNote}`;
   } else if (action === 'whatsapp') {
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
     if (notice) notice.textContent = 'WhatsApp se abrió con el texto preparado.';
   } else if (action === 'copy') {
-    try { await navigator.clipboard.writeText(text); if (notice) notice.textContent = 'Devolución copiada.'; }
-    catch { if (errorNode) errorNode.textContent = 'Habilitá el permiso del portapapeles.'; }
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else {
+        const input = document.createElement('textarea'); input.value = text; document.body.appendChild(input); input.select();
+        const copied = document.execCommand('copy'); input.remove(); if (!copied) throw new Error('copy');
+      }
+      if (notice) notice.textContent = 'Devolución copiada.';
+    } catch { if (errorNode) errorNode.textContent = 'No se pudo copiar. Habilitá el permiso del portapapeles o seleccioná el texto manualmente.'; }
   } else if (action === 'print') {
     closeModal(true); window.print();
   }

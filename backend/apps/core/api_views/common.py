@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 import asyncio
 import csv
 import hashlib
+import httpx
 import io
 import json
 import logging
@@ -143,6 +144,23 @@ def _safe_ai_error_detail(exc, fallback):
     )
     if len(message) <= 350 and message.startswith(safe_prefixes):
         return message
+    if len(message) <= 350 and message.startswith(("Gemini no devolvió", "La IA devolvió", "La IA no devolvió", "No se pudo alinear")):
+        return message + " Probá de nuevo; si persiste, revisá el modelo configurado."
+    # Mensajes accionables según el tipo de falla del proveedor, sin exponer su respuesta cruda.
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 429:
+            return "El proveedor de IA alcanzó su límite de cuota o de velocidad. Esperá un minuto e intentá de nuevo (o revisá la cuota del proyecto)."
+        if code in (401, 403):
+            return "El proveedor de IA rechazó la clave API (HTTP %d). Revisá GEMINI_API_KEY y que la API esté habilitada para el proyecto." % code
+        if code in (400, 404):
+            return "El proveedor de IA rechazó la solicitud (HTTP %d). Verificá que GEMINI_MODEL sea un modelo disponible para tu clave." % code
+        if code >= 500:
+            return "El proveedor de IA tuvo un error temporal (HTTP %d). Intentá nuevamente en unos instantes." % code
+    if isinstance(exc, httpx.TimeoutException):
+        return "El proveedor de IA tardó demasiado en responder. Intentá nuevamente; si la entrega es muy larga, dividila."
+    if isinstance(exc, httpx.ConnectError):
+        return "No se pudo conectar con el proveedor de IA desde el servidor. Intentá nuevamente en unos instantes."
     return fallback
 
 def courses_with_dashboard_counts(owner_id, *, active_only=False):

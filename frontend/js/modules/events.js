@@ -3,7 +3,7 @@ import { state, content, modal, $, $$ } from './core/state.js';
 import { toast, openModal, closeModal, setSidebarCollapsed, openSidebar, closeSidebar, toggleTheme } from './core/ui.js';
 import { navigate, render } from './core/router.js';
 import { refreshCore, refreshAdmin, loadAssessmentEditor, loadCorrectionForSubmission, afterWrite } from './data/repository.js';
-import { errorText } from './core/utils.js';
+import { errorText, escapeHtml } from './core/utils.js';
 import { courseIdForSubmission, courseIdForCorrection } from './core/utils.js';
 import { courseForm } from './features/courses.js';
 import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsForm, enrollmentForm, submissionForm, generateQuestionsForm, importReferenceForm, newRubricCriterionForm, editCriterionForm, editLevelForm, newLevelForm, adminUserForm, institutionForm, membershipForm, messageForm, providerForm, generateRubric, handleModalSubmit, handleGenerateCorrection, handleApproveCorrection, handleAddSubmissionAnswer, handleQuestionProposal } from './features/forms.js';
@@ -130,7 +130,14 @@ async function clickAction(button) {
       }
       case 'new-submission': state.selectedCourse = button.dataset.course || state.selectedCourse; submissionForm(state.selectedCourse || ''); break;
       case 'open-submission': await openSubmission(id); break;
-      case 'return-submission': state.view = state.correctionOrigin === 'course' && state.selectedCourse ? 'course' : state.correctionOrigin === 'corrections' ? 'admin' : 'submission'; render(); break;
+      case 'return-submission': {
+        // Desde una devolución se vuelve a la entrega (o al curso si se llegó desde él);
+        // desde la entrega se vuelve siempre al curso, que es donde viven las entregas.
+        const courseExists = state.selectedCourse != null && state.data.courses.some(item => String(item.id) === String(state.selectedCourse));
+        if (state.view === 'correction' && state.correctionOrigin !== 'course' && state.currentSubmission) state.view = 'submission';
+        else state.view = courseExists ? 'course' : 'courses';
+        render(); break;
+      }
       case 'return-assessment': state.view = state.assessmentOrigin === 'course' && state.selectedCourse ? 'course' : 'courses'; render(); break;
       case 'open-correction': await openCorrection(id); break;
       case 'export-correction': await api.download(`corrections/${id}/export/`, `devolucion-maestria-${id}.md`); break;

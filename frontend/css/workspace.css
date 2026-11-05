@@ -3414,3 +3414,17 @@ button:disabled { opacity: .58; cursor: not-allowed; transform: none !important;
   .mini-course, .pipeline-step { transition: none; }
   .today-stat--note, .queue-score, .stamp { transform: none; }
 }
+
+/* v1.0.5 · Impresión / PDF de la devolución: sólo el contenido, sin menú ni controles. */
+@media print {
+  html, body { background: #fff !important; color: #000 !important; }
+  .sidebar, .app-topbar, .sidebar-scrim, .modal-layer, .toast-region, .profile-menu,
+  #quickstart-root, .view-actions, .modal-actions, .table-actions, .mobile-menu-button { display: none !important; }
+  .app-layout, .app-main { display: block !important; margin: 0 !important; padding: 0 !important; width: auto !important; }
+  .app-content { padding: 0 !important; max-width: none !important; overflow: visible !important; }
+  .panel { box-shadow: none !important; border: 1px solid #bbb !important; break-inside: avoid; margin: 0 0 12px !important; background: #fff !important; }
+  .criterion-review { break-inside: avoid; border: 1px solid #ccc; margin-bottom: 8px; }
+  input, textarea, select { border: 0 !important; background: transparent !important; color: #000 !important; resize: none !important; -webkit-text-fill-color: #000 !important; opacity: 1 !important; }
+  textarea { height: auto !important; overflow: visible !important; }
+  a[href]::after { content: none !important; }
+}

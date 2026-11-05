@@ -1,4 +1,5 @@
 import httpx
+from ..ai import locate_evidence
 from .common import (
     AIUserRateThrottle,
     Assessment,
@@ -119,7 +120,7 @@ class SubmissionViewSet(OwnerViewSet):
             submission.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=False, methods=["post"], url_path="import-file", parser_classes=[MultiPartParser, FormParser], throttle_classes=[AIUserRateThrottle])
+    @action(detail=False, methods=["post"], url_path="import-file", parser_classes=[MultiPartParser, FormParser])
     def import_file(self, request):
         uploaded = request.FILES.get("file")
         if not uploaded:
@@ -609,7 +610,13 @@ class CorrectionViewSet(OwnerViewSet):
             if score < 0 or score > maximum:
                 raise ValidationError({"final_result": f"El puntaje de {base_item.get('criterion', 'un criterio')} debe estar entre 0 y {maximum}."})
             evidence = str(item.get("evidence", base_item.get("evidence", "")))[:1000]
-            if evidence and evidence not in full_source_text:
+            exact_evidence = ""
+            if evidence:
+                # Tolerante a saltos de línea/espacios/comillas; se guarda el texto exacto de la fuente.
+                exact_evidence = locate_evidence(evidence, full_source_text)
+                if exact_evidence:
+                    evidence = exact_evidence[:1000]
+            if evidence and not exact_evidence:
                 raise ValidationError({"final_result": f"La evidencia del criterio {base_item.get('criterion', index + 1)} debe coincidir literalmente con una respuesta cargada."})
             validated_criteria.append({
                 **base_item, "score": float(score), "max_score": float(maximum),

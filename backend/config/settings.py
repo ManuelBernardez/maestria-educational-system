@@ -116,12 +116,26 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "/assets/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [(FRONTEND_DIR / "css", "css"), (FRONTEND_DIR / "js", "js"), FRONTEND_DIR / "assets"]
+# Django espera tuplas (prefijo, directorio). Con el orden invertido el sitio queda sin CSS ni JS.
+STATICFILES_DIRS = [("css", FRONTEND_DIR / "css"), ("js", FRONTEND_DIR / "js"), FRONTEND_DIR / "assets"]
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 WHITENOISE_MAX_AGE = 60 * 60 * 24
+
+
+def _whitenoise_headers(headers, path, url):
+    """Los scripts y estilos no llevan hash en el nombre: el navegador debe revalidarlos siempre.
+
+    Con un día de caché, tras publicar una versión nueva algunos usuarios seguían ejecutando
+    el JavaScript anterior (por ejemplo, una guía de inicio con los botones ya corregidos).
+    """
+    if str(url).endswith((".js", ".css", ".csv")):
+        headers["Cache-Control"] = "no-cache"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = _whitenoise_headers
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # In the combined deployment, browser requests are same-origin. Keep optional
@@ -136,7 +150,14 @@ REST_FRAMEWORK = {
     # Avoid loading django.contrib.auth.models.AnonymousUser for unauthenticated API requests.
     "UNAUTHENTICATED_USER": None,
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.AnonRateThrottle", "rest_framework.throttling.UserRateThrottle"],
-    "DEFAULT_THROTTLE_RATES": {"anon": "30/min", "user": "120/min", "ai": "10/hour", "contact": "5/hour"},
+    # Cada guardado del espacio docente recarga ~10 recursos; 120/min se agotaba en pocas acciones.
+    # Los límites se pueden ajustar por entorno sin tocar el código.
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": os.getenv("THROTTLE_ANON_RATE", "60/min"),
+        "user": os.getenv("THROTTLE_USER_RATE", "900/min"),
+        "ai": os.getenv("THROTTLE_AI_RATE", "120/hour"),
+        "contact": "5/hour",
+    },
 }
 
 # Upload/body limits are intentionally conservative; CSV import also checks 2 MB and 500 rows.

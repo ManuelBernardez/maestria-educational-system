@@ -42,6 +42,9 @@ def frontend_file(request, frontend_path=""):
     response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
     if candidate.suffix.lower() in {".html", ".htm"}:
         response["Cache-Control"] = "no-store, max-age=0"
+    elif candidate.suffix.lower() in {".js", ".css", ".csv"}:
+        # Sin hash en el nombre: revalidar siempre (igual que WhiteNoise) para no servir JS viejo.
+        response["Cache-Control"] = "no-cache"
     else:
         response["Cache-Control"] = "public, max-age=3600"
     return response

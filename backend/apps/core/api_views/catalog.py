@@ -193,7 +193,7 @@ class AssessmentViewSet(OwnerViewSet):
             "courses": courses,
         })
 
-    @action(detail=True, methods=["post"], url_path="import-reference", parser_classes=[MultiPartParser, FormParser], throttle_classes=[AIUserRateThrottle])
+    @action(detail=True, methods=["post"], url_path="import-reference", parser_classes=[MultiPartParser, FormParser])
     def import_reference(self, request, pk=None):
         """Extract a teacher reference file in memory and save only its text."""
         assessment = self.get_object()
@@ -309,7 +309,12 @@ class StudentViewSet(OwnerViewSet):
             raise ValidationError({"course": "Elegí una materia o curso activo para asignar a los estudiantes importados."})
         try:
             text = uploaded.read().decode("utf-8-sig")
-            reader = csv.DictReader(io.StringIO(text))
+            # Excel en español exporta con «;»: se detecta el separador de la primera línea.
+            header_line = text.splitlines()[0] if text.strip() else ""
+            delimiter = max(",;\t", key=header_line.count) if header_line.count(",") + header_line.count(";") + header_line.count("\t") else ","
+            reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+            if reader.fieldnames:
+                reader.fieldnames = [str(item or "").strip().lower() for item in reader.fieldnames]
             if not reader.fieldnames or "name" not in reader.fieldnames:
                 raise ValidationError({"file": "El CSV debe incluir una columna name."})
             created, skipped, errors = 0, 0, []
@@ -496,7 +501,8 @@ class QuestionViewSet(OwnerViewSet):
                 owner_id=request.user.id, assessment=assessment, status="processing",
             ).exists():
                 raise ValidationError({"question": "No se pueden modificar consignas mientras se procesa una corrección."})
-            question = self.get_queryset().select_for_update().get(pk=question.pk)
+            # select_for_update() no admite el LEFT JOIN de select_related('rubric'): se bloquea la fila sola.
+            question = Question.objects.select_for_update().get(pk=question.pk, assessment=assessment, owner_id=request.user.id)
             if Submission.objects.filter(question=question).exists() or SubmissionAnswer.objects.filter(question=question).exists():
                 return Response(
                     {"detail": "No se puede eliminar una pregunta con respuestas vinculadas. Podés editarla para nuevas evaluaciones o archivar la evaluación completa."},

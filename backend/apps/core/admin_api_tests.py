@@ -13,6 +13,11 @@ from .models import (
 from .test_support import ensure_auth_users
 
 
+def _set_profile(user_id, **fields):
+    """Crea o ajusta el perfil (el helper de Auth ya crea uno docente por defecto)."""
+    UserProfile.objects.update_or_create(user_id=user_id, defaults=fields)
+
+
 class PublicSchemaMappingTests(TestCase):
     def test_models_map_to_external_tables_and_do_not_manage_schema(self):
         from . import models
@@ -96,8 +101,8 @@ class GlobalAdminContactTests(TestCase):
     def setUp(self):
         self.admin_id, self.teacher_id = uuid4(), uuid4()
         ensure_auth_users(self.admin_id, self.teacher_id)
-        UserProfile.objects.create(user_id=self.admin_id, role="admin", status="active", email="admin@example.test")
-        UserProfile.objects.create(user_id=self.teacher_id, role="teacher", status="active", email="teacher@example.test")
+        _set_profile(self.admin_id, role="admin", status="active", email="admin@example.test")
+        _set_profile(self.teacher_id, role="teacher", status="active", email="teacher@example.test")
         self.client = APIClient()
         self.client.force_authenticate(user=SupabasePrincipal(id=str(self.admin_id)))
         self.message = ContactMessage.objects.create(
@@ -159,10 +164,10 @@ class GlobalRoleAndInstitutionTests(TestCase):
     def setUp(self):
         self.admin_id, self.superadmin_id, self.teacher_id, self.dept_id = (uuid4() for _ in range(4))
         ensure_auth_users(self.admin_id, self.superadmin_id, self.teacher_id, self.dept_id)
-        UserProfile.objects.create(user_id=self.admin_id, role="admin", status="active")
-        UserProfile.objects.create(user_id=self.superadmin_id, role="superadmin", status="active")
-        UserProfile.objects.create(user_id=self.teacher_id, role="teacher", status="active")
-        UserProfile.objects.create(user_id=self.dept_id, role="teacher", status="active")
+        _set_profile(self.admin_id, role="admin", status="active")
+        _set_profile(self.superadmin_id, role="superadmin", status="active")
+        _set_profile(self.teacher_id, role="teacher", status="active")
+        _set_profile(self.dept_id, role="teacher", status="active")
         self.admin = APIClient()
         self.admin.force_authenticate(user=SupabasePrincipal(id=str(self.admin_id)))
         self.superadmin = APIClient()

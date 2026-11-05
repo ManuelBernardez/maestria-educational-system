@@ -1,7 +1,62 @@
 """Provider adapter: AI proposes; business logic validates and teacher approves."""
-import json, os, math
+import asyncio, json, os, math
 from decimal import Decimal
 import httpx
+
+# Los modelos Gemini "flash" razonan antes de responder y esos tokens cuentan dentro de
+# maxOutputTokens: con 1800 la salida JSON quedaba truncada (finishReason MAX_TOKENS).
+# El tope anterior de 18 s tampoco alcanzaba para una corrección con varios criterios.
+MAX_PROVIDER_TIMEOUT = 85
+CORRECTION_MAX_OUTPUT_TOKENS = 8192
+SUGGESTION_MAX_OUTPUT_TOKENS = 4096
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _normalize_for_match(text: str) -> str:
+    """Colapsa espacios/saltos de línea y unifica comillas y guiones tipográficos."""
+    table = {ord(c): '"' for c in "\u201c\u201d\u00ab\u00bb\u201e"}
+    table.update({ord(c): "'" for c in "\u2018\u2019\u00b4"})
+    table.update({ord(c): "-" for c in "\u2013\u2014\u2212"})
+    return " ".join(str(text or "").translate(table).split())
+
+
+def locate_evidence(evidence: str, source: str) -> str:
+    """Devuelve la cita tal como figura en la fuente, o "" si no está.
+
+    Tolera diferencias de espacios, saltos de línea y comillas tipográficas que
+    los modelos introducen al copiar, pero nunca acepta texto que no exista.
+    """
+    evidence = str(evidence or "").strip()
+    source = str(source or "")
+    if not evidence:
+        return ""
+    if evidence in source:
+        return evidence
+    target = _normalize_for_match(evidence)
+    if not target:
+        return ""
+    # Mapa de posiciones del texto normalizado hacia el original.
+    chars, positions, previous_space = [], [], True
+    table_source = _normalize_for_match
+    for index, char in enumerate(source):
+        normalized = table_source(char)
+        if normalized == "":
+            if not previous_space:
+                chars.append(" "); positions.append(index); previous_space = True
+            continue
+        for piece in normalized:
+            chars.append(piece); positions.append(index); previous_space = False
+    flat = "".join(chars)
+    start = flat.find(target)
+    if start < 0:
+        return ""
+    end = start + len(target) - 1
+    return source[positions[start]:positions[end] + 1].strip()
+
+
+def evidence_in_text(evidence: str, source: str) -> bool:
+    return bool(locate_evidence(evidence, source)) if str(evidence or "").strip() else True
+
 
 SYSTEM_PROMPT = """Sos un asistente pedagógico que ayuda a un docente a revisar una respuesta escrita. No sos quien asigna la calificación definitiva: producís una PROPUESTA editable que siempre requiere aprobación del docente.
 
@@ -29,9 +84,9 @@ def _provider_settings(provider_config=None):
     }
     model_name = str(config.get("model_name") or defaults.get(provider, ""))
     try:
-        timeout = min(max(int(config.get("timeout_seconds") or os.getenv("AI_TIMEOUT_SECONDS", "18")), 5), 18)
+        timeout = min(max(int(config.get("timeout_seconds") or os.getenv("AI_TIMEOUT_SECONDS", "60")), 5), MAX_PROVIDER_TIMEOUT)
     except (TypeError, ValueError):
-        timeout = 18
+        timeout = 60
     if provider not in {"mock", "gemini", "openai", "ollama"}:
         raise RuntimeError("El proveedor de IA configurado no es válido.")
     return provider, model_name, timeout
@@ -71,26 +126,47 @@ def _extract_gemini_response(payload: dict) -> str:
     content = candidates[0].get("content") or {}
     parts = content.get("parts") or []
     raw = "".join(part.get("text", "") for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str)).strip()
+    finish = _short_text(candidates[0].get("finishReason", ""), 80)
     if not raw:
-        reason = _short_text(candidates[0].get("finishReason", ""), 80)
+        reason = finish
         detail = f" (motivo: {reason})" if reason else ""
         raise ValueError(f"Gemini devolvió texto vacío{detail}.")
+    # Algunos modelos envuelven el JSON en ```json ... ``` pese a responseMimeType.
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
     try:
         json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError("Gemini no devolvió JSON válido aunque se solicitó salida JSON.") from exc
+        suffix = " (respuesta truncada por límite de tokens)" if finish == "MAX_TOKENS" else ""
+        raise ValueError(f"Gemini no devolvió JSON válido aunque se solicitó salida JSON{suffix}.") from exc
     return raw
 
 
 async def _post_json(url: str, *, payload: dict, timeout: float, headers: dict | None = None, http_client: httpx.AsyncClient | None = None):
     """Reuse a request-scoped client when provided; otherwise own one safely."""
-    if http_client is not None:
-        response = await http_client.post(url, headers=headers, json=payload, timeout=timeout)
-    else:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(url, headers=headers, json=payload)
-    response.raise_for_status()
-    return response
+    last_error = None
+    for attempt in range(2):
+        try:
+            if http_client is not None:
+                response = await http_client.post(url, headers=headers, json=payload, timeout=timeout)
+            else:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+            if response.status_code in RETRYABLE_STATUS and attempt == 0:
+                await asyncio.sleep(1.5)
+                continue
+            response.raise_for_status()
+            return response
+        except httpx.ConnectError as exc:
+            last_error = exc
+            if attempt == 0:
+                await asyncio.sleep(1.0)
+                continue
+            raise
+    if last_error:
+        raise last_error
 
 
 async def _gemini_json(*, system_instruction: str, context: dict, temperature: float = 0.2, max_output_tokens: int = 1800, allow_free_tier_synthetic: bool = False, model_name: str | None = None, timeout_seconds: int | None = None, http_client: httpx.AsyncClient | None = None) -> str:
@@ -102,14 +178,14 @@ async def _gemini_json(*, system_instruction: str, context: dict, temperature: f
     model = str(model_name or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")).strip()
     if not model or any(char.isspace() for char in model):
         raise RuntimeError("GEMINI_MODEL no tiene un nombre válido.")
-    timeout = min(max(float(timeout_seconds or os.getenv("AI_TIMEOUT_SECONDS", "18")), 5.0), 18.0)
+    timeout = min(max(float(timeout_seconds or os.getenv("AI_TIMEOUT_SECONDS", "60")), 5.0), float(MAX_PROVIDER_TIMEOUT))
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     payload = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
         "contents": [{"role": "user", "parts": [{"text": json.dumps(context, ensure_ascii=False)}]}],
         "generationConfig": {
             "temperature": min(max(float(temperature), 0.0), 1.0),
-            "maxOutputTokens": min(max(int(max_output_tokens), 128), 4096),
+            "maxOutputTokens": min(max(int(max_output_tokens), 128), 8192),
             "responseMimeType": "application/json",
         },
     }
@@ -129,7 +205,7 @@ async def generate_correction(*, question: str, answer: str, rubric: list[dict],
             "rubric": rubric[:30], "max_score": max_score,
             "feedback_style": feedback_style,
         }
-        raw = await _gemini_json(system_instruction=SYSTEM_PROMPT, context=context, temperature=0.1, max_output_tokens=1800, allow_free_tier_synthetic=allow_free_tier_synthetic, model_name=model_name, timeout_seconds=timeout, http_client=http_client)
+        raw = await _gemini_json(system_instruction=SYSTEM_PROMPT, context=context, temperature=0.1, max_output_tokens=CORRECTION_MAX_OUTPUT_TOKENS, allow_free_tier_synthetic=allow_free_tier_synthetic, model_name=model_name, timeout_seconds=timeout, http_client=http_client)
         return _validate_proposal(json.loads(raw), rubric, max_score, answer)
     if provider == "ollama":
         return await _ollama(question, answer, rubric, max_score, feedback_style, model_name, timeout, http_client=http_client)
@@ -173,7 +249,7 @@ async def _openai(question, answer, rubric, max_score, feedback_style="construct
     payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps({"question": question, "answer": answer, "rubric": rubric, "max_score": max_score, "feedback_style": feedback_style}, ensure_ascii=False)}
-    ], "temperature": 0.1, "max_tokens": 1800}
+    ], "temperature": 0.1, "max_tokens": 4096}
     response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout_seconds, http_client=http_client)
     raw = response.json()["choices"][0]["message"]["content"]
     return _validate_proposal(json.loads(raw), rubric, max_score, answer)
@@ -183,7 +259,7 @@ async def _ollama(question, answer, rubric, max_score, feedback_style="construct
     payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps({"question": question, "answer": answer, "rubric": rubric, "max_score": max_score, "feedback_style": feedback_style}, ensure_ascii=False)}
-    ], "options": {"temperature": 0.1, "num_predict": 1800}}
+    ], "options": {"temperature": 0.1, "num_predict": 4096}}
     response = await _post_json(f"{base}/api/chat", payload=payload, timeout=timeout_seconds, http_client=http_client)
     raw = response.json()["message"]["content"]
     return _validate_proposal(json.loads(raw), rubric, max_score, answer)
@@ -296,10 +372,10 @@ def _validate_proposal(data, rubric, max_score, answer=""):
                 if candidate_items and denominator > 0:
                     normalized = maximum * sum(candidate_scores) / denominator
                     valid_evidence = next((
-                        _short_text(item.get("evidence", ""), 1000)
-                        for item in candidate_items
-                        if _short_text(item.get("evidence", ""), 1000)
-                        and _short_text(item.get("evidence", ""), 1000) in normalized_answer
+                        located for located in (
+                            locate_evidence(_short_text(item.get("evidence", ""), 1000), normalized_answer)
+                            for item in candidate_items
+                        ) if located
                     ), "")
                     match = {
                         "score": normalized,
@@ -316,8 +392,12 @@ def _validate_proposal(data, rubric, max_score, answer=""):
                 warnings.append(f"El puntaje de «{expected_name}» estaba fuera del rango y se ajustó al máximo permitido.")
 
             evidence = _short_text(match.get("evidence", ""), 1000) if match else ""
-            if evidence and evidence not in normalized_answer:
-                evidence = ""
+            if evidence:
+                located = locate_evidence(evidence, normalized_answer)
+                if located != evidence and located:
+                    warnings.append(f"La cita de «{expected_name}» se ajustó al texto exacto de la respuesta.")
+                evidence = located
+            if match and not evidence and _short_text(match.get("evidence", ""), 1000):
                 warnings.append(f"La evidencia de «{expected_name}» no coincide literalmente con la respuesta y se descartó.")
 
             levels = expected.get("levels") or []
@@ -354,9 +434,8 @@ def _validate_proposal(data, rubric, max_score, answer=""):
             maximum = max(0.0, min(1000.0, _safe_float(item.get("max_score", max_score), max_score)))
             raw_score = _safe_float(item.get("score", 0), 0)
             score = min(maximum, max(0.0, raw_score))
-            evidence = _short_text(item.get("evidence", ""), 1000)
-            if evidence and evidence not in normalized_answer:
-                evidence = ""
+            evidence = locate_evidence(_short_text(item.get("evidence", ""), 1000), normalized_answer)
+            if not evidence and _short_text(item.get("evidence", ""), 1000):
                 warnings.append("Se descartó una evidencia que no coincidía literalmente con la respuesta; revisar manualmente.")
             criteria.append({
                 "criterion": _short_text(item.get("criterion", f"Criterio {index + 1}"), 160, f"Criterio {index + 1}"),
@@ -400,17 +479,17 @@ async def generate_questions(*, title: str, subject: str, level: str, objectives
         ]
         return {"questions": base[:context["count"]], "demo": True, "warnings": ["Modo MOCK: propuestas de ejemplo para probar la interfaz, no generadas por un modelo."]}
     if provider == "gemini":
-        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.4, max_output_tokens=1800, model_name=model_name, timeout_seconds=timeout)
+        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.4, max_output_tokens=SUGGESTION_MAX_OUTPUT_TOKENS, model_name=model_name, timeout_seconds=timeout)
     elif provider == "openai":
         _assert_external_ai_approved(provider)
         key = os.getenv("OPENAI_API_KEY")
         if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-        payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "temperature": 0.4, "max_tokens": 1800}
+        payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "temperature": 0.4, "max_tokens": 4096}
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=payload)
             response.raise_for_status(); raw = response.json()["choices"][0]["message"]["content"]
     elif provider == "ollama":
-        payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "options": {"temperature": 0.4, "num_predict": 1800}}
+        payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "options": {"temperature": 0.4, "num_predict": 4096}}
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(f"{os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')}/api/chat", json=payload)
             response.raise_for_status(); raw = response.json()["message"]["content"]
@@ -450,16 +529,16 @@ async def generate_rubric(*, title: str, subject: str, level: str, objectives: s
         return {"rubric_title": f"Rúbrica sugerida — {title or subject or 'Evaluación'}", "description": "Plantilla demostrativa editable; no generada por un modelo real.", "criteria": [{"name": names[i], "description": f"Evalúa {names[i].lower()} en relación con los objetivos declarados.", "max_score": 10, "weight": 1} for i in range(count)], "demo": True, "warnings": ["Modo MOCK: revisá y adaptá los criterios antes de guardarlos."]}
     user = json.dumps(context, ensure_ascii=False)
     if provider == "gemini":
-        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.3, max_output_tokens=1800, model_name=model_name, timeout_seconds=timeout)
+        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.3, max_output_tokens=SUGGESTION_MAX_OUTPUT_TOKENS, model_name=model_name, timeout_seconds=timeout)
     elif provider == "openai":
         _assert_external_ai_approved(provider)
         key = os.getenv("OPENAI_API_KEY")
         if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-        payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.3, "max_tokens": 1800}
+        payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.3, "max_tokens": 4096}
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=payload); response.raise_for_status(); raw = response.json()["choices"][0]["message"]["content"]
     elif provider == "ollama":
-        payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "options": {"temperature": 0.3, "num_predict": 1800}}
+        payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "options": {"temperature": 0.3, "num_predict": 4096}}
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(f"{os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')}/api/chat", json=payload); response.raise_for_status(); raw = response.json()["message"]["content"]
     else: raise RuntimeError("AI_PROVIDER debe ser mock, gemini, openai u ollama")

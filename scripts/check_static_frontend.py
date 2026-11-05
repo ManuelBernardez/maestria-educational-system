@@ -164,7 +164,9 @@ else:
 workspace_html = (FRONTEND / "html" / "espacio-docente" / "index.html").read_text(encoding="utf-8")
 if '<script type="module" src="/assets/js/workspace.js"></script>' not in workspace_html:
     fail("El espacio docente no está cargando el entrypoint ES module esperado.")
-if workspace_html.count('rel="stylesheet"') < 2 or 'href="/assets/css/workspace.css?v=1.0.3"' not in workspace_html:
+import json as _json
+_version = _json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+if workspace_html.count('rel="stylesheet"') < 2 or f'href="/assets/css/workspace.css?v={_version}"' not in workspace_html:
     fail("El espacio docente no está usando el CSS combinado versionado.")
 if 'href="/assets/js/modules/app.js"' not in workspace_html:
     fail("El espacio docente no está precargando el grafo principal de módulos.")
