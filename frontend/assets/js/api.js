@@ -14,6 +14,11 @@
     return `${API_BASE}/${value.replace(/^\/+/, '')}`;
   };
 
+  const networkError = (error, destino) => {
+    if (error instanceof TypeError) return new Error(`No se pudo conectar con ${destino}. Revisá que esté en línea y que la URL sea correcta.`);
+    return error;
+  };
+
   function getSession() {
     try {
       const raw = sessionStorage.getItem(SESSION_KEY);
@@ -48,7 +53,7 @@
             supabaseUrl: String(payload.supabase_url).replace(/\/+$/, ''),
             supabaseAnonKey: String(payload.supabase_anon_key)
           });
-        }).catch(error => { clientConfigPromise = null; throw error; });
+        }).catch(error => { clientConfigPromise = null; throw networkError(error, `el backend de MaestrIA (${API_BASE})`); });
     }
     return clientConfigPromise;
   }
@@ -62,7 +67,7 @@
       const response = await fetch(`${auth.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST', headers: { apikey: auth.supabaseAnonKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: current.refresh_token }), cache: 'no-store', credentials: 'omit'
-      });
+      }).catch(error => { throw networkError(error, `Supabase (${auth.supabaseUrl})`); });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.access_token) { clearSession(); return null; }
       return setSession(payload);
@@ -130,7 +135,7 @@
       return await run(token);
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error('La solicitud excedió el tiempo de espera o fue cancelada.');
-      if (error instanceof TypeError) throw new Error('No se pudo conectar con el servidor. Revisá la conexión y la configuración de CORS.');
+      if (error instanceof TypeError) throw new Error(`No se pudo conectar con el backend de MaestrIA (${API_BASE}). Revisá que esté corriendo y la configuración de CORS.`);
       throw error;
     } finally { clearTimeout(timeout); }
   }
@@ -146,7 +151,7 @@
     const response = await fetch(`${auth.supabaseUrl}/auth/v1/${path}`, {
       method, headers: { apikey: auth.supabaseAnonKey, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit'
-    });
+    }).catch(error => { throw networkError(error, `Supabase (${auth.supabaseUrl})`); });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(errorMessage(payload, response.status));
     return payload;
@@ -157,7 +162,7 @@
     const response = await fetch(`${auth.supabaseUrl}/auth/v1/user`, {
       method, headers: { apikey: auth.supabaseAnonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit'
-    });
+    }).catch(error => { throw networkError(error, `Supabase (${auth.supabaseUrl})`); });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(errorMessage(payload, response.status));
     return payload;

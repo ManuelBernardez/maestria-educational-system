@@ -16,6 +16,8 @@
     view: 'dashboard',
     selectedCourse: null,
     selectedAssessment: null,
+    assessmentOrigin: 'course',
+    adminSearch: '',
     selectedSubmission: null,
     selectedCorrection: null,
     currentCorrection: null,
@@ -72,6 +74,13 @@
     archived: 'gray', inactive: 'gray', suspended: 'coral', rejected: 'coral', spam: 'coral', deleted: 'coral'
   })[value] || 'gray';
   const statusPill = (value) => `<span class="status status-${statusClass(value)}">${escapeHtml(statusLabel(value))}</span>`;
+  const toneOf = (value) => [...String(value)].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 5;
+  const firstName = () => String(state.profile?.full_name || '').trim().split(/\s+/)[0];
+  const greeting = () => {
+    const hour = new Date().getHours();
+    return hour < 12 ? 'Buen día' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
+  };
+  const courseName = (id) => state.data.courses.find(item => String(item.id) === String(id))?.name || 'Curso';
   const btn = (label, action, attrs = '', kind = 'secondary') => `<button class="btn btn-${kind} btn-small" type="button" data-action="${action}" ${attrs}>${label}</button>`;
   const iconBtn = (label, action, attrs = '') => `<button class="icon-action" type="button" data-action="${action}" ${attrs} aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${label}</button>`;
   const formField = (label, name, value = '', type = 'text', extra = '', required = false) => `<div class="form-field"><label for="f-${name}">${label}${required ? ' <span aria-hidden="true">*</span>' : ''}</label><input id="f-${name}" name="${name}" type="${type}" value="${escapeHtml(value)}" ${required ? 'required' : ''} ${extra}></div>`;
@@ -204,37 +213,40 @@
   }
 
   function updateChrome() {
-    const name = state.profile?.full_name || state.profile?.email?.split('@')[0] || 'Docente';
-    const email = state.profile?.email || '';
     const role = state.profile?.role || 'teacher';
+    const isAdmin = ['admin', 'superadmin'].includes(role);
+    const name = state.profile?.full_name || state.profile?.email?.split('@')[0] || (isAdmin ? 'Administrador' : 'Docente');
+    const email = state.profile?.email || '';
     const initialsText = initials(name);
     ['#workspace-avatar', '#profile-avatar', '#top-profile'].forEach(selector => { const node = $(selector); if (node) node.textContent = initialsText; });
     if ($('#profile-name')) $('#profile-name').textContent = name;
     if ($('#profile-email')) $('#profile-email').textContent = email;
-    if ($('#workspace-role')) { const institutionalRole = (state.profile?.memberships || []).find(item => item.status === 'active' && ['institution_admin', 'department_admin'].includes(item.role))?.role; $('#workspace-role').textContent = role === 'superadmin' ? 'Superadministración' : role === 'admin' ? 'Administración global' : institutionalRole === 'institution_admin' ? 'Administración institucional' : institutionalRole === 'department_admin' ? 'Administración de departamento' : 'Docencia · Personal'; }
+    if ($('#workspace-role')) $('#workspace-role').textContent = role === 'superadmin' ? 'Superadministración' : role === 'admin' ? 'Administración global' : 'Docencia · Personal';
     if ($('#course-count')) $('#course-count').textContent = String(state.data.courses.filter(item => item.active).length);
     if ($('#pending-count')) $('#pending-count').textContent = String(state.data.corrections.filter(item => item.status === 'pending_review').length);
     if ($('#submission-count')) $('#submission-count').textContent = String(state.data.submissions.length);
     const shortcuts = $('#sidebar-course-shortcuts');
-    if (shortcuts) {
-      const activeCourses = state.data.courses.filter(item => item.active).slice(0, 5);
-      shortcuts.innerHTML = activeCourses.length ? `<p class="side-label">ACCESOS RÁPIDOS</p>${activeCourses.map(course => `<button class="side-link side-link--course" type="button" data-open-course="${escapeHtml(course.id)}" title="${escapeHtml(course.name)}"><span class="side-icon" aria-hidden="true">${escapeHtml(initials(course.name))}</span><span class="side-text">${escapeHtml(course.name)}</span></button>`).join('')}` : '';
-    }
-    const isAdmin = ['admin', 'superadmin'].includes(role);
-    const memberships = (state.profile?.memberships || []).filter(item => item.status === 'active');
-    const canManageInstitution = memberships.some(item => ['institution_admin', 'department_admin'].includes(item.role));
+    if (shortcuts) { shortcuts.hidden = true; shortcuts.innerHTML = ''; }
+    $$('[data-teacher-nav]').forEach(link => { link.hidden = isAdmin; });
     if ($('#admin-nav')) $('#admin-nav').hidden = !isAdmin;
-    if ($('#institution-nav')) $('#institution-nav').hidden = isAdmin || !canManageInstitution;
+    if ($('#institution-nav')) $('#institution-nav').hidden = true;
+    const tip = $('.sidebar-tip'); if (tip) tip.hidden = true;
+    const helpButton = $('#help-button'); if (helpButton) helpButton.hidden = isAdmin;
+    const guideMenuItem = $('[data-profile-action="guide"]'); if (guideMenuItem) guideMenuItem.hidden = isAdmin;
+    const workspaceTitle = $('.workspace-switch strong'); if (workspaceTitle) workspaceTitle.textContent = isAdmin ? 'Administración' : 'Mi espacio';
+    const sideNav = $('.side-nav'); if (sideNav) sideNav.setAttribute('aria-label', isAdmin ? 'Navegación de administración' : 'Navegación del espacio docente');
     const today = $('#today-label');
     if (today) today.textContent = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
-    const navName = ({ dashboard: 'Resumen', courses: 'Cursos', course: 'Cursos', students: 'Estudiantes', assessments: 'Evaluaciones', assessment: 'Evaluaciones', rubrics: 'Rúbricas', submissions: 'Entregas', corrections: 'Correcciones', correction: 'Correcciones', admin: 'Administración', institution: 'Mi institución', 'institution-memberships': 'Mi institución', profile: 'Mi perfil' })[state.view] || 'Resumen';
+    const navName = ({ dashboard: 'Resumen', courses: 'Cursos', course: 'Cursos', students: 'Estudiantes', assessments: 'Evaluaciones', assessment: 'Evaluaciones', rubrics: 'Rúbricas', submissions: 'Entregas', submission: 'Entregas', corrections: 'Correcciones', correction: 'Correcciones', admin: 'Administración', institution: 'Institución', 'institution-memberships': 'Institución', profile: 'Mi perfil' })[state.view] || (isAdmin ? 'Administración' : 'Resumen');
     if ($('#breadcrumb-current')) $('#breadcrumb-current').textContent = navName;
   }
 
   function heading(title, description, actions = '') {
+    const isAdmin = ['admin', 'superadmin'].includes(state.profile?.role);
     const dashboard = title === 'Tu espacio docente';
     const modifier = dashboard ? ' view-header--dashboard' : '';
-    return `<header class="view-header${modifier}"><div class="view-heading-copy"><p class="view-kicker">ESPACIO DOCENTE</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p></div><div class="view-actions">${actions}</div></header>`;
+    const kicker = isAdmin ? 'ADMINISTRACIÓN' : 'ESPACIO DOCENTE';
+    return `<header class="view-header${modifier}"><div class="view-heading-copy"><p class="view-kicker">${kicker}</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p></div><div class="view-actions">${actions}</div></header>`;
   }
 
   function panel(title, description, body, actions = '') {
@@ -253,44 +265,151 @@
     return rows.length ? `<div class="table-wrap"><table class="data-table"><thead><tr>${headers.map(item => `<th scope="col">${item}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : emptyState('Todavía no hay registros', emptyText);
   }
 
+  function courseIdForSubmission(submission) {
+    const assessment = state.data.assessments.find(item => String(item.id) === String(submission?.assessment));
+    return assessment?.course ?? assessment?.course_id ?? null;
+  }
+
+  function courseIdForCorrection(correction) {
+    if (correction?.course_id != null) return correction.course_id;
+    const submission = state.data.submissions.find(item => String(item.id) === String(correction?.submission));
+    return courseIdForSubmission(submission);
+  }
+
   function renderDashboard() {
     const summary = state.data.overview?.summary || {};
-    const cards = [
-      ['Cursos activos', summary.courses ?? state.data.courses.filter(item => item.active).length, 'auto_stories'],
-      ['Estudiantes', summary.students ?? state.data.students.filter(item => item.active).length, 'groups'],
-      ['Evaluaciones', summary.assessments ?? state.data.assessments.length, 'edit_note'],
-      ['Pendientes de revisión', summary.pending_corrections ?? state.data.corrections.filter(item => item.status === 'pending_review').length, 'grading']
+    const approved = Number(summary.approved_corrections || 0);
+    const estimatedMinutes = approved * 8;
+    const estimated = estimatedMinutes >= 60
+      ? `${(estimatedMinutes / 60).toLocaleString('es-AR', { maximumFractionDigits: 1 })} h`
+      : `${estimatedMinutes} min`;
+    const pending = state.data.corrections.filter(item => item.status === 'pending_review');
+    const pendingCount = state.loading ? Number(summary.pending_corrections || 0) : pending.length;
+    const today = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
+    const name = firstName();
+    const intro = pendingCount
+      ? `Tenés <strong>${pendingCount}</strong> ${pendingCount === 1 ? 'devolución esperando' : 'devoluciones esperando'} tu revisión.`
+      : 'No hay nada pendiente. Buen momento para preparar la próxima evaluación.';
+    const stats = [
+      { label: 'Por revisar', value: pendingCount, detail: 'Propuestas que esperan tu decisión', tone: 2, note: pendingCount > 0 },
+      { label: 'Revisadas', value: approved, detail: 'Devoluciones aprobadas por vos', tone: 0 },
+      { label: 'Tiempo ahorrado estimado', value: estimated, detail: 'Estimación orientativa · 8 min por devolución aprobada', tone: 1 }
     ];
-    const courseRows = state.data.courses.filter(item => item.active).slice(0, 5).map(course => `<tr><td><strong>${escapeHtml(course.name)}</strong><small>${escapeHtml(course.subject || 'Sin área')}</small></td><td>${Number(course.student_count || 0)}</td><td>${Number(course.assessment_count || 0)}</td><td>${statusPill('active')}</td><td>${btn('Abrir', 'open-course', `data-id="${course.id}"`)}</td></tr>`);
-    const activity = summary.recent_activity || [];
-    const activityRows = activity.slice(0, 6).map(event => `<div class="list-row"><span class="list-dot">◷</span><div class="list-main"><strong>${escapeHtml(String(event.event_type || '').replaceAll('.', ' '))}</strong><small>${escapeHtml(event.object_type || 'Actividad')} · ${escapeHtml(event.object_id || '')}</small></div><small class="muted">${date(event.created_at, true)}</small></div>`);
-    return `${heading('Tu espacio docente', 'Un lugar para organizar cursos, preparar evaluaciones y acompañar los procesos de aprendizaje.', `${btn('Probar con ejemplo', 'seed-demo') }<button class="btn btn-primary" data-action="new-course">＋ Crear curso</button>`)}
-      ${Object.keys(state.errors).length ? resourceError('overview', 'el resumen') : ''}
-      <div class="stats-grid">${cards.map(([label, value, icon]) => `<article class="stat-card"><div class="stat-top">${escapeHtml(label)}</div><div class="stat-value">${escapeHtml(value)}</div><div class="stat-foot">Datos de tu cuenta</div></article>`).join('')}</div>
-      <div class="dashboard-grid">${panel('Cursos recientes', 'Acceso rápido a tus espacios de trabajo', table(['Curso', 'Estudiantes', 'Evaluaciones', 'Estado', ''], courseRows, 'Creá un curso para comenzar a organizar tu espacio.'), btn('Ver cursos', 'navigate', 'data-view="courses"'))}
-      ${panel('Actividad reciente', 'Acciones registradas en tu cuenta', activityRows.length ? activityRows.join('') : emptyState('Sin actividad reciente', 'Las acciones importantes aparecerán aquí.'))}</div>
-      <div class="dashboard-grid">${panel('Próximos pasos', 'Flujo de trabajo sugerido', `<div class="list-row"><span class="list-dot">1</span><div class="list-main"><strong>Organizá tus cursos</strong><small>Registrá estudiantes y matrículas.</small></div>${btn('Ir a cursos', 'navigate', 'data-view="courses"')}</div><div class="list-row"><span class="list-dot">2</span><div class="list-main"><strong>Prepará una evaluación</strong><small>Definí consignas, objetivos y material.</small></div>${btn('Crear evaluación', 'new-assessment')}</div><div class="list-row"><span class="list-dot">3</span><div class="list-main"><strong>Revisá las entregas</strong><small>La IA propone; la decisión final es docente.</small></div>${btn('Ver entregas', 'navigate', 'data-view="submissions"')}</div>`)}
-      ${panel('Criterio pedagógico', 'La decisión final siempre queda en manos docentes', `<p>Las herramientas de IA generan propuestas editables. Revisá las evidencias, ajustá la devolución y aprobá únicamente cuando el contenido sea adecuado.</p>`)}</div>`;
+
+    const queue = pending.slice(0, 5).map(item => {
+      const courseId = courseIdForCorrection(item);
+      return `<article class="queue-item" data-tone="${toneOf(courseId)}"><div class="queue-copy"><strong>${escapeHtml(item.student_name || 'Estudiante')}</strong><small>${escapeHtml(item.submission_title || 'Evaluación')} · ${escapeHtml(courseName(courseId))}</small></div><span class="queue-score" title="Puntaje propuesto">${escapeHtml(item.total_score ?? '—')}</span>${btn('Revisar', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary')}</article>`;
+    }).join('');
+    const queueBody = pending.length
+      ? `${queue}${pending.length > 5 ? `<p class="queue-more">y ${pending.length - 5} más dentro de tus cursos</p>` : ''}`
+      : `<div class="queue-clear"><span class="stamp">Al día</span><p>${state.loading ? 'Cargando tus devoluciones…' : 'No tenés devoluciones esperando tu decisión.'}</p></div>`;
+
+    const courseItems = state.data.courses.filter(item => item.active)
+      .map(course => ({ course, count: pending.filter(item => String(courseIdForCorrection(item)) === String(course.id)).length }))
+      .sort((a, b) => b.count - a.count || String(a.course.name).localeCompare(String(b.course.name), 'es-AR'))
+      .slice(0, 6)
+      .map(({ course, count }) => `<button type="button" class="mini-course" data-tone="${toneOf(course.id)}" data-action="open-course" data-id="${escapeHtml(course.id)}"><span class="mini-course-name">${escapeHtml(course.name)}</span><small>${escapeHtml([course.subject, course.academic_year].filter(Boolean).join(' · ') || 'Curso activo')}</small>${count ? `<span class="mini-course-badge" title="${count} por revisar">${count}</span>` : ''}</button>`).join('');
+
+    const last = [...state.data.assessments].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
+    const resume = last
+      ? `<section class="resume-card"><span class="eyebrow">SEGUÍ DONDE QUEDASTE</span><strong>${escapeHtml(last.title)}</strong><small>${escapeHtml(courseName(last.course ?? last.course_id))} · Actualizada ${date(last.updated_at)}</small>${btn('Abrir evaluación', 'open-assessment', `data-id="${escapeHtml(last.id)}"`)}</section>`
+      : '';
+
+    const hasCourses = state.data.courses.some(item => item.active);
+    const body = !state.loading && !hasCourses
+      ? `<section class="summary-next-step"><div><span class="eyebrow">TU ESPACIO DE TRABAJO</span><h2>Todo empieza por un curso</h2><p>Creá una materia para sumar su grupo, armar evaluaciones, revisar entregas y aprobar devoluciones sin mezclar información.</p></div><button class="btn btn-primary" type="button" data-action="new-course">Crear mi primer curso</button></section>`
+      : `<div class="today-grid">
+          ${panel('Para revisar ahora', 'Propuestas de la IA que esperan tu decisión', queueBody)}
+          <div class="today-side">
+            ${panel('Tus cursos', '', courseItems || '<p class="muted">Todavía no hay cursos activos.</p>', btn('Ver todos', 'navigate', 'data-view="courses"'))}
+            ${resume}
+            <p class="margin-note"><strong>✳ Una nota al margen.</strong> La IA sugiere. Vos decidís: ninguna devolución se aprueba sin tu revisión.</p>
+          </div>
+        </div>`;
+
+    return `<header class="view-header view-header--today"><div class="view-heading-copy"><p class="view-kicker">${escapeHtml(today)}</p><h1>${greeting()}${name ? `, ${escapeHtml(name)}` : ''}</h1><p>${intro}</p></div><div class="view-actions">${btn('Ir a cursos', 'navigate', 'data-view="courses"', 'primary')}</div></header>
+      ${state.errors.overview ? `<div class="notice notice-error" role="alert"><strong>No se pudo cargar el resumen.</strong><br>${escapeHtml(state.errors.overview)} ${btn('Reintentar', 'refresh-resource', 'data-resource="overview"')}</div>` : ''}
+      <section class="today-stats" aria-label="Resumen de actividad">
+        ${stats.map(stat => `<article class="today-stat${stat.note ? ' today-stat--note' : ''}" data-tone="${stat.tone}"><strong>${state.loading ? '—' : escapeHtml(stat.value)}</strong><span>${escapeHtml(stat.label)}</span><small>${escapeHtml(stat.detail)}</small></article>`).join('')}
+      </section>
+      ${body}`;
   }
 
   function renderCourses() {
-    const rows = state.data.courses.map(course => `<tr><td><strong>${escapeHtml(course.name)}</strong><small>${escapeHtml(course.subject || 'Sin área')} · ${escapeHtml(course.level || 'Nivel no indicado')}</small></td><td>${escapeHtml(course.academic_year || '—')}</td><td>${Number(course.student_count || 0)}</td><td>${Number(course.assessment_count || 0)}</td><td>${statusPill(course.active ? 'active' : 'inactive')}</td><td><div class="table-actions">${btn('Abrir', 'open-course', `data-id="${course.id}"`)}${btn('Editar', 'edit-course', `data-id="${course.id}"`)}${btn(course.active ? 'Archivar' : 'Reactivar', 'toggle-course', `data-id="${course.id}"`, 'secondary')}</div></td></tr>`);
-    return `${heading('Cursos', 'Administrá tus espacios curriculares y las personas matriculadas.', `${btn('Importar estudiantes', 'import-students')}${btn('Crear curso', 'new-course', '', 'primary')}`)}${resourceError('courses', 'los cursos')}${table(['Curso', 'Ciclo lectivo', 'Estudiantes', 'Evaluaciones', 'Estado', 'Acciones'], rows, 'Todavía no creaste cursos.')}`;
+    const query = state.search.trim().toLocaleLowerCase('es-AR');
+    const courses = [...state.data.courses].filter(course => !query || `${course.name || ''} ${course.subject || ''} ${course.level || ''} ${course.academic_year || ''}`.toLocaleLowerCase('es-AR').includes(query)).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es-AR'));
+    const cards = courses.map(course => {
+      const enrollments = state.data.enrollments.filter(item => String(item.course) === String(course.id) && item.status === 'active');
+      const assessments = state.data.assessments.filter(item => String(item.course ?? item.course_id ?? '') === String(course.id));
+      const assessmentIds = new Set(assessments.map(item => String(item.id)));
+      const submissions = state.data.submissions.filter(item => assessmentIds.has(String(item.assessment)));
+      const corrections = state.data.corrections.filter(item => String(courseIdForCorrection(item) ?? '') === String(course.id));
+      const pending = corrections.filter(item => item.status === 'pending_review').length;
+      return `<article class="course-list-card ${course.active ? '' : 'is-archived'}" data-tone="${toneOf(course.id)}">
+        <div class="course-list-card-main"><div class="course-list-symbol" aria-hidden="true">▤</div><div class="course-list-copy"><button class="entity-link entity-link--title" type="button" data-action="open-course" data-id="${escapeHtml(course.id)}">${escapeHtml(course.name)}</button><p>${escapeHtml([course.subject, course.level, course.academic_year].filter(Boolean).join(' · ') || 'Materia o comisión')}</p><small>${course.active ? 'Curso activo' : 'Curso archivado'}</small></div>${statusPill(course.active ? 'active' : 'archived')}</div>
+        <div class="course-list-metrics"><span><strong>${enrollments.length}</strong> estudiantes</span><span><strong>${assessments.length}</strong> evaluaciones</span><span><strong>${submissions.length}</strong> entregas</span><span class="${pending ? 'is-pending' : ''}"><strong>${pending}</strong> por revisar</span></div>
+        <footer class="course-list-actions"><button type="button" class="btn btn-primary btn-small" data-action="open-course" data-id="${escapeHtml(course.id)}">Abrir curso</button><button type="button" class="btn btn-secondary btn-small" data-action="edit-course" data-id="${escapeHtml(course.id)}">Editar</button><button type="button" class="btn btn-secondary btn-small" data-action="toggle-course" data-id="${escapeHtml(course.id)}">${course.active ? 'Archivar' : 'Reactivar'}</button></footer>
+      </article>`;
+    }).join('');
+    return `${heading('Cursos', 'Cada curso reúne estudiantes, evaluaciones, entregas y correcciones en un único espacio.', btn('Crear curso', 'new-course', '', 'primary'))}${resourceError('courses', 'los cursos')}
+      <div class="toolbar course-toolbar"><label class="search-control"><span class="search-control-icon" aria-hidden="true">⌕</span><input class="search-input" type="search" data-search="courses" aria-label="Buscar cursos" placeholder="Buscar por nombre, materia o nivel" value="${escapeHtml(state.search)}"></label><span class="filter-result-count">${courses.filter(course => `${course.name} ${course.subject || ''} ${course.level || ''}`.toLowerCase().includes(state.search.trim().toLowerCase())).length} cursos</span></div>
+      ${cards ? `<div class="course-list-grid">${cards}</div>` : emptyState('Todavía no hay cursos', 'Creá un curso para empezar a organizar estudiantes, evaluaciones y correcciones.', btn('Crear primer curso', 'new-course', '', 'primary'))}`;
   }
 
   function renderCourseDetail() {
     const course = state.data.courses.find(item => String(item.id) === String(state.selectedCourse));
     if (!course) { state.view = 'courses'; return renderCourses(); }
     const enrollments = state.data.enrollments.filter(item => String(item.course) === String(course.id));
-    const assessments = state.data.assessments.filter(item => String(item.course) === String(course.id));
-    const studentRows = enrollments.map(enrollment => `<tr><td><strong>${escapeHtml(enrollment.student_name || state.data.students.find(s => String(s.id) === String(enrollment.student))?.name || 'Estudiante')}</strong><small>${escapeHtml(enrollment.student_email || '')}</small></td><td>${escapeHtml(enrollment.student_external_code || '')}</td><td>${statusPill(enrollment.status)}</td><td>${btn('Desmatricular', 'deactivate-enrollment', `data-id="${enrollment.id}"`)}</td></tr>`);
-    const assessmentRows = assessments.map(item => `<tr><td><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.subject || '')}</small></td><td>${statusPill(item.status)}</td><td>${date(item.updated_at)}</td><td>${btn('Abrir', 'open-assessment', `data-id="${item.id}"`)}</td></tr>`);
-    return `${heading(course.name, `${course.subject || 'Curso'} · ${course.level || 'Nivel no indicado'} · ${course.academic_year || 'Ciclo no indicado'}`, `${btn('Volver a cursos', 'navigate', 'data-view="courses"')}${btn('Editar curso', 'edit-course', `data-id="${course.id}"`)}`)}
-      <div class="stats-grid"><article class="stat-card"><div class="stat-top">Estudiantes matriculados</div><div class="stat-value">${enrollments.filter(item => item.status === 'active').length}</div></article><article class="stat-card"><div class="stat-top">Evaluaciones</div><div class="stat-value">${assessments.length}</div></article><article class="stat-card"><div class="stat-top">Estado</div><div class="stat-value" style="font-size:1.25rem">${course.active ? 'Activo' : 'Archivado'}</div></article></div>
-      ${course.description ? panel('Descripción', '', `<p>${escapeHtml(course.description)}</p>`) : ''}
-      ${panel('Estudiantes', 'Matrículas asociadas a este curso', table(['Estudiante', 'Código', 'Estado', 'Acciones'], studentRows, 'Todavía no hay estudiantes matriculados.'), btn('Matricular estudiante', 'enroll-student', `data-course="${course.id}"`, 'primary'))}
-      ${panel('Evaluaciones', 'Actividades y evaluaciones de este curso', table(['Evaluación', 'Estado', 'Actualizada', ''], assessmentRows, 'Todavía no hay evaluaciones para este curso.'), btn('Crear evaluación', 'new-assessment', `data-course="${course.id}"`, 'primary'))}
-      ${panel('Historial de correcciones', 'Devoluciones asociadas a las evaluaciones de este curso.', table(['Estudiante', 'Evaluación', 'Estado', 'Puntaje', 'Acción'], state.data.corrections.filter(item => String(item.course_id) === String(course.id)).map(item => `<tr><td>${escapeHtml(item.student_name || 'Estudiante')}</td><td>${escapeHtml(item.submission_title || 'Evaluación')}</td><td>${statusPill(item.status)}</td><td>${escapeHtml(item.total_score ?? '—')}</td><td>${btn('Abrir', 'open-correction', `data-id="${item.id}"`)}</td></tr>`), 'Todavía no hay devoluciones para este curso.'), btn('Ver historial completo', 'open-course-corrections', `data-id="${course.id}"`))}`;
+    const activeEnrollments = enrollments.filter(item => item.status === 'active');
+    const assessments = state.data.assessments.filter(item => String(item.course ?? item.course_id ?? '') === String(course.id));
+    const assessmentIds = new Set(assessments.map(item => String(item.id)));
+    const submissions = state.data.submissions.filter(item => assessmentIds.has(String(item.assessment)));
+    const corrections = state.data.corrections.filter(item => String(courseIdForCorrection(item) ?? '') === String(course.id));
+    const pendingCorrections = corrections.filter(item => item.status === 'pending_review');
+
+    const studentRows = enrollments.map(enrollment => {
+      const student = state.data.students.find(item => String(item.id) === String(enrollment.student));
+      const name = enrollment.student_name || student?.name || 'Estudiante';
+      const email = enrollment.student_email || student?.email || '';
+      return `<article class="course-record"><div class="course-record-main"><button type="button" class="entity-link" data-action="edit-student" data-id="${escapeHtml(enrollment.student)}">${escapeHtml(name)}</button><small>${escapeHtml(email || enrollment.student_external_code || 'Sin datos de contacto')}</small></div><div class="course-record-meta">${statusPill(enrollment.status)}</div><div class="course-record-actions">${btn('Ver / editar', 'edit-student', `data-id="${escapeHtml(enrollment.student)}"`)}${enrollment.status === 'active' ? btn('Desmatricular', 'deactivate-enrollment', `data-id="${escapeHtml(enrollment.id)}"`) : ''}</div></article>`;
+    }).join('');
+
+    const assessmentRows = assessments.map(item => `<article class="course-record"><div class="course-record-main"><button type="button" class="entity-link" data-action="open-assessment" data-id="${escapeHtml(item.id)}">${escapeHtml(item.title)}</button><small>${escapeHtml(item.subject || 'Evaluación')} · Actualizada ${date(item.updated_at)}</small></div><div class="course-record-meta">${statusPill(item.status)}</div><div class="course-record-actions">${btn('Abrir', 'open-assessment', `data-id="${escapeHtml(item.id)}"`, 'primary')}${btn('Editar', 'edit-assessment', `data-id="${escapeHtml(item.id)}"`)}</div></article>`).join('');
+
+    const submissionRows = submissions.map(item => {
+      const correction = state.data.corrections.find(row => String(row.submission) === String(item.id));
+      return `<article class="course-record"><div class="course-record-main"><button type="button" class="entity-link" data-action="open-submission" data-id="${escapeHtml(item.id)}">${escapeHtml(item.student_display_name || item.student_name || 'Estudiante sin identificar')}</button><small>${escapeHtml(item.submission_title || item.assessment_title || assessments.find(row => String(row.id) === String(item.assessment))?.title || 'Evaluación')} · ${date(item.created_at, true)}</small></div><div class="course-record-meta">${statusPill(item.status)} ${correction ? statusPill(correction.status) : ''}</div><div class="course-record-actions">${btn(correction ? 'Revisar devolución' : 'Abrir entrega', 'open-submission', `data-id="${escapeHtml(item.id)}"`, correction ? 'primary' : 'secondary')}</div></article>`;
+    }).join('');
+
+    const correctionRows = corrections.map(item => `<article class="course-record"><div class="course-record-main"><button type="button" class="entity-link" data-action="open-correction" data-id="${escapeHtml(item.id)}">${escapeHtml(item.submission_title || 'Evaluación')}</button><small>${escapeHtml(item.student_name || 'Estudiante')} · ${date(item.created_at, true)}</small></div><div class="course-record-meta">${statusPill(item.status)}<strong class="course-score">${escapeHtml(item.total_score ?? '—')}</strong></div><div class="course-record-actions">${btn('Abrir devolución', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary')}</div></article>`).join('');
+
+    const fold = (key, title, detail, count, body, action = '') => `<details class="course-fold" data-fold="${key}"><summary><span class="course-fold-copy"><strong>${title}</strong><small>${detail}</small></span><span class="course-fold-count">${count}</span><span class="course-card-chevron" aria-hidden="true">⌄</span></summary><div class="course-fold-body">${body}${action ? `<div class="course-fold-footer">${action}</div>` : ''}</div></details>`;
+    const studentActions = `<div class="course-action-group">${btn('Agregar estudiante', 'new-student', `data-course="${course.id}"`, 'primary')}${btn('Vincular existente', 'enroll-student', `data-course="${course.id}"`)}${btn('Ver lista completa', 'manage-course-students', `data-course="${course.id}"`)}</div>`;
+
+    const withCourse = `data-course="${course.id}"`;
+    const nextStep = !activeEnrollments.length
+      ? { text: 'Empezá sumando a los estudiantes del curso.', label: 'Agregar estudiante', action: 'new-student', attrs: withCourse }
+      : !assessments.length
+        ? { text: 'Creá la primera evaluación para este curso.', label: 'Crear evaluación', action: 'new-assessment', attrs: withCourse }
+        : pendingCorrections.length
+          ? { text: `${pendingCorrections.length} ${pendingCorrections.length === 1 ? 'devolución espera' : 'devoluciones esperan'} tu revisión.`, label: 'Ver correcciones', action: 'open-fold', attrs: 'data-fold="corrections"' }
+          : !submissions.length
+            ? { text: 'Cargá las entregas para generar propuestas de corrección.', label: 'Cargar entrega', action: 'new-submission', attrs: withCourse }
+            : { text: 'Todo al día en este curso.' };
+    const steps = [['students', 'Estudiantes', activeEnrollments.length], ['assessments', 'Evaluaciones', assessments.length], ['submissions', 'Entregas', submissions.length], ['corrections', 'Correcciones', corrections.length]];
+    const pipeline = `<nav class="course-pipeline" aria-label="Recorrido del curso">${steps.map(([key, label, count], index) => `<button type="button" class="pipeline-step${key === 'corrections' && pendingCorrections.length ? ' has-pending' : ''}" data-action="open-fold" data-fold="${key}"><span class="pipeline-dot">${index + 1}</span><span class="pipeline-label">${label}</span><strong>${count}</strong></button>`).join('')}</nav>
+      <div class="course-next"><span aria-hidden="true">✳</span><p>${nextStep.text}</p>${nextStep.action ? btn(nextStep.label, nextStep.action, nextStep.attrs, 'primary') : ''}</div>`;
+
+    return `<div class="course-view" data-tone="${toneOf(course.id)}">${heading(course.name, `${course.subject || 'Curso'} · ${course.level || 'Nivel no indicado'} · ${course.academic_year || 'Ciclo no indicado'}`, `${btn('Volver a cursos', 'navigate', 'data-view="courses"')}${btn('Editar curso', 'edit-course', `data-id="${course.id}"`)}`)}
+      ${pipeline}
+      <details class="course-context-details"><summary><span class="course-context-trigger-copy"><strong>Resumen del curso</strong><small>Indicadores, descripción y actividad de esta materia</small></span><span class="course-card-chevron" aria-hidden="true">⌄</span></summary><div class="course-context-summary"><div><span class="eyebrow">INFORMACIÓN GENERAL</span><p>${escapeHtml(course.description || 'Este espacio concentra la información académica y el proceso de corrección de esta materia.')}</p></div><div class="course-context-stats"><article><strong>${activeEnrollments.length}</strong><span>Estudiantes activos</span></article><article><strong>${assessments.length}</strong><span>Evaluaciones</span></article><article><strong>${submissions.length}</strong><span>Entregas</span></article><article><strong>${pendingCorrections.length}</strong><span>Por revisar</span></article></div></div></details>
+      <section class="course-workflow-list" aria-label="Información del curso">
+        ${fold('students', 'Estudiantes', 'Personas matriculadas en este curso', activeEnrollments.length, studentRows || '<p class="muted">Todavía no hay estudiantes matriculados.</p>', studentActions)}
+        ${fold('assessments', 'Evaluaciones', 'Consignas, materiales y rúbricas del curso', assessments.length, assessmentRows || '<p class="muted">Todavía no hay evaluaciones para este curso.</p>', btn('Crear evaluación', 'new-assessment', `data-course="${course.id}"`, 'primary'))}
+        ${fold('submissions', 'Entregas', 'Respuestas recibidas y su estado de procesamiento', submissions.length, submissionRows || '<p class="muted">Todavía no hay entregas asociadas a las evaluaciones de este curso.</p>', btn('Cargar entrega', 'new-submission', `data-course="${course.id}"`, 'primary'))}
+        ${fold('corrections', 'Correcciones y devoluciones', 'Propuestas pendientes de revisión y resultados aprobados', corrections.length, correctionRows || '<p class="muted">Todavía no hay correcciones para este curso.</p>')}
+      </section>
+      <p class="app-disclaimer">El curso es el contexto de trabajo: cada entrega se vincula a una evaluación, cada corrección a una entrega y la aprobación final siempre queda a cargo del docente.</p></div>`;
   }
 
   function renderStudents() {
@@ -302,11 +421,20 @@
       const matchesStatus = state.studentStatusFilter === 'all' || (state.studentStatusFilter === 'active' ? student.active : !student.active);
       return matchesCourse && matchesStatus && (!query || `${student.name} ${student.email} ${student.external_code}`.toLowerCase().includes(query));
     });
-    const rows = items.map(student => `<tr><td><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.email || 'Sin correo')}</small></td><td>${escapeHtml(student.external_code || '—')}</td><td>${(student.enrollments || []).map(item => escapeHtml(item.course_name)).join(', ') || '—'}</td><td>${statusPill(student.active ? 'active' : 'inactive')}</td><td><div class="table-actions">${btn('Editar', 'edit-student', `data-id="${student.id}"`)}${btn(student.active ? 'Desactivar' : 'Activar', 'toggle-student', `data-id="${student.id}"`)}</div></td></tr>`);
-    return `${heading('Estudiantes', 'Mantené actualizados los datos y las matrículas de tus estudiantes.', `${btn('Importar CSV', 'import-students')}${btn('Agregar estudiante', 'new-student', '', 'primary')}`)}${resourceError('students', 'los estudiantes')}<div class="toolbar"><input class="search-input" type="search" placeholder="Buscar por nombre, correo o código" aria-label="Buscar estudiantes" value="${escapeHtml(state.search)}" data-search="students"><select class="filter-select" data-filter="student-course" aria-label="Filtrar por curso"><option value="all" ${state.studentCourseFilter === 'all' ? 'selected' : ''}>Todos los cursos</option>${state.data.courses.map(course => `<option value="${course.id}" ${String(course.id) === String(state.studentCourseFilter) ? 'selected' : ''}>${escapeHtml(course.name)}</option>`).join('')}<option value="unassigned" ${state.studentCourseFilter === 'unassigned' ? 'selected' : ''}>Sin curso activo</option></select><select class="filter-select" data-filter="student-status" aria-label="Filtrar por estado"><option value="active" ${state.studentStatusFilter === 'active' ? 'selected' : ''}>Activos</option><option value="inactive" ${state.studentStatusFilter === 'inactive' ? 'selected' : ''}>Inactivos</option><option value="all" ${state.studentStatusFilter === 'all' ? 'selected' : ''}>Todos</option></select><span class="filter-result-count">${items.length} estudiantes</span></div>${table(['Estudiante', 'Código externo', 'Cursos', 'Estado', 'Acciones'], rows, 'No hay estudiantes que coincidan con los filtros.')}`;
+    const rows = items.map(student => {
+      const courseLinks = state.data.enrollments.filter(item => String(item.student) === String(student.id) && item.status === 'active').map(item => {
+        const course = state.data.courses.find(row => String(row.id) === String(item.course));
+        return course ? `<button type="button" class="inline-entity-link" data-action="open-course" data-id="${escapeHtml(course.id)}">${escapeHtml(course.name)}</button>` : '';
+      }).filter(Boolean).join('');
+      return `<tr><td><button type="button" class="entity-link" data-action="edit-student" data-id="${escapeHtml(student.id)}">${escapeHtml(student.name)}</button><small>${escapeHtml(student.email || 'Sin correo')}</small></td><td>${escapeHtml(student.external_code || '—')}</td><td>${courseLinks || '<span class="muted">Sin curso activo</span>'}</td><td>${statusPill(student.active ? 'active' : 'inactive')}</td><td><div class="table-actions">${btn('Editar', 'edit-student', `data-id="${student.id}"`)}${btn(student.active ? 'Desactivar' : 'Activar', 'toggle-student', `data-id="${student.id}"`)}</div></td></tr>`;
+    });
+    const courseOptions = state.data.courses.map(course => `<option value="${course.id}" ${String(course.id) === String(state.studentCourseFilter) ? 'selected' : ''}>${escapeHtml(course.name)}</option>`).join('');
+    return `${heading('Estudiantes', 'Administrá los datos de las personas y sus matrículas. Para ver entregas y correcciones, abrí el curso correspondiente.', `${btn('Importar CSV', 'import-students')}${btn('Agregar estudiante', 'new-student', '', 'primary')}`)}${resourceError('students', 'los estudiantes')}
+      <div class="toolbar"><label class="search-control"><span class="search-control-icon" aria-hidden="true">⌕</span><input class="search-input" type="search" placeholder="Buscar nombre, correo o código" aria-label="Buscar estudiantes" value="${escapeHtml(state.search)}" data-search="students"></label><select class="filter-select" data-filter="student-course" aria-label="Filtrar por curso"><option value="all" ${state.studentCourseFilter === 'all' ? 'selected' : ''}>Todos los cursos</option>${courseOptions}<option value="unassigned" ${state.studentCourseFilter === 'unassigned' ? 'selected' : ''}>Sin curso activo</option></select><select class="filter-select" data-filter="student-status" aria-label="Filtrar por estado"><option value="active" ${state.studentStatusFilter === 'active' ? 'selected' : ''}>Activos</option><option value="inactive" ${state.studentStatusFilter === 'inactive' ? 'selected' : ''}>Inactivos</option><option value="all" ${state.studentStatusFilter === 'all' ? 'selected' : ''}>Todos</option></select><span class="filter-result-count">${items.length} estudiantes</span></div>${table(['Estudiante', 'Código externo', 'Cursos', 'Estado', 'Acciones'], rows, 'No hay estudiantes que coincidan con los filtros.')}`;
   }
 
-  function renderAssessments() {
+
+    function renderAssessments() {
     const query = state.search.trim().toLowerCase();
     const statusFilter = state.assessmentStatusFilter;
     const items = state.data.assessments.filter(item => (!query || `${item.title} ${item.subject} ${item.course_name}`.toLowerCase().includes(query)) && (statusFilter === 'all' || item.status === statusFilter) && (state.assessmentCourseFilter === 'all' || String(item.course ?? 'unassigned') === state.assessmentCourseFilter));
@@ -322,13 +450,13 @@
 
   function renderAssessmentDetail() {
     const base = state.data.assessments.find(item => String(item.id) === String(state.selectedAssessment));
-    if (!base) { state.view = 'assessments'; return renderAssessments(); }
+    if (!base) { state.view = state.selectedCourse ? 'course' : 'courses'; return state.selectedCourse ? renderCourseDetail() : renderCourses(); }
     const editor = state.assessmentEditor?.assessment?.id === base.id ? state.assessmentEditor : null;
     const assessment = editor?.assessment || base;
     const questions = editor?.questions || [];
     const rows = questions.map(question => `<tr><td><strong>${escapeHtml(question.prompt)}</strong><small>${escapeHtml(question.question_type || 'open')} · Máximo ${escapeHtml(question.max_score)}</small></td><td>${Number(question.position || 0)}</td><td>${question.rubric ? escapeHtml(state.data.rubrics.find(item => String(item.id) === String(question.rubric))?.title || 'Asignada') : 'Sin rúbrica'}</td><td><div class="table-actions">${btn('Editar', 'edit-question', `data-id="${question.id}"`)}${btn('Eliminar', 'delete-question', `data-id="${question.id}"`)}</div></td></tr>`);
     const rubrics = state.data.rubrics.map(item => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('');
-    return `${heading(assessment.title, `${assessment.course_name || base.course_name || 'Sin curso'} · ${assessment.subject || 'Evaluación'} · ${statusLabel(assessment.status)}`, `${btn('Volver', 'navigate', 'data-view="assessments"')}${btn('Editar evaluación', 'edit-assessment', `data-id="${base.id}"`)}`)}
+    return `${heading(assessment.title, `${assessment.course_name || base.course_name || 'Sin curso'} · ${assessment.subject || 'Evaluación'} · ${statusLabel(assessment.status)}`, `${btn('Volver al curso', 'return-assessment')}${btn('Editar evaluación', 'edit-assessment', `data-id="${base.id}"`)}`)}
       ${panel('Propósito y consignas generales', '', `<p>${escapeHtml(assessment.objectives || 'Sin objetivos registrados.')}</p><p>${escapeHtml(assessment.instructions || 'Sin instrucciones generales.')}</p><details><summary>Material de referencia</summary><p>${escapeHtml(assessment.reference_material || 'No se cargó material de referencia.')}</p></details>`)}
       ${panel('Consignas', 'Las preguntas propuestas por IA deben revisarse antes de incorporarse.', table(['Consigna', 'Orden', 'Rúbrica', 'Acciones'], rows, 'Esta evaluación todavía no tiene consignas.'), `<div class="view-actions">${btn('Agregar consigna', 'new-question', `data-assessment="${base.id}"`)}${btn('Proponer con IA', 'generate-questions', `data-id="${base.id}"`)}${btn('Importar material', 'import-reference', `data-id="${base.id}"`)}</div>`)}
       ${panel('Rúbrica de la evaluación', 'Podés proponer una rúbrica con el contexto, los objetivos y las consignas de esta evaluación; después revisá criterios, puntajes y ponderaciones.', `<p>Rúbricas disponibles: ${state.data.rubrics.length}. La asociación final se realiza desde la edición de cada consigna.</p>${rubrics ? `<ul class="plain-list">${state.data.rubrics.slice(0, 5).map(item => `<li>${escapeHtml(item.title)} · ${item.criteria?.length || 0} criterios</li>`).join('')}</ul>` : 'Todavía no hay rúbricas creadas.'}`, btn('Proponer rúbrica para esta evaluación', 'generate-assessment-rubric', `data-id="${base.id}"`, 'primary'))}`;
@@ -424,7 +552,7 @@
     const answerRows = answers.map(answer => `<article class="list-row"><div class="list-main"><strong>${escapeHtml(answer.question_prompt || questions.find(question => String(question.id) === String(answer.question))?.prompt || 'Consigna')}</strong><small>${escapeHtml(answer.source_filename || 'Respuesta en texto')}</small><p class="answer-full">${escapeHtml(answer.answer_text || '')}</p></div><small class="muted">${date(answer.created_at, true)}</small></article>`).join('');
     const canAddAnswers = !correction && !['processing', 'approved'].includes(submission.status);
     const addAnswer = canAddAnswers && availableQuestions.length ? `<form id="add-submission-answer-form" class="panel-body"><div class="form-grid">${selectField('Consigna','question',availableQuestions.map(item=>({value:item.id,label:item.prompt})), '', true)}${textField('Respuesta','answer_text','','maxlength="50000"',true)}</div><div class="modal-actions"><button class="btn btn-primary" type="submit">Agregar respuesta</button></div></form>` : `<p class="muted">${correction ? 'La entrega ya tiene una corrección asociada. Para mantener la trazabilidad, no se agregan respuestas después de generar la propuesta.' : submission.status === 'processing' ? 'No se pueden modificar respuestas mientras se procesa la corrección.' : questions.length ? 'Todas las consignas disponibles ya tienen una respuesta asociada.' : 'Esta evaluación todavía no tiene consignas.'}</p>`;
-    return `${heading('Detalle de entrega', `${submission.student_display_name || submission.student_name || 'Estudiante'} · ${assessment?.title || 'Evaluación'}`, `${btn('Volver a entregas', 'navigate', 'data-view="submissions"')}`)}
+    return `${heading('Detalle de entrega', `${submission.student_display_name || submission.student_name || 'Estudiante'} · ${assessment?.title || 'Evaluación'}`, `${btn(state.correctionOrigin === 'course' ? 'Volver al curso' : 'Volver a entregas', 'return-submission', `data-id="${submission.id}"`)}`)}
       ${panel('Respuesta general', '', `<p class="answer-full">${escapeHtml(submission.answer_text || 'La entrega no contiene una respuesta general. Revisá las respuestas asociadas a cada consigna.')}</p><small class="muted">${escapeHtml(submission.source_filename || submission.source_type || 'Texto')} · ${date(submission.created_at, true)}</small>`)}
       ${panel('Respuestas por consigna', 'Podés agregar respuestas adicionales mientras la entrega no esté en procesamiento.', `${answerRows || '<p class="muted">Todavía no hay respuestas individuales.</p>'}${addAnswer}`)}
       ${correction ? panel('Corrección existente', 'Hay una propuesta o resultado asociado a esta entrega.', `<div class="list-row"><div class="list-main"><strong>${escapeHtml(correction.provider || 'Proveedor')} · ${statusLabel(correction.status)}</strong><small>${date(correction.created_at, true)}</small></div>${btn('Revisar corrección', 'open-correction', `data-id="${correction.id}"`, 'primary')}</div>`) : panel('Generar propuesta', 'La IA utiliza el material de la evaluación y la rúbrica elegida. Revisá siempre la propuesta.', `<form id="generate-correction-form"><div class="form-grid">${selectField('Rúbrica','rubric_id',rubricOptions,'',false)}${selectField('Estilo de devolución','feedback_style',[{value:'constructivo',label:'Constructivo'},{value:'formal',label:'Formal'},{value:'motivador',label:'Motivador'}],state.feedbackStyle || 'constructivo')}</div><div class="modal-actions"><button type="submit" class="btn btn-primary">Generar propuesta de corrección</button></div><p class="muted">La generación puede tardar y está sujeta a límites y configuración del proveedor IA.</p></form>`)}
@@ -439,7 +567,7 @@
     const criteria = Array.isArray(proposal?.criteria) ? proposal.criteria : [];
     const readonly = correction.status === 'approved' || Boolean(proposal?.demo);
     const warning = proposal?.demo ? `<div class="notice notice-warning"><strong>Propuesta demostrativa.</strong> El proveedor está en modo MOCK. No se puede aprobar ni utilizar como calificación real.</div>` : '';
-    const backLabel = state.correctionOrigin === 'corrections' ? 'Volver al historial' : 'Volver a la entrega';
+    const backLabel = state.correctionOrigin === 'corrections' ? 'Volver al historial' : state.correctionOrigin === 'course' ? 'Volver al curso' : 'Volver a la entrega';
     const sharingActions = correction.status === 'approved'
       ? btn('Compartir / guardar', 'share-correction', '', 'primary')
       : `${btn('Copiar borrador', 'copy-correction')}${btn('Imprimir', 'print-correction')}`;
@@ -455,60 +583,88 @@
   function renderAdmin() {
     if (!['admin', 'superadmin'].includes(state.profile?.role)) return emptyState('Administración no disponible', 'Tu rol no tiene permisos globales para esta sección.');
     const data = state.data.admin;
-    const rows = data.users.map(user => `<tr><td><strong>${escapeHtml(user.full_name || 'Sin nombre')}</strong><small>${escapeHtml(user.email)}</small></td><td><code>${escapeHtml(user.user_id)}</code></td><td>${escapeHtml(user.role)}</td><td>${statusPill(user.status)}</td><td>${btn('Editar', 'edit-admin-user', `data-id="${user.id}"`)}</td></tr>`);
-    const institutionRows = data.institutions.map(item => `<tr><td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.slug)}</small></td><td>${escapeHtml(item.contact_email || '—')}</td><td>${statusPill(item.status)}</td><td>${btn('Editar', 'edit-institution', `data-id="${item.id}"`)} ${btn('Miembros', 'view-memberships', `data-id="${item.id}"`)}</td></tr>`);
-    const messageRows = data.messages.map(item => `<tr><td><strong>${escapeHtml(item.subject)}</strong><small>${escapeHtml(item.name)} · ${escapeHtml(item.email)}</small></td><td>${escapeHtml(item.category)}</td><td>${statusPill(item.status)}</td><td>${date(item.created_at)}</td><td>${btn('Gestionar', 'edit-message', `data-id="${item.id}"`)}</td></tr>`);
-    const providerRows = data.providers.map(item => `<tr><td><strong>${escapeHtml(item.provider)}</strong></td><td>${escapeHtml(item.model_name || 'Predeterminado')}</td><td>${item.enabled ? statusPill('active') : statusPill('inactive')}</td><td>${item.priority}</td><td>${item.timeout_seconds}s</td><td>${btn('Editar', 'edit-provider', `data-id="${item.id}"`)}</td></tr>`);
-    const auditQuery = state.search.trim().toLowerCase();
-    const auditRows = data.audit.filter(event => !auditQuery || `${event.event_type} ${event.object_type} ${event.object_id}`.toLowerCase().includes(auditQuery)).slice(0, 50).map(event => `<tr><td>${date(event.created_at, true)}</td><td>${escapeHtml(event.event_type)}</td><td>${escapeHtml(event.object_type)} · ${escapeHtml(event.object_id)}</td><td><code>${escapeHtml(event.actor_user_id || event.owner_id || '—')}</code></td></tr>`);
-    return `${heading('Administración', 'Gestión global de perfiles, instituciones, mensajes, proveedores y auditoría.', `${btn('Crear institución', 'new-institution', '', 'primary')}`)}
-      <div class="admin-tabs"><button class="admin-tab ${state.adminTab === 'users' ? 'active' : ''}" data-admin-tab="users">Usuarios</button><button class="admin-tab ${state.adminTab === 'institutions' ? 'active' : ''}" data-admin-tab="institutions">Instituciones</button><button class="admin-tab ${state.adminTab === 'messages' ? 'active' : ''}" data-admin-tab="messages">Contacto</button><button class="admin-tab ${state.adminTab === 'providers' ? 'active' : ''}" data-admin-tab="providers">Proveedores IA</button><button class="admin-tab ${state.adminTab === 'audit' ? 'active' : ''}" data-admin-tab="audit">Auditoría</button></div>
-      <section class="admin-section" data-admin-section="users" ${state.adminTab === 'users' ? '' : 'hidden'}>${panel('Perfiles de usuario', 'Los perfiles corresponden a identidades ya existentes en Supabase Auth. Esta API no invita ni crea credenciales.', table(['Persona', 'Identidad Auth', 'Rol global', 'Estado', 'Acción'], rows, 'No hay perfiles registrados.'), btn('Crear perfil existente', 'new-admin-user'))}<p class="notice">Para invitar una identidad nueva se necesita integrar Supabase Auth Admin desde el servidor. No se crea un usuario de Auth desde este formulario.</p>${resourceError('admin_users','los perfiles')}</section>
-      <section class="admin-section" data-admin-section="institutions" ${state.adminTab === 'institutions' ? '' : 'hidden'}>${panel('Instituciones', 'Organizaciones y su estado operativo.', table(['Institución', 'Contacto', 'Estado', 'Acciones'], institutionRows, 'No hay instituciones registradas.'), btn('Crear institución', 'new-institution', '', 'primary'))}${panel('Membresías institucionales', 'Altas y bajas de usuarios existentes.', table(['Institución', 'Usuario', 'Rol', 'Estado', 'Acciones'], data.memberships.map(item => `<tr><td>${escapeHtml(item.institution_name || item.institution)}</td><td><code>${escapeHtml(item.user_id)}</code></td><td>${escapeHtml(item.role)}</td><td>${statusPill(item.status)}</td><td>${btn('Editar', 'edit-membership', `data-id="${item.id}"`)}</td></tr>`), 'No hay membresías.') , btn('Agregar membresía', 'new-membership'))}${resourceError('admin_institutions','las instituciones')}</section>
-      <section class="admin-section" data-admin-section="messages" ${state.adminTab === 'messages' ? '' : 'hidden'}>${panel('Bandeja de contacto', 'Las notas internas sólo están disponibles para administradores globales.', `<div class="toolbar"><input class="search-input" type="search" placeholder="Buscar remitente, correo o asunto" data-admin-filter="messages" aria-label="Buscar mensajes" value="${escapeHtml(state.adminMessageSearch)}"><select class="filter-select" data-admin-status="messages"><option value="">Todos los estados</option>${['new','in_progress','handled','spam'].map(value => `<option value="${value}" ${state.adminMessageStatus === value ? 'selected' : ''}>${statusLabel(value)}</option>`).join('')}</select></div>${table(['Asunto / remitente', 'Categoría', 'Estado', 'Creado', 'Acción'], messageRows, 'No hay mensajes de contacto.')}`)}${resourceError('admin_messages','los mensajes')}</section>
-      <section class="admin-section" data-admin-section="providers" ${state.adminTab === 'providers' ? '' : 'hidden'}>${panel('Configuración de proveedores', 'Los secretos y claves API se configuran exclusivamente en el entorno seguro del backend.', table(['Proveedor', 'Modelo', 'Habilitado', 'Prioridad', 'Timeout', 'Acción'], providerRows, 'No hay proveedores configurados.'), btn('Agregar proveedor', 'new-provider', '', 'primary'))}${resourceError('admin_providers','los proveedores')}</section>
-      <section class="admin-section" data-admin-section="audit" ${state.adminTab === 'audit' ? '' : 'hidden'}>${panel('Registro de auditoría', 'Eventos administrativos globales. Los datos sensibles no deben almacenarse en el detalle.', `<div class="toolbar"><input class="search-input" type="search" placeholder="Filtrar por evento" data-search="audit" aria-label="Filtrar auditoría" value="${escapeHtml(state.search)}"></div>${table(['Fecha', 'Evento', 'Recurso', 'Actor'], auditRows, 'No hay eventos auditables.')}`)}${resourceError('admin_audit','la auditoría')}</section>`;
+    if (!['users', 'institutions', 'services', 'messages', 'audit'].includes(state.adminTab)) state.adminTab = 'users';
+    const q = state.adminSearch.trim().toLocaleLowerCase('es-AR');
+    const userMatches = data.users.filter(user => !q || `${user.full_name || ''} ${user.email || ''} ${user.role || ''} ${user.status || ''}`.toLocaleLowerCase('es-AR').includes(q));
+    const institutionMatches = data.institutions.filter(item => !q || `${item.name || ''} ${item.slug || ''} ${item.contact_email || ''}`.toLocaleLowerCase('es-AR').includes(q));
+    const providerMatches = data.providers.filter(item => !q || `${item.provider || ''} ${item.model_name || ''}`.toLocaleLowerCase('es-AR').includes(q));
+    const membershipMatches = data.memberships.filter(item => !q || `${item.institution_name || ''} ${item.user_id || ''} ${item.role || ''} ${item.status || ''}`.toLocaleLowerCase('es-AR').includes(q));
+    const messageMatches = data.messages.filter(item => !q || `${item.subject || ''} ${item.name || ''} ${item.email || ''} ${item.category || ''}`.toLocaleLowerCase('es-AR').includes(q));
+    const userRows = userMatches.map(user => `<tr><td><button type="button" class="entity-link" data-action="edit-admin-user" data-id="${escapeHtml(user.id)}">${escapeHtml(user.full_name || 'Sin nombre')}</button><small>${escapeHtml(user.email)}</small></td><td><span class="admin-role-label">${escapeHtml(user.role)}</span></td><td>${statusPill(user.status)}</td><td>${btn('Editar perfil', 'edit-admin-user', `data-id="${escapeHtml(user.id)}"`)}</td></tr>`);
+    const institutionRows = institutionMatches.map(item => `<tr><td><button type="button" class="entity-link" data-action="edit-institution" data-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><small>${escapeHtml(item.slug || '')}</small></td><td>${escapeHtml(item.contact_email || '—')}</td><td>${statusPill(item.status)}</td><td><div class="table-actions">${btn('Editar', 'edit-institution', `data-id="${escapeHtml(item.id)}"`)}${btn('Membresías', 'manage-institution', `data-id="${escapeHtml(item.id)}"`)}</div></td></tr>`);
+    const membershipRows = membershipMatches.map(item => `<tr><td>${escapeHtml(item.institution_name || item.institution)}</td><td><code>${escapeHtml(item.user_id)}</code></td><td>${escapeHtml(item.role)}</td><td>${statusPill(item.status)}</td><td>${btn('Editar', 'edit-membership', `data-id="${escapeHtml(item.id)}"`)}${item.status === 'active' ? btn('Suspender', 'suspend-membership', `data-id="${escapeHtml(item.id)}"`) : ''}</td></tr>`);
+    const messageRows = messageMatches.map(item => `<tr><td><button type="button" class="entity-link" data-action="edit-message" data-id="${escapeHtml(item.id)}">${escapeHtml(item.subject)}</button><small>${escapeHtml(item.name)} · ${escapeHtml(item.email)}</small></td><td>${escapeHtml(item.category)}</td><td>${statusPill(item.status)}</td><td>${date(item.created_at)}</td><td>${btn('Gestionar', 'edit-message', `data-id="${escapeHtml(item.id)}"`)}</td></tr>`);
+    const providerRows = providerMatches.map(item => `<tr><td><button type="button" class="entity-link" data-action="edit-provider" data-id="${escapeHtml(item.id)}">${escapeHtml(item.provider)}</button><small>${escapeHtml(item.model_name || 'Modelo predeterminado')}</small></td><td>${item.enabled ? statusPill('active') : statusPill('inactive')}</td><td>${Number(item.priority || 0)}</td><td>${Number(item.timeout_seconds || 0)} s</td><td>${btn('Configurar', 'edit-provider', `data-id="${escapeHtml(item.id)}"`)}</td></tr>`);
+    const auditQuery = state.adminSearch.trim().toLowerCase();
+    const auditRows = data.audit.filter(event => !auditQuery || `${event.event_type} ${event.object_type} ${event.object_id}`.toLowerCase().includes(auditQuery)).slice(0, 100).map(event => `<tr><td>${date(event.created_at, true)}</td><td>${escapeHtml(event.event_type)}</td><td>${escapeHtml(event.object_type)} · ${escapeHtml(event.object_id)}</td><td><code>${escapeHtml(event.actor_user_id || event.owner_id || '—')}</code></td></tr>`);
+    const enabledProviders = data.providers.filter(item => item.enabled).length;
+    const superAdmin = state.profile?.role === 'superadmin';
+    const tabs = [
+      ['users', 'Usuarios'], ['institutions', 'Instituciones'], ['services', 'Servicios e IA'],
+      ['messages', 'Contacto'], ['audit', 'Auditoría']
+    ];
+    return `${heading('Administración', 'Gestioná las cuentas, las instituciones y los servicios de la plataforma.', `${btn('Crear institución', 'new-institution', '', 'primary')}`)}
+      <section class="admin-overview-grid"><article><span>Perfiles</span><strong>${data.users.length}</strong><small>Identidades registradas</small></article><article><span>Instituciones</span><strong>${data.institutions.length}</strong><small>Organizaciones registradas</small></article><article><span>Proveedores IA activos</span><strong>${enabledProviders}</strong><small>${data.providers.length} configuraciones</small></article></section>
+      <nav class="admin-tabs" aria-label="Secciones de administración">${tabs.map(([id, label]) => `<button type="button" class="admin-tab ${state.adminTab === id ? 'active' : ''}" data-admin-tab="${id}" aria-selected="${state.adminTab === id}">${label}</button>`).join('')}</nav>
+      <div class="admin-filterbar"><label class="search-control"><span class="search-control-icon" aria-hidden="true">⌕</span><input class="search-input" type="search" placeholder="Buscar en la sección actual" aria-label="Buscar en administración" value="${escapeHtml(state.adminSearch)}" data-admin-search></label><span class="admin-filter-hint">El filtro se aplica a la sección abierta.</span></div>
+      <section class="admin-section" data-admin-section="users" ${state.adminTab === 'users' ? '' : 'hidden'}>${panel('Usuarios y perfiles', 'Los perfiles se vinculan a identidades que ya existen en Supabase Auth. Este panel no crea contraseñas ni invita usuarios.', table(['Persona', 'Rol global', 'Estado', 'Acciones'], userRows, 'No hay perfiles que coincidan.'), btn('Vincular identidad existente', 'new-admin-user', '', 'primary'))}<p class="notice">Para crear una cuenta nueva, primero se registra o invita desde el flujo seguro de Supabase Auth. Luego se vincula aquí mediante su UUID. ${superAdmin ? 'Como superadministrador podés asignar roles administrativos globales.' : 'Sólo un superadministrador puede asignar roles administrativos globales.'}</p>${resourceError('admin_users', 'los perfiles')}</section>
+      <section class="admin-section" data-admin-section="institutions" ${state.adminTab === 'institutions' ? '' : 'hidden'}>${panel('Instituciones', 'Alta, edición, estado y datos de contacto de las organizaciones.', table(['Institución', 'Contacto', 'Estado', 'Acciones'], institutionRows, 'No hay instituciones que coincidan.'), btn('Crear institución', 'new-institution', '', 'primary'))}${panel('Membresías institucionales', 'Asigná usuarios existentes a una institución y gestioná su rol institucional.', table(['Institución', 'Identidad Supabase', 'Rol', 'Estado', 'Acciones'], membershipRows, 'No hay membresías que coincidan.'), btn('Agregar membresía', 'new-membership'))}${resourceError('admin_institutions', 'las instituciones')}${resourceError('admin_memberships', 'las membresías')}</section>
+      <section class="admin-section" data-admin-section="services" ${state.adminTab === 'services' ? '' : 'hidden'}>
+        <div class="admin-service-grid"><article class="admin-service-card"><span class="admin-service-icon">IA</span><div><h3>Proveedor de inteligencia artificial</h3><p>Configuración persistente de proveedores, modelos, prioridad y tiempos de espera.</p><strong>${enabledProviders} habilitado(s) · ${data.providers.length} configurado(s)</strong></div></article><article class="admin-service-card"><span class="admin-service-icon">DB</span><div><h3>Datos y autenticación</h3><p>PostgreSQL y Supabase Auth se conectan desde el backend mediante variables privadas del entorno.</p><strong>Configuración de infraestructura</strong></div></article></div>
+        ${panel('Proveedores IA', 'Activá o desactivá proveedores y elegí el modelo. Las claves API nunca se guardan en esta pantalla: se configuran como secretos del servicio en Render.', table(['Proveedor / modelo', 'Estado', 'Prioridad', 'Timeout', 'Acciones'], providerRows, 'No hay proveedores configurados.'), btn('Agregar proveedor', 'new-provider', '', 'primary'))}
+        <div class="notice notice-info"><strong>Gestión de funcionalidades.</strong> Esta versión no tiene una tabla ni API de feature flags para activar o desactivar arbitrariamente módulos. Por eso no se muestran interruptores ficticios. La disponibilidad funcional sigue los permisos del usuario y la configuración real del backend.</div>
+        ${resourceError('admin_providers', 'los proveedores')}
+      </section>
+      <section class="admin-section" data-admin-section="messages" ${state.adminTab === 'messages' ? '' : 'hidden'}>${panel('Bandeja de contacto', 'Gestioná consultas recibidas desde el sitio y asigná responsables.', table(['Asunto / remitente', 'Categoría', 'Estado', 'Creado', 'Acción'], messageRows, 'No hay mensajes de contacto.'), '')}${resourceError('admin_messages', 'los mensajes')}</section>
+      <section class="admin-section" data-admin-section="audit" ${state.adminTab === 'audit' ? '' : 'hidden'}>${panel('Registro de auditoría', 'Trazabilidad de operaciones administrativas. No se muestran secretos ni credenciales.', table(['Fecha', 'Evento', 'Recurso', 'Actor'], auditRows, 'No hay eventos auditables.'))}${resourceError('admin_audit', 'la auditoría')}</section>`;
   }
 
-  function renderInstitutionScope() {
+
+    function renderInstitutionScope() {
+    const globalAdmin = ['admin', 'superadmin'].includes(state.profile?.role);
     const memberships = (state.profile?.memberships || []).filter(item => item.status === 'active' && ['institution_admin', 'department_admin'].includes(item.role));
     if (!memberships.length && !['admin', 'superadmin'].includes(state.profile?.role)) return emptyState('Sin administración institucional', 'Tu cuenta no tiene una membresía administrativa activa.');
     const institutions = state.data.admin.institutions || [];
     const rows = institutions.map(item => { const manager = memberships.find(member => String(member.institution_id) === String(item.id)); return `<tr><td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.slug || '')}</small></td><td>${escapeHtml(item.contact_email || '—')}</td><td>${statusPill(item.status)}</td><td>${btn(manager?.role === 'department_admin' ? 'Ver mi membresía' : 'Ver integrantes', 'manage-institution', `data-id="${item.id}"`)}${manager?.role === 'institution_admin' ? btn('Editar institución', 'edit-institution-scope', `data-id="${item.id}"`) : ''}</td></tr>`; });
     const selected = institutions.find(item => String(item.id) === String(state.selectedInstitution));
     if (state.view === 'institution-memberships' && selected) {
-      const manageable = memberships.some(item => String(item.institution_id) === String(selected.id) && item.role === 'institution_admin');
+      const manageable = globalAdmin || memberships.some(item => String(item.institution_id) === String(selected.id) && item.role === 'institution_admin');
       const scopedMemberships = (state.data.admin.memberships || []).filter(item => String(item.institution) === String(selected.id));
       const memberRows = scopedMemberships.map(item => `<tr><td><code>${escapeHtml(item.user_id)}</code></td><td>${escapeHtml(item.role)}</td><td>${statusPill(item.status)}</td><td>${manageable && item.role !== 'institution_admin' && String(item.user_id) !== String(state.profile.user_id) ? `${btn('Editar', 'edit-membership', `data-id="${item.id}"`)}${btn('Suspender', 'suspend-membership', `data-id="${item.id}"`)}` : '—'}</td></tr>`);
-      return `${heading(selected.name, `Membresías institucionales · ${selected.contact_email || 'Sin correo de contacto'}`, `${btn('Volver a instituciones', 'navigate', 'data-view="institution"')}${manageable ? btn('Agregar integrante', 'new-membership', `data-institution="${selected.id}"`, 'primary') : ''}`)}${resourceError('institution_memberships', 'las membresías')}${table(['Identidad Supabase', 'Rol institucional', 'Estado', 'Acciones'], memberRows, 'No hay otras membresías visibles en esta institución.')}`;
+      return `${heading(selected.name, `Membresías institucionales · ${selected.contact_email || 'Sin correo de contacto'}`, `${btn('Volver a administración', 'navigate', 'data-view="admin"')}${manageable ? btn('Agregar integrante', 'new-membership', `data-institution="${selected.id}"`, 'primary') : ''}`)}${resourceError('institution_memberships', 'las membresías')}${table(['Identidad Supabase', 'Rol institucional', 'Estado', 'Acciones'], memberRows, 'No hay otras membresías visibles en esta institución.')}`;
     }
     return `${heading('Mi institución', 'Acceso acotado a las instituciones donde tenés una membresía administrativa activa.')}${resourceError('institution_scope', 'tus instituciones')}${table(['Institución', 'Contacto', 'Estado', 'Acciones'], rows, 'No hay instituciones dentro de tu ámbito.')}`;
   }
 
   function renderProfile() {
     const profile = state.profile || {};
+    const isAdmin = ['admin', 'superadmin'].includes(profile.role);
     const memberships = profile.memberships || [];
     const style = state.feedbackStyle || 'constructivo';
-    return `${heading('Mi perfil', 'Personalizá los datos visibles y las preferencias pedagógicas asociadas a tu cuenta.', btn('Cerrar sesión', 'logout', '', 'secondary'))}
+    const preferenceSection = isAdmin ? '' : `<h2 class="profile-section-title">Preferencias pedagógicas</h2><div class="form-grid"><div class="form-field full"><label for="profile-feedback-style">Tono predeterminado de las devoluciones</label><select id="profile-feedback-style" name="feedback_style"><option value="formal" ${style === 'formal' ? 'selected' : ''}>Formal / académico</option><option value="constructivo" ${style === 'constructivo' ? 'selected' : ''}>Constructivo / orientador</option><option value="motivador" ${style === 'motivador' ? 'selected' : ''}>Motivador / empático</option></select><small class="field-hint">Se propone para nuevas correcciones.</small></div></div>`;
+    const membershipsSection = !isAdmin && memberships.length ? `<h2 class="profile-section-title">Membresías institucionales</h2>${memberships.map(item => `<div class="list-row"><div class="list-main"><strong>${escapeHtml(item.institution__name || 'Institución')}</strong><small>${escapeHtml(item.role)} · ${escapeHtml(item.status)}</small></div>${statusPill(item.status)}</div>`).join('')}` : '';
+    return `${heading('Mi perfil', isAdmin ? 'Datos de tu cuenta administrativa y preferencias de apariencia.' : 'Personalizá los datos visibles y las preferencias pedagógicas asociadas a tu cuenta.', btn('Cerrar sesión', 'logout', '', 'secondary'))}
       <form id="profile-settings-form" class="panel profile-settings-panel" style="max-width:820px"><div class="panel-body">
-        <div class="entity-cell profile-summary"><span class="profile-avatar">${escapeHtml(initials(profile.full_name || profile.email))}</span><div><strong>${escapeHtml(profile.full_name || 'Docente')}</strong><small>${escapeHtml(profile.email || '')}</small></div></div>
-        <h2>Datos del perfil</h2><div class="form-grid">
+        <div class="entity-cell profile-summary"><span class="profile-avatar">${escapeHtml(initials(profile.full_name || profile.email))}</span><div><strong>${escapeHtml(profile.full_name || (isAdmin ? 'Administrador' : 'Docente'))}</strong><small>${escapeHtml(profile.email || '')}</small></div></div>
+        <h2>Datos de la cuenta</h2><div class="form-grid">
           <div class="form-field"><label for="profile-display-name">Nombre y apellido</label><input id="profile-display-name" name="display_name" value="${escapeHtml(profile.full_name || '')}" maxlength="100" minlength="2" required></div>
           <div class="form-field"><label for="profile-email-readonly">Correo electrónico</label><input id="profile-email-readonly" value="${escapeHtml(profile.email || '')}" disabled readonly><small class="field-hint">El correo se administra desde Supabase Auth.</small></div>
           <div class="form-field"><label>Rol global</label><input value="${escapeHtml(profile.role || 'teacher')}" disabled></div>
           <div class="form-field"><label>Estado de cuenta</label><input value="${escapeHtml(statusLabel(profile.status))}" disabled></div>
         </div>
-        <h2 class="profile-section-title">Preferencias pedagógicas</h2><div class="form-grid"><div class="form-field full"><label for="profile-feedback-style">Tono predeterminado de las devoluciones</label><select id="profile-feedback-style" name="feedback_style"><option value="formal" ${style === 'formal' ? 'selected' : ''}>Formal / académico</option><option value="constructivo" ${style === 'constructivo' ? 'selected' : ''}>Constructivo / orientador</option><option value="motivador" ${style === 'motivador' ? 'selected' : ''}>Motivador / empático</option></select><small class="field-hint">Se propone para nuevas correcciones. Cada devolución puede revisarse antes de aprobarla.</small></div></div>
+        ${preferenceSection}
         <section class="profile-appearance"><div><h2>Apariencia</h2><p>Elegí el tema que te resulte más cómodo para trabajar.</p></div><button class="btn btn-secondary" type="button" id="theme-toggle-profile"><span aria-hidden="true">◐</span> <span id="theme-label-profile">${document.documentElement.dataset.theme === 'dark' ? 'Usar tema claro' : 'Usar tema oscuro'}</span></button></section>
-        <div class="notice" style="margin-top:18px">La autenticación y las credenciales se administran mediante Supabase Auth. Las preferencias de perfil se guardan en los metadatos de tu cuenta.</div>
-        <h2 class="profile-section-title">Membresías institucionales</h2>${memberships.length ? memberships.map(item => `<div class="list-row"><div class="list-main"><strong>${escapeHtml(item.institution__name || 'Institución')}</strong><small>${escapeHtml(item.role)} · ${escapeHtml(item.status)}</small></div>${statusPill(item.status)}</div>`).join('') : '<p class="muted">No tenés membresías institucionales activas.</p>'}
+        <div class="notice" style="margin-top:18px">La autenticación y las credenciales se administran mediante Supabase Auth. Nunca se muestran secretos ni tokens en esta pantalla.</div>
+        ${membershipsSection}
         <p class="form-error" id="profile-error" role="alert"></p><p class="form-success" id="profile-success" role="status"></p>
-        <div class="modal-actions"><button class="btn btn-primary" type="submit">Guardar preferencias</button></div>
-      </div></form>
-      ${panel('Compartir devoluciones', 'Las devoluciones aprobadas se preparan desde el espacio de corrección.', '<p>Podés copiar el texto, abrir un correo o WhatsApp y guardar una copia mediante la impresión del navegador. MaestrIA no envía mensajes automáticamente ni almacena credenciales de esos servicios.</p>')}`;
+        <div class="modal-actions"><button class="btn btn-primary" type="submit">Guardar cambios</button></div>
+      </div></form>`;
   }
 
   function render() {
+    const isAdmin = ['admin', 'superadmin'].includes(state.profile?.role);
+    if (state.profile && isAdmin && !['admin', 'profile', 'institution-memberships'].includes(state.view)) state.view = 'admin';
+    if (state.profile && !isAdmin && state.view === 'admin') state.view = 'dashboard';
     updateChrome();
     const renderers = {
       dashboard: renderDashboard, courses: renderCourses, course: renderCourseDetail,
@@ -518,7 +674,7 @@
     };
     content.innerHTML = (renderers[state.view] || renderDashboard)();
     $$('.side-link').forEach(link => {
-      const active = link.dataset.view === state.view || (state.view === 'course' && link.dataset.view === 'courses') || (state.view === 'assessment' && link.dataset.view === 'assessments') || (state.view === 'submission' && link.dataset.view === 'submissions') || (state.view === 'correction' && link.dataset.view === 'corrections') || (state.view === 'rubric' && link.dataset.view === 'rubrics') || (state.view === 'institution-memberships' && link.dataset.view === 'institution');
+      const active = link.dataset.view === state.view || (state.view === 'course' && link.dataset.view === 'courses') || (state.view === 'assessment' && link.dataset.view === 'assessments') || (state.view === 'submission' && link.dataset.view === 'submissions') || (state.view === 'correction' && link.dataset.view === 'corrections') || (state.view === 'rubric' && link.dataset.view === 'rubrics') || (state.view === 'institution-memberships' && link.dataset.view === 'admin');
       link.classList.toggle('active', active);
       if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     });
@@ -526,9 +682,11 @@
   }
 
   function navigate(view) {
-    if (view === 'admin' && !['admin', 'superadmin'].includes(state.profile?.role)) { toast('Tu cuenta no tiene permisos de administración global.', 'error'); return; }
-    const canInstitution = (state.profile?.memberships || []).some(item => item.status === 'active' && ['institution_admin', 'department_admin'].includes(item.role));
-    if (['institution', 'institution-memberships'].includes(view) && !canInstitution && !['admin', 'superadmin'].includes(state.profile?.role)) { toast('No tenés permisos para administrar instituciones.', 'error'); return; }
+    const isAdmin = ['admin', 'superadmin'].includes(state.profile?.role);
+    if (isAdmin && !['admin', 'profile', 'institution-memberships'].includes(view)) { toast('Esta cuenta sólo puede acceder a las vistas de administración.', 'error'); return; }
+    if (!isAdmin && ['admin', 'institution', 'institution-memberships'].includes(view)) { toast('Tu cuenta no tiene permisos para esta sección.', 'error'); return; }
+    const teacherViews = ['dashboard', 'courses', 'course', 'students', 'assessment', 'submission', 'correction', 'rubrics', 'rubric', 'profile'];
+    if (!isAdmin && !teacherViews.includes(view)) view = state.selectedCourse ? 'course' : 'courses';
     state.view = view; state.search = '';
     closeSidebar(); render();
     window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
@@ -575,9 +733,9 @@
     modal.dataset.recordId = course?.id || '';
   }
 
-  function studentForm(student = null) {
+  function studentForm(student = null, defaultCourse = '') {
     const courses = state.data.courses.filter(item => item.active).map(item => ({ value: item.id, label: item.name }));
-    const fields = `${formField('Nombre y apellido','name',student?.name || '', 'text','maxlength="180"',true)}${formField('Correo electrónico','email',student?.email || '', 'email','maxlength="254"')}${formField('Teléfono','phone',student?.phone || '', 'tel','maxlength="60"')}${formField('Código externo','external_code',student?.external_code || '', 'text','maxlength="100"')}${student ? selectField('Estado','active',[{value:'true',label:'Activo'},{value:'false',label:'Inactivo'}],String(student.active !== false)) : selectField('Curso inicial','course',courses,'',true)}`;
+    const fields = `${formField('Nombre y apellido','name',student?.name || '', 'text','maxlength="180"',true)}${formField('Correo electrónico','email',student?.email || '', 'email','maxlength="254"')}${formField('Teléfono','phone',student?.phone || '', 'tel','maxlength="60"')}${formField('Código externo','external_code',student?.external_code || '', 'text','maxlength="100"')}${student ? selectField('Estado','active',[{value:'true',label:'Activo'},{value:'false',label:'Inactivo'}],String(student.active !== false)) : selectField('Curso inicial','course',courses,defaultCourse || '',true)}`;
     openModal(student ? 'Editar estudiante' : 'Agregar estudiante', modalForm(fields), student ? 'edit-student' : 'new-student');
     modal.dataset.recordId = student?.id || '';
   }
@@ -602,9 +760,9 @@
     modal.dataset.recordId = rubric?.id || '';
   }
 
-  function importStudentsForm() {
+  function importStudentsForm(defaultCourse = '') {
     const courses = optionRows(state.data.courses.filter(item => item.active), item => item.name, false);
-    openModal('Importar estudiantes', modalForm(`${selectField('Curso','course',courses,'',true)}<div class="form-field full"><label for="f-file">Archivo CSV</label><input id="f-file" name="file" type="file" accept=".csv,text/csv" required><small>Hasta 2 MB y 500 filas. El CSV debe incluir nombre; correo, teléfono y código externo son opcionales.</small></div>`, 'Importar', '<p class="muted"><a href="../plantilla-estudiantes.csv" download>Descargar plantilla CSV</a></p>'), 'import-students');
+    openModal('Importar estudiantes', modalForm(`${selectField('Curso','course',courses,defaultCourse || '',true)}<div class="form-field full"><label for="f-file">Archivo CSV</label><input id="f-file" name="file" type="file" accept=".csv,text/csv" required><small>Hasta 2 MB y 500 filas. El CSV debe incluir nombre; correo, teléfono y código externo son opcionales.</small></div>`, 'Importar', '<p class="muted"><a href="../plantilla-estudiantes.csv" download>Descargar plantilla CSV</a></p>'), 'import-students');
   }
 
   function enrollmentForm(courseId) {
@@ -615,9 +773,10 @@
     modal.dataset.courseId = courseId;
   }
 
-  function submissionForm() {
-    const assessments = optionRows(state.data.assessments.filter(item => item.status !== 'archived'), item => item.title);
-    const students = optionRows(state.data.students.filter(item => item.active), item => item.name, true);
+  function submissionForm(courseId = state.selectedCourse || '') {
+    const assessments = optionRows(state.data.assessments.filter(item => item.status !== 'archived' && (!courseId || String(item.course ?? item.course_id ?? '') === String(courseId))), item => item.title);
+    const enrolledStudentIds = courseId ? new Set(state.data.enrollments.filter(item => String(item.course) === String(courseId) && item.status === 'active').map(item => String(item.student))) : null;
+    const students = optionRows(state.data.students.filter(item => item.active && (!enrolledStudentIds || enrolledStudentIds.has(String(item.id)))), item => item.name, true);
     const fields = `${selectField('Evaluación','assessment',assessments,'',true)}${selectField('Consigna','question',[{value:'',label:'Sin asociar a una consigna'}],'',false)}${selectField('Estudiante','student',students,'',false)}${formField('Nombre si no está registrado','student_name','','text','maxlength="180"')}${textField('Respuesta en texto','answer_text','','maxlength="50000"') }<div class="form-field full"><label for="f-file">O cargar archivo (PDF, DOCX, TXT o MD)</label><input id="f-file" name="file" type="file" accept=".pdf,.docx,.txt,.md"><small>Máximo 5 MB. Se extrae el texto; no se conserva el archivo original.</small></div>`;
     openModal('Registrar entrega', modalForm(fields, 'Guardar entrega'), 'new-submission', true);
   }
@@ -661,9 +820,11 @@
   async function openSubmission(id) {
     const submission = await api.get(`submissions/${id}/`);
     state.currentSubmission = submission;
+    const submissionCourse = courseIdForSubmission(submission);
+    if (submissionCourse != null) state.selectedCourse = submissionCourse;
+    state.correctionOrigin = state.view === 'course' ? 'course' : 'submissions';
     try { state.assessmentEditor = await loadAssessmentEditor(submission.assessment); } catch { state.assessmentEditor = null; }
     state.selectedSubmission = id;
-    state.correctionOrigin = 'submissions';
     const correction = await loadCorrectionForSubmission(id);
     if (correction) {
       state.currentCorrection = correction;
@@ -677,22 +838,25 @@
   }
 
   async function openCorrection(id) {
-    state.correctionOrigin = state.view === 'corrections' ? 'corrections' : 'submissions';
+    state.correctionOrigin = state.view === 'course' ? 'course' : state.view === 'corrections' ? 'corrections' : 'submissions';
     const correction = await api.get(`corrections/${id}/`);
     state.currentCorrection = correction;
     state.selectedCorrection = id;
+    const correctionCourse = courseIdForCorrection(correction);
+    if (correctionCourse != null) state.selectedCourse = correctionCourse;
     if (!state.currentSubmission || String(state.currentSubmission.id) !== String(correction.submission)) {
       state.currentSubmission = await api.get(`submissions/${correction.submission}/`);
       state.selectedSubmission = correction.submission;
+      const submissionCourse = courseIdForSubmission(state.currentSubmission);
+      if (submissionCourse != null) state.selectedCourse = submissionCourse;
     }
     state.view = 'correction'; render();
   }
 
   async function afterWrite(message, keys = []) {
     toast(message);
-    await refreshCore();
-    if (state.profile && ['admin', 'superadmin'].includes(state.profile.role) && (keys.includes('admin') || state.view === 'admin')) await refreshAdmin();
-    else if (['institution', 'institution-memberships'].includes(state.view)) await refreshInstitutionScope();
+    if (state.profile && ['admin', 'superadmin'].includes(state.profile.role)) await refreshAdmin();
+    else await refreshCore();
     if (state.view === 'course') state.view = 'course';
     if (state.view === 'assessment') {
       try { state.assessmentEditor = await loadAssessmentEditor(state.selectedAssessment); } catch (error) { toast(errorText(error), 'error'); }
@@ -933,7 +1097,7 @@
   }
 
   function adminUserForm(user = null) {
-    const fields = `${user ? '' : formField('UUID de usuario existente en Supabase Auth','user_id','','text','required placeholder="UUID de auth.users"',true)}${formField('Correo','email',user?.email || '', 'email','maxlength="254"',true)}${formField('Nombre completo','full_name',user?.full_name || '', 'text','maxlength="180"',true)}${selectField('Rol global','role',[{value:'teacher',label:'Docente'},{value:'student',label:'Estudiante'},{value:'admin',label:'Administrador'},{value:'superadmin',label:'Superadministrador'}],user?.role || 'teacher')}${selectField('Estado','status',[{value:'active',label:'Activo'},{value:'suspended',label:'Suspendido'},{value:'deleted',label:'Eliminado'}],user?.status || 'active')}${textField('Motivo de suspensión','suspension_reason',user?.suspension_reason || '')}`;
+    const fields = `${user ? '' : formField('UUID de usuario existente en Supabase Auth','user_id','','text','required placeholder="UUID de auth.users"',true)}${formField('Correo','email',user?.email || '', 'email','maxlength="254"',true)}${formField('Nombre completo','full_name',user?.full_name || '', 'text','maxlength="180"',true)}${selectField('Rol global','role',[{value:'teacher',label:'Docente'},{value:'student',label:'Estudiante'}, ...(['superadmin'].includes(state.profile?.role) ? [{value:'admin',label:'Administrador'},{value:'superadmin',label:'Superadministrador'}] : [])],user?.role || 'teacher')}${selectField('Estado','status',[{value:'active',label:'Activo'},{value:'suspended',label:'Suspendido'},{value:'deleted',label:'Eliminado'}],user?.status || 'active')}${textField('Motivo de suspensión','suspension_reason',user?.suspension_reason || '')}`;
     openModal(user ? 'Editar perfil' : 'Crear perfil de identidad existente', modalForm(fields), user ? 'edit-admin-user' : 'new-admin-user', true);
     modal.dataset.recordId = user?.id || '';
   }
@@ -1081,6 +1245,14 @@
     try {
       switch (action) {
         case 'navigate': navigate(button.dataset.view); break;
+        case 'open-fold': {
+          const fold = $(`.course-fold[data-fold="${button.dataset.fold}"]`, content);
+          if (!fold) break;
+          fold.open = true;
+          fold.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+          $('summary', fold)?.focus({ preventScroll: true });
+          break;
+        }
         case 'seed-demo': {
           if (!window.confirm('Se creará un conjunto de práctica con datos ficticios, claramente identificados y sin información de estudiantes reales. ¿Continuar?')) break;
           const result = await api.post('demo/seed/', {}); await refreshCore(); state.selectedCourse = result.course_id; state.selectedAssessment = result.assessment_id; state.view = 'assessment'; state.assessmentEditor = await loadAssessmentEditor(result.assessment_id); render(); toast(result.message || 'Ejemplo de práctica disponible.'); break;
@@ -1088,28 +1260,43 @@
         case 'new-course': courseForm(); break;
         case 'edit-course': courseForm(state.data.courses.find(item => String(item.id) === String(id))); break;
         case 'open-course': state.selectedCourse = id; navigate('course'); break;
-        case 'open-course-corrections': state.correctionsCourseFilter = id; state.correctionsStatusFilter = 'all'; navigate('corrections'); break;
+        case 'open-course-corrections': state.selectedCourse = id; state.view = 'course'; render(); break;
         case 'toggle-course': {
           const item = state.data.courses.find(row => String(row.id) === String(id));
           if (!item || !window.confirm(item.active ? '¿Archivar este curso? Se conservarán sus registros.' : '¿Reactivar este curso?')) break;
           await api.patch(`courses/${id}/`, { active: !item.active }); await afterWrite(item.active ? 'Curso archivado.' : 'Curso reactivado.'); break;
         }
-        case 'new-student': studentForm(); break;
+        case 'new-student': {
+          const defaultCourse = button.dataset.course || (state.view === 'course' ? state.selectedCourse : !['all', 'unassigned'].includes(state.studentCourseFilter) ? state.studentCourseFilter : '');
+          studentForm(null, defaultCourse || ''); break;
+        }
         case 'edit-student': studentForm(state.data.students.find(item => String(item.id) === String(id))); break;
         case 'toggle-student': {
           const item = state.data.students.find(row => String(row.id) === String(id));
           if (!item || !window.confirm(item.active ? '¿Desactivar a este estudiante?' : '¿Reactivar a este estudiante?')) break;
           await api.patch(`students/${id}/`, { active: !item.active }); await afterWrite(item.active ? 'Estudiante desactivado.' : 'Estudiante reactivado.'); break;
         }
-        case 'import-students': importStudentsForm(); break;
+        case 'import-students': {
+          const defaultCourse = button.dataset.course || (state.view === 'course' ? state.selectedCourse : !['all', 'unassigned'].includes(state.studentCourseFilter) ? state.studentCourseFilter : '');
+          importStudentsForm(defaultCourse || ''); break;
+        }
+        case 'manage-course-students': state.studentCourseFilter = String(button.dataset.course || state.selectedCourse || 'all'); state.view = 'students'; render(); break;
         case 'enroll-student': enrollmentForm(button.dataset.course); break;
         case 'deactivate-enrollment': if (window.confirm('¿Desmatricular a este estudiante?')) { await api.patch(`enrollments/${id}/`, { status: 'inactive' }); await afterWrite('Matrícula desactivada.'); } break;
-        case 'new-assessment': state.selectedAssessment = null; assessmentForm(null, button.dataset.course || ''); break;
+        case 'new-assessment': state.selectedCourse = button.dataset.course || state.selectedCourse; state.selectedAssessment = null; assessmentForm(null, state.selectedCourse || ''); break;
         case 'edit-assessment': {
           const assessment = state.data.assessments.find(item => String(item.id) === String(id));
           const full = await api.get(`assessments/${id}/editor/`); assessmentForm({ ...assessment, ...full.assessment }); break;
         }
-        case 'open-assessment': state.selectedAssessment = id; state.assessmentEditor = await loadAssessmentEditor(id); state.view = 'assessment'; render(); break;
+        case 'open-assessment': {
+          const item = state.data.assessments.find(row => String(row.id) === String(id));
+          state.assessmentOrigin = state.view === 'course' ? 'course' : 'courses';
+          const assessmentCourse = item?.course ?? item?.course_id;
+          if (assessmentCourse != null) state.selectedCourse = assessmentCourse;
+          state.selectedAssessment = id;
+          state.assessmentEditor = await loadAssessmentEditor(id);
+          state.view = 'assessment'; render(); break;
+        }
         case 'new-question': questionForm(null, button.dataset.assessment); break;
         case 'edit-question': {
           const question = state.assessmentEditor?.questions?.find(item => String(item.id) === String(id));
@@ -1133,9 +1320,10 @@
         case 'add-level': {
           const criterion = state.data.rubrics.flatMap(item => item.criteria || []).find(item => String(item.id) === String(button.dataset.criterion)); if (criterion) newLevelForm(criterion.id, criterion.max_score); break;
         }
-        case 'new-submission': submissionForm(); break;
+        case 'new-submission': state.selectedCourse = button.dataset.course || state.selectedCourse; submissionForm(state.selectedCourse || ''); break;
         case 'open-submission': await openSubmission(id); break;
-        case 'return-submission': state.view = state.correctionOrigin === 'corrections' ? 'corrections' : 'submission'; render(); break;
+        case 'return-submission': state.view = state.correctionOrigin === 'course' && state.selectedCourse ? 'course' : state.correctionOrigin === 'corrections' ? 'admin' : 'submission'; render(); break;
+        case 'return-assessment': state.view = state.assessmentOrigin === 'course' && state.selectedCourse ? 'course' : 'courses'; render(); break;
         case 'open-correction': await openCorrection(id); break;
         case 'export-correction': await api.download(`corrections/${id}/export/`, `devolucion-maestria-${id}.md`); break;
         case 'copy-correction': await copyCorrection(); break;
@@ -1148,7 +1336,7 @@
         case 'new-institution': institutionForm(); break;
         case 'edit-institution': institutionForm(state.data.admin.institutions.find(item => String(item.id) === String(id))); break;
         case 'edit-institution-scope': institutionForm(state.data.admin.institutions.find(item => String(item.id) === String(id)), true); break;
-        case 'manage-institution': state.selectedInstitution = id; state.view = 'institution-memberships'; render(); break;
+        case 'manage-institution': state.selectedInstitution = id; state.adminTab = 'institutions'; state.view = 'institution-memberships'; render(); break;
         case 'new-membership': membershipForm(null, button.dataset.institution || state.selectedInstitution || ''); break;
         case 'edit-membership': membershipForm(state.data.admin.memberships.find(item => String(item.id) === String(id))); break;
         case 'suspend-membership': if (window.confirm('¿Suspender esta membresía?')) { await api.delete(`admin/institution-memberships/${id}/`); await afterWrite('Membresía suspendida.'); } break;
@@ -1162,7 +1350,7 @@
         case 'logout':
           api.clearSession(); closeModal(); window.location.replace('../acceso.html'); break;
         case 'refresh-resource':
-          await refreshCore(); if (button.dataset.resource?.startsWith('admin_')) await refreshAdmin(); render(); break;
+          if (['admin', 'superadmin'].includes(state.profile?.role)) await refreshAdmin(); else await refreshCore(); render(); break;
         case 'help': openQuickStart(); break;
         default: break;
       }
@@ -1177,12 +1365,21 @@
     const adminTab = event.target.closest('[data-admin-tab]');
     if (adminTab) {
       state.adminTab = adminTab.dataset.adminTab;
-      $$('.admin-tab', content).forEach(tab => tab.classList.toggle('active', tab === adminTab));
+      $$('.admin-tab', content).forEach(tab => {
+        const active = tab === adminTab;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', String(active));
+      });
       $$('[data-admin-section]', content).forEach(section => { section.hidden = section.dataset.adminSection !== adminTab.dataset.adminTab; });
     }
   });
 
   content?.addEventListener('input', event => {
+    if (event.target.matches('[data-admin-search]')) {
+      state.adminSearch = event.target.value;
+      const position = event.target.selectionStart; render();
+      const next = $('[data-admin-search]'); next?.focus(); next?.setSelectionRange(position, position); return;
+    }
     if (event.target.matches('[data-search]')) {
       state.search = event.target.value;
       const position = event.target.selectionStart;
@@ -1314,9 +1511,9 @@
 
   const GUIDE_STEPS = [
     { title: 'Organizá tus cursos', body: 'Creá una materia o comisión y agregá los estudiantes correspondientes. Así mantenés organizadas las evaluaciones y entregas.', action: 'Ir a cursos', view: 'courses', tip: 'Podés importar estudiantes desde un archivo CSV.' },
-    { title: 'Prepará una evaluación', body: 'Definí el objetivo, agregá consignas y guardá los cambios. Podés volver a editarla cuando lo necesites.', action: 'Ir a evaluaciones', view: 'assessments', tip: 'Las consignas propuestas por IA siempre se revisan antes de incorporarlas.' },
-    { title: 'Revisá las entregas', body: 'Cargá una respuesta, elegí una rúbrica y generá una propuesta de corrección explicada.', action: 'Ir a entregas', view: 'submissions', tip: 'La IA propone; la decisión pedagógica y la aprobación son docentes.' },
-    { title: 'Consultá tu historial', body: 'Encontrá las devoluciones por curso, revisá su estado y exportá las que necesites.', action: 'Ver correcciones', view: 'corrections', tip: 'Las devoluciones aprobadas se pueden compartir desde su detalle.' }
+    { title: 'Prepará una evaluación', body: 'Entrá en uno de tus cursos y creá una evaluación desde ese espacio. Así estudiantes, entregas y correcciones quedan vinculados a la materia correcta.', action: 'Ir a cursos', view: 'courses', tip: 'Las consignas propuestas por IA siempre se revisan antes de incorporarlas.' },
+    { title: 'Revisá las entregas', body: 'Desde el curso correspondiente, abrí una entrega, generá una propuesta de corrección y revisá las evidencias.', action: 'Ir a cursos', view: 'courses', tip: 'La IA propone; la decisión pedagógica y la aprobación son docentes.' },
+    { title: 'Consultá tu historial', body: 'Cada curso conserva su historial de devoluciones para revisar, compartir o exportar sin mezclar materias.', action: 'Ir a cursos', view: 'courses', tip: 'Las devoluciones aprobadas se pueden compartir desde su detalle.' }
   ];
   let guideStep = 0;
   function guidePreferenceKey() { return `maestria-quickstart-complete:${state.profile?.user_id || state.profile?.email || 'teacher'}`; }
@@ -1326,12 +1523,16 @@
     root.innerHTML = `<div class="quickstart-backdrop" role="presentation"><section class="quickstart-dialog" role="dialog" aria-modal="true" aria-labelledby="quickstart-title" aria-describedby="quickstart-description"><div class="quickstart-topline"><span class="eyebrow">PRIMEROS PASOS CON MAESTRIA</span><button type="button" class="quickstart-close" data-guide-action="close" aria-label="Cerrar guía">×</button></div><div class="quickstart-progress" aria-label="Paso ${guideStep + 1} de ${GUIDE_STEPS.length}">${GUIDE_STEPS.map((item, index) => `<span class="${index <= guideStep ? 'is-current' : ''}"></span>`).join('')}</div><div class="quickstart-icon" aria-hidden="true">${['▣','▤','✓','≡'][guideStep]}</div><span class="quickstart-step-label">PASO ${guideStep + 1} DE ${GUIDE_STEPS.length}</span><h2 id="quickstart-title">${escapeHtml(step.title)}</h2><p id="quickstart-description">${escapeHtml(step.body)}</p><div class="quickstart-tip"><strong>Una idea útil</strong><span>${escapeHtml(step.tip)}</span></div><div class="quickstart-footer"><button type="button" class="btn btn-secondary" data-guide-action="close">Lo veo después</button><div>${guideStep > 0 ? '<button type="button" class="btn btn-secondary" data-guide-action="previous">Anterior</button>' : ''}${guideStep < GUIDE_STEPS.length - 1 ? '<button type="button" class="btn btn-primary" data-guide-action="next">Siguiente</button>' : `<button type="button" class="btn btn-primary" data-guide-action="go">${escapeHtml(step.action)}</button>`}</div></div><p class="quickstart-link-row">La guía está disponible desde el botón de ayuda.</p></section></div>`;
     root.querySelector('.quickstart-close')?.focus();
   }
-  function openQuickStart() { guideStep = 0; renderQuickStart(); }
+  function openQuickStart() {
+    if (['admin', 'superadmin'].includes(state.profile?.role)) return;
+    guideStep = 0; renderQuickStart();
+  }
   function closeQuickStart(completed = true) {
     const root = $('#quickstart-root'); if (root) root.innerHTML = '';
     if (completed) { try { sessionStorage.setItem(guidePreferenceKey(), 'true'); } catch { /* La guía puede cerrarse aunque el navegador no guarde preferencias. */ } }
   }
   function maybeOpenQuickStart() {
+    if (['admin', 'superadmin'].includes(state.profile?.role)) return;
     try { if (sessionStorage.getItem(guidePreferenceKey()) !== 'true') openQuickStart(); } catch { /* Sin almacenamiento, no forzamos una guía en cada render. */ }
   }
 
@@ -1352,9 +1553,8 @@
     content.innerHTML = `<section class="panel"><div class="panel-body"><p>Conectando con MaestrIA…</p></div></section>`;
     const ok = await loadProfile();
     if (!ok) return;
-    await refreshCore();
-    if (['admin', 'superadmin'].includes(state.profile?.role)) await refreshAdmin();
-    else await refreshInstitutionScope();
+    if (['admin', 'superadmin'].includes(state.profile?.role)) { state.view = 'admin'; await refreshAdmin(); }
+    else { state.view = 'dashboard'; await refreshCore(); }
     state.loading = false;
     render();
     if (window.location.hash === '#contacto') navigate('profile');
