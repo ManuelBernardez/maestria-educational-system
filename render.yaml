@@ -14,7 +14,7 @@ services:
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: ALLOWED_HOSTS
-        value: maestria.onrender.com
+        value: maestria-amcn.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL

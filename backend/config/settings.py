@@ -20,9 +20,18 @@ if not SECRET_KEY:
 if not DEBUG and ("change-me" in SECRET_KEY.lower() or "replace-with" in SECRET_KEY.lower() or "your-secret" in SECRET_KEY.lower() or len(SECRET_KEY) < 40):
     raise RuntimeError("DJANGO_SECRET_KEY parece una clave de ejemplo o demasiado corta; generá una clave privada de al menos 40 caracteres.")
 
-ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
-# Render supplies the public hostname at runtime; avoid hard-coding a deployment URL.
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.getenv(
+        "ALLOWED_HOSTS",
+        "localhost,127.0.0.1"
+    ).split(",")
+    if h.strip()
+]
+
+# Render proporciona automáticamente el hostname del servicio.
 render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+
 if render_hostname and render_hostname not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(render_hostname)
 
