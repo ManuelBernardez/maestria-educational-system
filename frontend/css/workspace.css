@@ -3428,3 +3428,11 @@ button:disabled { opacity: .58; cursor: not-allowed; transform: none !important;
   textarea { height: auto !important; overflow: visible !important; }
   a[href]::after { content: none !important; }
 }
+
+/* v1.0.5 · Esqueletos de carga: la pantalla muestra estructura al instante en vez de esperar datos. */
+.skeleton-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.skeleton { display: block; height: 84px; border-radius: 12px; background: linear-gradient(90deg, rgba(128,128,128,.12) 25%, rgba(128,128,128,.24) 37%, rgba(128,128,128,.12) 63%); background-size: 400% 100%; animation: skeleton-shimmer 1.4s ease infinite; }
+.skeleton-wide { grid-column: 1 / -1; height: 140px; }
+@keyframes skeleton-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+@media (max-width: 640px) { .skeleton-grid { grid-template-columns: 1fr; } }

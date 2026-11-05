@@ -6,6 +6,24 @@ export const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, cha
 
 export const initials = (value) => String(value || 'MaestrIA').trim().split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase() || 'M';
 
+/** Normalize numeric values returned by PostgreSQL without inventing precision. */
+export const formatInputNumber = (value) => {
+  if (value === null || value === undefined || value === '') return '';
+  const raw = String(value).trim();
+  if (!/^-?\d+(?:\.\d+)?$/.test(raw)) return raw;
+  const normalized = raw.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+  return normalized === '-0' ? '0' : normalized;
+};
+
+/** Display numeric values in es-AR, hiding decimals that are only database padding. */
+export const formatNumber = (value) => {
+  const normalized = formatInputNumber(value);
+  if (normalized === '') return '—';
+  const number = Number(normalized);
+  if (!Number.isFinite(number)) return normalized;
+  return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 18 }).format(number);
+};
+
 export const date = (value, includeTime = false) => {
   if (!value) return '—';
   const parsed = new Date(value);

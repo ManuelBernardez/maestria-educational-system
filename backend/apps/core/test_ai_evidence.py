@@ -27,3 +27,17 @@ def test_validate_proposal_keeps_exact_source_text_and_warns():
     )
     assert result["criteria"][0]["evidence"] == "proceso\n clave"
     assert any("ajustó" in warning for warning in result["warnings"])
+
+
+def test_weighted_total_applies_weights():
+    from .ai import weighted_total, weighted_total_by_question
+    # Suma simple 15/20; ponderada: (1*0.2 + 0.5*0.8) = 0.6 de 20 -> 12.
+    criteria = [
+        {"score": 10, "max_score": 10, "weight": 20},
+        {"score": 5, "max_score": 10, "weight": 80},
+    ]
+    assert weighted_total(criteria) == 12.0
+    assert weighted_total([{"score": 5, "max_score": 10, "weight": 1}, {"score": 10, "max_score": 10, "weight": 1}]) == 15.0
+    assert weighted_total([{"score": 3, "max_score": 10, "weight": 0}]) == 3.0  # pesos todos 0 -> equiponderado
+    grouped = criteria + [{"score": 4, "max_score": 5, "weight": 1, "question_id": 7}]
+    assert weighted_total_by_question(grouped) == 16.0

@@ -116,6 +116,20 @@ async function clickAction(button) {
       case 'new-rubric': rubricForm(); break;
       case 'edit-rubric': rubricForm(state.data.rubrics.find(item => String(item.id) === String(id))); break;
       case 'open-rubric': state.selectedRubric = id; navigate('rubric'); break;
+      case 'normalize-weights': {
+        const rubric = state.data.rubrics.find(item => String(item.id) === String(id));
+        const items = rubric?.criteria || [];
+        const sum = items.reduce((acc, item) => acc + Number(item.weight || 0), 0);
+        if (!items.length) break;
+        let assigned = 0;
+        for (const [index, item] of items.entries()) {
+          const pct = index === items.length - 1 ? Math.round((100 - assigned) * 100) / 100
+            : Math.round((sum > 0 ? Number(item.weight || 0) / sum : 1 / items.length) * 10000) / 100;
+          assigned += pct;
+          await api.patch(`rubric-criteria/${item.id}/`, { weight: pct });
+        }
+        await afterWrite('Ponderaciones normalizadas a 100%.'); break;
+      }
       case 'generate-rubric': await generateRubric(); break;
       case 'generate-assessment-rubric': await generateRubric(id); break;
       case 'new-criterion': newRubricCriterionForm(button.dataset.rubric); break;

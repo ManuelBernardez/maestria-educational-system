@@ -154,7 +154,14 @@ def _safe_ai_error_detail(exc, fallback):
         if code in (401, 403):
             return "El proveedor de IA rechazó la clave API (HTTP %d). Revisá GEMINI_API_KEY y que la API esté habilitada para el proyecto." % code
         if code in (400, 404):
-            return "El proveedor de IA rechazó la solicitud (HTTP %d). Verificá que GEMINI_MODEL sea un modelo disponible para tu clave." % code
+            from ..ai import provider_error_info
+            provider_message, provider_state = provider_error_info(exc)
+            hint = " Revisá GEMINI_API_KEY (una clave inválida responde 400) y GEMINI_MODEL."
+            if "location" in provider_message.lower():
+                hint = " La región del servidor no está habilitada para esta API."
+            elif "billing" in provider_message.lower() or "quota" in provider_message.lower():
+                hint = " Revisá la facturación/cuota del proyecto en Google AI Studio."
+            return f"Google rechazó la solicitud (HTTP {code} {provider_state}): {provider_message}.{hint}".replace("..", ".")
         if code >= 500:
             return "El proveedor de IA tuvo un error temporal (HTTP %d). Intentá nuevamente en unos instantes." % code
     if isinstance(exc, httpx.TimeoutException):

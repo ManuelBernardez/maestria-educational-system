@@ -91,7 +91,8 @@ class CourseViewSet(OwnerViewSet):
             serializer.save(**kwargs)
 
     def perform_create(self, serializer):
-        self._save_course(serializer, owner_id=self.request.user.id)
+        # New courses always start active; archiving is a post-creation action.
+        self._save_course(serializer, owner_id=self.request.user.id, active=True)
 
     def perform_update(self, serializer):
         self._save_course(serializer)
@@ -252,7 +253,14 @@ class AssessmentViewSet(OwnerViewSet):
         except Exception as exc:
             record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), ai_error_code(exc), assessment=assessment, provider_config=locals().get("provider_config"))
             logger.warning("AI questions generation failed (%s)", type(exc).__name__)
-            return Response({"detail": _safe_ai_error_detail(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=status.HTTP_502_BAD_GATEWAY)
+            error_code = ai_error_code(exc)
+            configuration_errors = {
+                "EXTERNAL_PROCESSING_NOT_APPROVED", "GEMINI_PAID_TIER_NOT_CONFIRMED",
+                "MISSING_GEMINI_API_KEY", "MISSING_OPENAI_API_KEY", "INVALID_AI_PROVIDER",
+                "INVALID_GEMINI_MODEL",
+            }
+            response_status = status.HTTP_503_SERVICE_UNAVAILABLE if error_code in configuration_errors else status.HTTP_502_BAD_GATEWAY
+            return Response({"detail": _safe_ai_error_detail(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=response_status)
         return Response(result, status=status.HTTP_200_OK)
 
 class StudentViewSet(OwnerViewSet):

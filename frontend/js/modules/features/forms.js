@@ -1,6 +1,6 @@
 import { state, modal, modalContent } from '../core/state.js';
 import { api } from '../core/api.js';
-import { escapeHtml, formField, textField, selectField, optionRows, formValues, errorText } from '../core/utils.js';
+import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows, formValues, errorText } from '../core/utils.js';
 import { openModal, closeModal, modalForm, setModalError, toast } from '../core/ui.js';
 import { afterWrite, loadAssessmentEditor } from '../data/repository.js';
 import { render } from '../core/router.js';
@@ -24,7 +24,7 @@ export async function handleModalSubmit(form, button) {
     if (button) { button.disabled = true; button.textContent = 'Guardando…'; }
     setModalError('');
     if (kind === 'new-course' || kind === 'edit-course') {
-      const payload = { name: values.name.trim(), subject: values.subject.trim(), level: values.level.trim(), academic_year: values.academic_year.trim(), description: values.description.trim(), active: values.active === 'true' };
+      const payload = { name: values.name.trim(), subject: values.subject.trim(), level: values.level.trim(), academic_year: values.academic_year.trim(), description: values.description.trim() };
       if (kind === 'new-course') await api.post('courses/', payload);
       else await api.patch(`courses/${modal.dataset.recordId}/`, payload);
       closeModal(true); await afterWrite(kind === 'new-course' ? 'Curso creado.' : 'Curso actualizado.');
@@ -39,10 +39,16 @@ export async function handleModalSubmit(form, button) {
       else await api.patch(`assessments/${modal.dataset.recordId}/`, payload);
       closeModal(true); await afterWrite(kind === 'new-assessment' ? 'Evaluación creada.' : 'Evaluación actualizada.');
     } else if (kind === 'new-question' || kind === 'edit-question') {
-      const payload = { prompt: values.prompt.trim(), expected_answer: values.expected_answer.trim(), question_type: values.question_type, max_score: Number(values.max_score), position: Number(values.position || 0), assessment: Number(values.assessment), rubric: values.rubric ? Number(values.rubric) : null };
-      if (kind === 'new-question') await api.post('questions/', payload);
-      else await api.patch(`questions/${modal.dataset.recordId}/`, payload);
-      closeModal(true); state.assessmentEditor = await loadAssessmentEditor(payload.assessment); await afterWrite(kind === 'new-question' ? 'Consigna creada.' : 'Consigna actualizada.');
+      const assessmentId = Number(modal.dataset.assessmentId || state.selectedAssessment || values.assessment || 0);
+      const payload = { prompt: values.prompt.trim(), expected_answer: values.expected_answer.trim(), question_type: values.question_type, max_score: Number(values.max_score), position: Number(values.position || 0), rubric: values.rubric ? Number(values.rubric) : null };
+      if (kind === 'new-question') {
+        payload.assessment = assessmentId;
+        await api.post('questions/', payload);
+      } else {
+        // The assessment relationship is immutable after creation; do not send a stale FK in PATCH.
+        await api.patch(`questions/${modal.dataset.recordId}/`, payload);
+      }
+      closeModal(true); state.assessmentEditor = await loadAssessmentEditor(assessmentId); await afterWrite(kind === 'new-question' ? 'Consigna creada.' : 'Consigna actualizada.');
     } else if (kind === 'new-rubric' || kind === 'edit-rubric') {
       const payload = { title: values.title.trim(), description: values.description.trim(), scale_type: values.scale_type };
       if (kind === 'edit-rubric') {
@@ -194,7 +200,7 @@ export function showRubricProposal(result) {
   const criteria = Array.isArray(result?.criteria) ? result.criteria : [];
   if (!criteria.length) { toast('El proveedor no devolvió criterios.', 'error'); return; }
   state.rubricProposal = result;
-  const fields = `${formField('Título', 'title', result.rubric_title || 'Rúbrica sugerida', 'text', 'maxlength="180"', true)}${selectField('Tipo de escala', 'scale_type', [{ value: 'numeric', label: 'Numérica' }, { value: 'levels', label: 'Niveles' }, { value: 'both', label: 'Numérica y niveles' }], 'both')}${textField('Descripción', 'description', result.description || '')}<div class="form-field full"><label>Criterios sugeridos (podés editarlos antes de guardar)</label>${criteria.map((item, index) => `<fieldset class="proposal-criterion"><legend>Criterio ${index + 1}</legend><div class="form-grid"><div class="form-field full"><label for="criterion-name-${index}">Nombre</label><input id="criterion-name-${index}" type="text" name="criterion-${index}" value="${escapeHtml(item.name || '')}" required maxlength="180"></div><div class="form-field full"><label for="criterion-description-${index}">Descripción</label><textarea id="criterion-description-${index}" name="criterion-description-${index}">${escapeHtml(item.description || '')}</textarea></div><div class="form-field"><label for="criterion-score-${index}">Puntaje máximo</label><input id="criterion-score-${index}" type="number" name="criterion-score-${index}" min="0.5" max="1000" step="0.5" value="${escapeHtml(item.max_score ?? 10)}" required></div><div class="form-field"><label for="criterion-weight-${index}">Ponderación (%)</label><input id="criterion-weight-${index}" type="number" name="criterion-weight-${index}" min="0" max="100" step="0.1" value="${escapeHtml(item.weight ?? 1)}" required></div></div></fieldset>`).join('')}</div>`;
+  const fields = `${formField('Título', 'title', result.rubric_title || 'Rúbrica sugerida', 'text', 'maxlength="180"', true)}${selectField('Tipo de escala', 'scale_type', [{ value: 'numeric', label: 'Numérica' }, { value: 'levels', label: 'Niveles' }, { value: 'both', label: 'Numérica y niveles' }], 'both')}${textField('Descripción', 'description', result.description || '')}<div class="form-field full"><label>Criterios sugeridos (podés editarlos antes de guardar)</label>${criteria.map((item, index) => `<fieldset class="proposal-criterion"><legend>Criterio ${index + 1}</legend><div class="form-grid"><div class="form-field full"><label for="criterion-name-${index}">Nombre</label><input id="criterion-name-${index}" type="text" name="criterion-${index}" value="${escapeHtml(item.name || '')}" required maxlength="180"></div><div class="form-field full"><label for="criterion-description-${index}">Descripción</label><textarea id="criterion-description-${index}" name="criterion-description-${index}">${escapeHtml(item.description || '')}</textarea></div><div class="form-field"><label for="criterion-score-${index}">Puntaje máximo</label><input id="criterion-score-${index}" type="number" name="criterion-score-${index}" min="0.5" max="1000" step="0.5" value="${escapeHtml(formatInputNumber(item.max_score ?? 10))}" required></div><div class="form-field"><label for="criterion-weight-${index}">Ponderación (%)</label><input id="criterion-weight-${index}" type="number" name="criterion-weight-${index}" min="0" max="100" step="0.1" value="${escapeHtml(formatInputNumber(item.weight ?? 1))}" required></div></div></fieldset>`).join('')}</div>`;
   openModal('Revisar rúbrica propuesta', modalForm(fields, 'Guardar rúbrica'), 'save-rubric-proposal', true);
   modal.dataset.criteriaCount = String(criteria.length);
   const notice = document.createElement('p'); notice.className = 'notice'; notice.textContent = result.demo ? 'Modo MOCK: esta propuesta es orientativa y debe adaptarse antes de usarla.' : 'Revisá y adaptá los criterios antes de guardarlos.';

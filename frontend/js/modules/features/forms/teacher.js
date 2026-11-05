@@ -1,5 +1,5 @@
 import { state, modal } from '../../core/state.js';
-import { escapeHtml, formField, textField, selectField, optionRows } from '../../core/utils.js';
+import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows } from '../../core/utils.js';
 import { openModal, modalForm, toast } from '../../core/ui.js';
 
 export function studentForm(student = null, defaultCourse = '') {
@@ -18,9 +18,10 @@ export function assessmentForm(assessment = null, defaultCourse = '') {
 
 export function questionForm(question = null, assessmentId = state.selectedAssessment) {
   const rubrics = optionRows(state.data.rubrics, item => item.title, true);
-  const fields = `${textField('Consigna', 'prompt', question?.prompt || '', 'maxlength="8000"', true)}${textField('Respuesta esperada / referencia', 'expected_answer', question?.expected_answer || '')}${selectField('Tipo', 'question_type', [{ value: 'open', label: 'Respuesta abierta' }, { value: 'short', label: 'Respuesta breve' }, { value: 'case', label: 'Caso' }], question?.question_type || 'open')}${formField('Puntaje máximo', 'max_score', question?.max_score || '10', 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Orden', 'position', question?.position || '1', 'number', 'min="0" step="1"')}${selectField('Rúbrica', 'rubric', rubrics, question?.rubric || '', false)}<input type="hidden" name="assessment" value="${escapeHtml(question?.assessment || assessmentId)}">`;
+  const fields = `${textField('Consigna', 'prompt', question?.prompt || '', 'maxlength="8000"', true)}${textField('Respuesta esperada / referencia', 'expected_answer', question?.expected_answer || '')}${selectField('Tipo', 'question_type', [{ value: 'open', label: 'Respuesta abierta' }, { value: 'short', label: 'Respuesta breve' }, { value: 'case', label: 'Caso' }], question?.question_type || 'open')}${formField('Puntaje máximo', 'max_score', formatInputNumber(question?.max_score ?? '10'), 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Orden', 'position', formatInputNumber(question?.position ?? '1'), 'number', 'min="0" step="1"')}${selectField('Rúbrica', 'rubric', rubrics, question?.rubric || '', false)}${question ? '' : `<input type="hidden" name="assessment" value="${escapeHtml(assessmentId)}">`}`;
   openModal(question ? 'Editar consigna' : 'Agregar consigna', modalForm(fields), question ? 'edit-question' : 'new-question', true);
   modal.dataset.recordId = question?.id || '';
+  modal.dataset.assessmentId = String(question?.assessment || assessmentId || '');
 }
 
 export function rubricForm(rubric = null) {
@@ -61,22 +62,24 @@ export function importReferenceForm(id) {
 }
 
 export function newRubricCriterionForm(rubricId) {
-  openModal('Agregar criterio', modalForm(`${formField('Nombre', 'name', '', 'text', 'maxlength="180"', true)}${formField('Puntaje máximo', 'max_score', '10', 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Ponderación (%)', 'weight', '1', 'number', 'min="0" max="100" step="0.01"')}${textField('Descripción', 'description', '')}`), 'new-criterion');
+  const used = (state.data.rubrics.find(item => String(item.id) === String(rubricId))?.criteria || []).reduce((sum, item) => sum + Number(item.weight || 0), 0);
+  const remaining = Math.max(0, Math.round((100 - used) * 100) / 100) || 0;
+  openModal('Agregar criterio', modalForm(`${formField('Nombre', 'name', '', 'text', 'maxlength="180"', true)}${formField('Puntaje máximo', 'max_score', '10', 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Ponderación (%)', 'weight', String(remaining), 'number', 'min="0" max="100" step="0.01"')}${textField('Descripción', 'description', '')}`), 'new-criterion');
   modal.dataset.rubricId = rubricId;
 }
 
 export function editCriterionForm(criterion) {
-  openModal('Editar criterio', modalForm(`${formField('Nombre', 'name', criterion.name, 'text', 'maxlength="180"', true)}${formField('Puntaje máximo', 'max_score', criterion.max_score, 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Ponderación (%)', 'weight', criterion.weight, 'number', 'min="0" max="100" step="0.01"')}${textField('Descripción', 'description', criterion.description || '')}`), 'edit-criterion');
+  openModal('Editar criterio', modalForm(`${formField('Nombre', 'name', criterion.name, 'text', 'maxlength="180"', true)}${formField('Puntaje máximo', 'max_score', formatInputNumber(criterion.max_score), 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Ponderación (%)', 'weight', formatInputNumber(criterion.weight), 'number', 'min="0" max="100" step="0.01"')}${textField('Descripción', 'description', criterion.description || '')}`), 'edit-criterion');
   modal.dataset.recordId = criterion.id;
 }
 
 export function editLevelForm(level) {
-  openModal('Editar nivel', modalForm(`${formField('Nombre', 'name', level.name, 'text', 'maxlength="120"', true)}${formField('Puntaje', 'score', level.score, 'number', 'min="0" max="1000" step="0.01"', true)}${textField('Descripción', 'description', level.description || '')}`), 'edit-level');
+  openModal('Editar nivel', modalForm(`${formField('Nombre', 'name', level.name, 'text', 'maxlength="120"', true)}${formField('Puntaje', 'score', formatInputNumber(level.score), 'number', 'min="0" max="1000" step="0.01"', true)}${textField('Descripción', 'description', level.description || '')}`), 'edit-level');
   modal.dataset.recordId = level.id;
 }
 
 export function newLevelForm(criterionId, maxScore) {
-  openModal('Agregar nivel', modalForm(`${formField('Nombre', 'name', '', 'text', 'maxlength="120"', true)}${formField('Puntaje', 'score', '0', 'number', `min="0" max="${Number(maxScore)}" step="0.01"`, true)}${textField('Descripción', 'description', '')}`), 'new-level');
+  openModal('Agregar nivel', modalForm(`${formField('Nombre', 'name', '', 'text', 'maxlength="120"', true)}${formField('Puntaje', 'score', '0', 'number', `min="0" max="${formatInputNumber(maxScore)}" step="0.01"`, true)}${textField('Descripción', 'description', '')}`), 'new-level');
   modal.dataset.criterionId = criterionId;
 }
 

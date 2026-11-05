@@ -242,12 +242,12 @@ class QuestionSerializer(OwnedSerializer):
 
 
 class AssessmentEditorSerializer(serializers.ModelSerializer):
-    """Assessment metadata for the editor; excludes large reference material and nested questions."""
+    """Assessment fields used by the editor, including imported reference material."""
     course_name = serializers.CharField(source="course.name", read_only=True, allow_null=True)
 
     class Meta:
         model = Assessment
-        fields = ("id", "title", "subject", "level", "objectives", "instructions", "status", "course", "course_name", "updated_at")
+        fields = ("id", "title", "subject", "level", "objectives", "instructions", "reference_material", "status", "course", "course_name", "updated_at")
 
 
 class AssessmentListSerializer(serializers.ModelSerializer):

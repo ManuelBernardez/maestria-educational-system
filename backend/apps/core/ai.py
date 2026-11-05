@@ -12,6 +12,36 @@ SUGGESTION_MAX_OUTPUT_TOKENS = 4096
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
+def weighted_total(criteria) -> float:
+    """Nota de un conjunto de criterios aplicando ponderaciones.
+
+    Cada criterio aporta su logro relativo (puntaje/máximo) con peso w/Σw; el resultado
+    se expresa en la escala Σmáximos. Con pesos y máximos iguales equivale a la suma simple.
+    """
+    items = [c for c in (criteria or []) if isinstance(c, dict)]
+    if not items:
+        return 0.0
+    weights = [max(0.0, _safe_float(c.get("weight", 1), 1.0)) for c in items]
+    if sum(weights) <= 0:
+        weights = [1.0] * len(items)
+    total_max = sum(max(0.0, _safe_float(c.get("max_score", 0))) for c in items)
+    share = 0.0
+    for c, w in zip(items, weights):
+        maximum = max(0.0, _safe_float(c.get("max_score", 0)))
+        if maximum > 0:
+            share += w * min(1.0, max(0.0, _safe_float(c.get("score", 0)) / maximum))
+    return round(share / sum(weights) * total_max, 2)
+
+
+def weighted_total_by_question(criteria) -> float:
+    """Suma la nota ponderada de cada consigna (cada una con su propia rúbrica)."""
+    groups = {}
+    for c in criteria or []:
+        if isinstance(c, dict):
+            groups.setdefault(c.get("question_id"), []).append(c)
+    return round(sum(weighted_total(group) for group in groups.values()), 2)
+
+
 def _normalize_for_match(text: str) -> str:
     """Colapsa espacios/saltos de línea y unifica comillas y guiones tipográficos."""
     table = {ord(c): '"' for c in "\u201c\u201d\u00ab\u00bb\u201e"}
@@ -265,10 +295,26 @@ async def _ollama(question, answer, rubric, max_score, feedback_style="construct
     return _validate_proposal(json.loads(raw), rubric, max_score, answer)
 
 
+def provider_error_info(exc) -> tuple:
+    """(mensaje, estado) del cuerpo de error de Google/OpenAI, sin credenciales."""
+    import re
+    try:
+        error = (exc.response.json() or {}).get("error") or {}
+    except Exception:
+        return "", ""
+    if not isinstance(error, dict):
+        return "", ""
+    message = re.sub(r"AIza[0-9A-Za-z_\-]{20,}|sk-[0-9A-Za-z_\-]{10,}", "[clave]", str(error.get("message", "")))
+    message = " ".join(message.split())[:220]
+    state = re.sub(r"[^A-Z_]", "", str(error.get("status", "")).upper())[:40]
+    return message, state
+
+
 def ai_error_code(exc: Exception) -> str:
     """Persist a stable, non-sensitive category for troubleshooting provider failures."""
     if isinstance(exc, httpx.HTTPStatusError):
-        return f"HTTP_{exc.response.status_code}"[:80]
+        status_name = provider_error_info(exc)[1]
+        return (f"HTTP_{exc.response.status_code}" + (f"_{status_name}" if status_name else ""))[:80]
     if isinstance(exc, httpx.TimeoutException):
         return "PROVIDER_TIMEOUT"
     if isinstance(exc, httpx.ConnectError):
@@ -421,6 +467,7 @@ def _validate_proposal(data, rubric, max_score, answer=""):
                 "criterion": expected_name,
                 "score": round(score, 2),
                 "max_score": round(maximum, 2),
+                "weight": round(max(0.0, _safe_float(expected.get("weight", 1), 1.0)), 4),
                 "level": chosen_level,
                 "justification": _short_text(match.get("justification", "No se recibió una justificación; revisar manualmente."), 3000, "No se recibió una justificación; revisar manualmente.") if match else "No se recibió una evaluación para este criterio; revisar manualmente.",
                 "evidence": evidence,
@@ -439,7 +486,7 @@ def _validate_proposal(data, rubric, max_score, answer=""):
                 warnings.append("Se descartó una evidencia que no coincidía literalmente con la respuesta; revisar manualmente.")
             criteria.append({
                 "criterion": _short_text(item.get("criterion", f"Criterio {index + 1}"), 160, f"Criterio {index + 1}"),
-                "score": round(score, 2), "max_score": round(maximum, 2),
+                "score": round(score, 2), "max_score": round(maximum, 2), "weight": 1.0,
                 "level": _short_text(item.get("level", ""), 80),
                 "justification": _short_text(item.get("justification", ""), 3000), "evidence": evidence,
             })
@@ -450,7 +497,7 @@ def _validate_proposal(data, rubric, max_score, answer=""):
         raise ValueError("No se pudo alinear la propuesta con todos los criterios de la rúbrica.")
 
     # A model-generated maximum is never trusted when criteria are teacher-defined.
-    normalized_total = sum(item["score"] for item in criteria)
+    normalized_total = weighted_total(criteria)
     strengths = _text_list(data.get("strengths", data.get("fortalezas_detectadas", data.get("aspectos_destacados", []))))
     suggestions = _text_list(data.get("improvement_suggestions", data.get("sugerencias_mejora", data.get("conceptos_a_reforzar", []))))
     return {

@@ -1,5 +1,5 @@
 import { state } from '../core/state.js';
-import { escapeHtml, toneOf, firstName, greeting, courseName, btn, date, heading, panel, emptyState, courseIdForCorrection } from '../core/utils.js';
+import { escapeHtml, formatNumber, toneOf, firstName, greeting, courseName, btn, date, heading, panel, emptyState, courseIdForCorrection } from '../core/utils.js';
 
 export function renderDashboard() {
   const summary = state.data.overview?.summary || {};
@@ -26,7 +26,7 @@ export function renderDashboard() {
 
   const queue = pending.slice(0, 5).map(item => {
     const courseId = courseIdForCorrection(item);
-    return `<article class="queue-item" data-tone="${toneOf(courseId)}"><div class="queue-copy"><strong>${escapeHtml(item.student_name || 'Estudiante')}</strong><small>${escapeHtml(item.submission_title || 'Evaluación')} · ${escapeHtml(courseName(courseId))}</small></div><span class="queue-score" title="Puntaje propuesto">${escapeHtml(item.total_score ?? '—')}</span>${btn('Revisar', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary')}</article>`;
+    return `<article class="queue-item" data-tone="${toneOf(courseId)}"><div class="queue-copy"><strong>${escapeHtml(item.student_name || 'Estudiante')}</strong><small>${escapeHtml(item.submission_title || 'Evaluación')} · ${escapeHtml(courseName(courseId))}</small></div><span class="queue-score" title="Puntaje propuesto">${escapeHtml(formatNumber(item.total_score))}</span>${btn('Revisar', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary')}</article>`;
   }).join('');
   const queueBody = pending.length
     ? `${queue}${pendingCount > 5 ? `<p class="queue-more">y ${pendingCount - 5} más dentro de tus cursos</p>` : ''}`

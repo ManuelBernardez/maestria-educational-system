@@ -1,4 +1,4 @@
-# MaestrIA v1.0.5
+# MaestrIA v1.0.6
 
 Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
 
@@ -167,6 +167,15 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Seguí `docs/DEPLOYMENT-v0.2.0.md` para completar las variables privadas y la configuración de Supabase/Gemini. No cargar `backend/.env` en Git.
 
 
+## Cambios v1.0.6
+
+- Cursos: el alta siempre crea el curso activo; se quitó el selector de estado del formulario. Archivar/reactivar continúa disponible después de crear el curso. El backend también fuerza `active=True` en altas por API.
+- Evaluaciones: el editor recibe y conserva `reference_material`, evitando que una edición descarte material de referencia importado.
+- Consignas: al editar una consigna ya no se reenvía la relación `assessment`, que es inmutable; la relación se envía solamente al crearla.
+- Números: se normalizan puntajes, máximos, ponderaciones y valores de formularios para eliminar ceros decimales redundantes, sin agregar decimales que el usuario no ingresó.
+- Generación de consignas: los errores de configuración/política de IA (incluido Gemini sin nivel pago confirmado) devuelven `503` y un mensaje accionable; los errores reales del proveedor siguen devolviendo `502`. No se desactiva la protección que impide enviar trabajos docentes/estudiantiles a Gemini Free.
+- Verificación: `npm run check:frontend`, compilación Python (`compileall`), verificación de imports y pruebas unitarias de formato numérico. No se ejecutó una prueba E2E contra Render/Supabase; el entorno de revisión no tiene Django instalado ni conexión a la base desplegada.
+
 ## Frontend v1.0.5
 
 El frontend se organiza en cuatro carpetas: `frontend/html`, `frontend/css`, `frontend/js` y `frontend/assets`. Django sirve las páginas HTML desde `html/`; WhiteNoise publica CSS/JS bajo `/assets/css/` y `/assets/js/`, y las imágenes bajo `/assets/`.
@@ -186,6 +195,12 @@ Auditoría estática del tramo «generar corrección → editar → aprobar → 
 - Caché: la ruta de respaldo de Django también envía `no-cache` para JS/CSS/CSV.
 - Despliegue: gunicorn `--timeout 150` (render.yaml y Dockerfile) y `AI_TIMEOUT_SECONDS=60`.
 - Tests puros nuevos: `backend/apps/core/test_ai_evidence.py`.
+
+### Segunda tanda v1.0.5
+- **Ponderaciones (crítico):** la nota final ahora aplica los pesos: cada criterio aporta logro relativo × peso/Σpesos, expresado sobre la suma de máximos (igual a la suma simple si pesos y máximos son iguales). Se aplica al generar y al aprobar, por consigna. Los criterios de la propuesta guardan su `weight`. La pantalla de rúbrica muestra la suma de pesos (debería ser 100%) con botón «Normalizar a 100%»; un criterio nuevo propone el porcentaje restante. Las correcciones ya aprobadas conservan su nota.
+- **Gemini / error 400:** el 400 que llegaba a `api.js` se mostraba sin causa. Ahora se ve el mensaje de Google (estado y texto, sin claves) y se guarda en `ai_generation.error_code` (p. ej. `HTTP_400_INVALID_ARGUMENT`); `api.js` además muestra errores de validación por campo. Causas típicas de 400 de Google: clave inválida, región o facturación no habilitada.
+- **Tiempos de carga:** compresión GZip de la API; el resumen se pide en paralelo con `/me/`; pintado inmediato desde caché de sesión (10 min, se limpia al cerrar sesión) mientras se actualiza; esqueleto de carga.
+- **Registro de devoluciones:** `GET/POST corrections/{id}/deliveries/` deja constancia (canal, destinatario, fecha) en la auditoría, sin cambios de esquema; la pantalla de una devolución aprobada muestra «Envíos registrados». No hay envío automático ni confirmación de recepción.
 
 Pendiente: `db/maestria_schema_v2.sql` desactualizado; 11 tests de backend desactualizados; listas globales de Entregas/Evaluaciones/Correcciones sin acceso desde el menú; prueba E2E con Gemini real en Render (requiere `AI_EXTERNAL_PROCESSING_APPROVED=True` y `AI_GEMINI_PAID_TIER_CONFIRMED=True`; con `mock` las correcciones no se aprueban por diseño).
 

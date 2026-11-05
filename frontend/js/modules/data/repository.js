@@ -22,7 +22,22 @@ async function settleWithConcurrency(resources, concurrency = 4) {
   return results;
 }
 
-export async function refreshCore({ onOverviewReady } = {}) {
+const OVERVIEW_CACHE_KEY = 'maestria.overview.v1';
+const OVERVIEW_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+
+export function readOverviewCache() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(OVERVIEW_CACHE_KEY) || 'null');
+    if (!cached || cached.uid !== state.profile?.user_id || Date.now() - cached.at > OVERVIEW_CACHE_MAX_AGE_MS) return null;
+    return cached.data;
+  } catch { return null; }
+}
+
+function writeOverviewCache(data) {
+  try { sessionStorage.setItem(OVERVIEW_CACHE_KEY, JSON.stringify({ uid: state.profile?.user_id, at: Date.now(), data })); } catch { /* almacenamiento lleno o bloqueado */ }
+}
+
+export async function refreshCore({ onOverviewReady, overviewPromise } = {}) {
   const resources = [
     ['courses', 'courses/'], ['students', 'students/'],
     ['enrollments', 'enrollments/'], ['assessments', 'assessments/'], ['rubrics', 'rubrics/'],
@@ -32,7 +47,7 @@ export async function refreshCore({ onOverviewReady } = {}) {
   // The overview already contains compact course/assessment cards and exact
   // aggregate counters. Resolve it independently so the dashboard can paint
   // without waiting for the longer lists needed by its secondary screens.
-  const overviewTask = api.get('dashboard/overview/').then(
+  const overviewTask = (overviewPromise || api.get('dashboard/overview/')).then(
     value => ({ status: 'fulfilled', value }),
     reason => ({ status: 'rejected', reason }),
   );
@@ -45,6 +60,7 @@ export async function refreshCore({ onOverviewReady } = {}) {
     state.data.courses = listFrom(overviewResult.value.courses);
     state.data.assessments = listFrom(overviewResult.value.assessments);
     delete state.errors.overview;
+    writeOverviewCache(overviewResult.value);
     try { onOverviewReady?.(overviewResult.value); } catch {
       // A presentation callback must not turn a successful API response into a data failure.
     }

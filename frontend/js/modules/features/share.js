@@ -1,6 +1,27 @@
 import { state, $ } from '../core/state.js';
-import { escapeHtml, statusLabel } from '../core/utils.js';
+import { escapeHtml, formatNumber, statusLabel } from '../core/utils.js';
 import { openModal, closeModal, toast } from '../core/ui.js';
+import { api } from '../core/api.js';
+
+// Deja constancia (canal, destinatario, fecha) de que el docente preparó la devolución. No implica recepción.
+async function registerDelivery(channel, recipient = '') {
+  const id = state.currentCorrection?.id;
+  if (!id) return;
+  try { await api.post(`corrections/${id}/deliveries/`, { channel, recipient }); await loadDeliveries(); }
+  catch { /* el registro es complementario: no interrumpe el compartir */ }
+}
+
+export async function loadDeliveries() {
+  const id = state.currentCorrection?.id;
+  const node = $('#correction-delivery-log');
+  if (!id || !node) return;
+  try {
+    const payload = await api.get(`corrections/${id}/deliveries/`);
+    const labels = { email: 'Correo', whatsapp: 'WhatsApp', print: 'Impresión / PDF', copy: 'Copia de texto', manual: 'Manual' };
+    const rows = (payload.results || []).map(item => `<li>${escapeHtml(new Date(item.created_at).toLocaleString('es-AR'))} · ${escapeHtml(labels[item.channel] || item.channel)}${item.recipient ? ` · ${escapeHtml(item.recipient)}` : ''}</li>`);
+    node.innerHTML = rows.length ? `<ul class="plain-list">${rows.join('')}</ul><small class="muted">Registro de envíos preparados por el docente. MaestrIA no confirma la recepción.</small>` : '<small class="muted">Todavía no se registró ningún envío.</small>';
+  } catch { node.textContent = ''; }
+}
 
 export function correctionShareText() {
   const correction = state.currentCorrection;
@@ -11,7 +32,7 @@ export function correctionShareText() {
     `Estudiante: ${state.currentSubmission?.student_display_name || state.currentSubmission?.student_name || 'Estudiante'}`,
     `Estado: ${statusLabel(correction.status)}`,
     '', result?.summary || '', '',
-    ...(result?.criteria || []).map(item => `${item.criterion}: ${item.score}/${item.max_score}\n${item.justification || ''}${item.evidence ? `\nEvidencia: ${item.evidence}` : ''}`),
+    ...(result?.criteria || []).map(item => `${item.criterion}: ${formatNumber(item.score)}/${formatNumber(item.max_score)}\n${item.justification || ''}${item.evidence ? `\nEvidencia: ${item.evidence}` : ''}`),
     '', correction.teacher_feedback || result?.feedback || ''
   ];
   return lines.join('\n').trim();
@@ -47,7 +68,7 @@ export function approvedCorrectionShareText() {
   const data = correctionShareData();
   if (!data) return '';
   const { correction, proposal, criteria, maxScore, totalScore, studentName } = data;
-  const formatScore = value => Number(value).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  const formatScore = formatNumber;
   const lines = [
     'Devolución de MaestrIA',
     `Evaluación: ${correction.submission_title || 'Evaluación'}`,
@@ -70,8 +91,8 @@ export function approvedCorrectionShareText() {
 export function openCorrectionShareModal() {
   const data = correctionShareData();
   if (!data) { toast('Sólo se pueden compartir devoluciones aprobadas.', 'error'); return; }
-  const possibleScore = data.maxScore.toLocaleString('es-AR', { maximumFractionDigits: 2 });
-  const totalScore = data.totalScore.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  const possibleScore = formatNumber(data.maxScore);
+  const totalScore = formatNumber(data.totalScore);
   const body = `<div class="correction-share-content"><p class="eyebrow">DEVOLUCIÓN APROBADA</p><h3>${escapeHtml(data.studentName)} · ${escapeHtml(data.correction.submission_title || 'Evaluación')}</h3><div class="correction-share-score"><span>Puntaje final</span><strong>${escapeHtml(totalScore)} <small>/ ${escapeHtml(possibleScore)} puntos</small></strong></div><p class="muted">MaestrIA prepara el contenido, pero no envía mensajes automáticamente.</p><div class="form-field full"><label for="correction-share-email">Correo del estudiante (opcional)</label><input id="correction-share-email" type="email" autocomplete="email" value="${escapeHtml(data.studentEmail)}" placeholder="estudiante@ejemplo.com"></div><p id="correction-share-error" class="form-error" role="alert"></p><p id="correction-share-notice" class="form-success" role="status" aria-live="polite"></p><div class="modal-actions correction-share-actions"><button class="btn btn-primary" type="button" data-share-action="email">Preparar correo</button><button class="btn btn-secondary" type="button" data-share-action="whatsapp">Abrir WhatsApp</button><button class="btn btn-secondary" type="button" data-share-action="print">Imprimir / PDF</button><button class="btn btn-secondary" type="button" data-share-action="copy">Copiar devolución</button></div><p class="field-hint">Verificá el destinatario y el contenido antes de confirmar el envío desde tu aplicación.</p></div>`;
   openModal('Compartir o guardar', body, 'share-correction', true);
   window.setTimeout(() => $('#correction-share-email')?.focus(), 50);
@@ -97,9 +118,11 @@ export async function handleShareAction(action) {
     }
     window.location.href = `mailto:${recipient}?subject=${encodeURIComponent(`Devolución de evaluación: ${data.correction.submission_title || 'MaestrIA'}`)}&body=${encodeURIComponent(body)}`;
     if (notice) notice.textContent = `Se solicitó abrir un borrador de correo.${clipboardNote}`;
+    registerDelivery('email', email);
   } else if (action === 'whatsapp') {
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
     if (notice) notice.textContent = 'WhatsApp se abrió con el texto preparado.';
+    registerDelivery('whatsapp');
   } else if (action === 'copy') {
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
@@ -108,8 +131,9 @@ export async function handleShareAction(action) {
         const copied = document.execCommand('copy'); input.remove(); if (!copied) throw new Error('copy');
       }
       if (notice) notice.textContent = 'Devolución copiada.';
+      registerDelivery('copy');
     } catch { if (errorNode) errorNode.textContent = 'No se pudo copiar. Habilitá el permiso del portapapeles o seleccioná el texto manualmente.'; }
   } else if (action === 'print') {
-    closeModal(true); window.print();
+    registerDelivery('print'); closeModal(true); window.print();
   }
 }

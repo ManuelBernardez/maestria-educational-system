@@ -98,6 +98,8 @@ INSTALLED_APPS = [
 MIGRATION_MODULES = {"core": None}
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Comprime las respuestas JSON de la API (listas de entregas/cursos): menos bytes sobre la red.
+    "django.middleware.gzip.GZipMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",

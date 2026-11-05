@@ -53,7 +53,7 @@
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(value));
     return value;
   }
-  function clearSession() { try { sessionStorage.removeItem(SESSION_KEY); } catch {} }
+  function clearSession() { try { sessionStorage.removeItem(SESSION_KEY); sessionStorage.removeItem('maestria.overview.v1'); } catch {} }
 
   async function loadClientConfig() {
     if (!clientConfigPromise) {
@@ -108,6 +108,13 @@
           .join('; ');
         if (text) return text.slice(0, 1200);
       }
+    }
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const text = Object.entries(payload)
+        .filter(([key]) => !['detail', 'error_description', 'msg', 'message', 'error'].includes(key))
+        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : typeof value === 'object' && value ? JSON.stringify(value) : String(value)}`)
+        .join('; ');
+      if (text) return text.slice(0, 1200);
     }
     return `No se pudo completar la operación (HTTP ${statusCode}).`;
   }

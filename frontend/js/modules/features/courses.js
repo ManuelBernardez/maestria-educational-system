@@ -1,5 +1,5 @@
 import { state, modal } from '../core/state.js';
-import { escapeHtml, toneOf, statusPill, btn, date, heading, emptyState, resourceError, formField, selectField, textField, courseIdForCorrection } from '../core/utils.js';
+import { escapeHtml, formatNumber, toneOf, statusPill, btn, date, heading, emptyState, resourceError, formField, textField, courseIdForCorrection } from '../core/utils.js';
 import { openModal, modalForm } from '../core/ui.js';
 
 export function renderCourses() {
@@ -48,7 +48,7 @@ export function renderCourseDetail() {
     return `<article class="course-record"><div class="course-record-main"><button type="button" class="entity-link" data-action="open-submission" data-id="${escapeHtml(item.id)}">${escapeHtml(item.student_display_name || item.student_name || 'Estudiante sin identificar')}</button><small>${escapeHtml(item.submission_title || item.assessment_title || assessments.find(row => String(row.id) === String(item.assessment))?.title || 'Evaluación')} · ${date(item.created_at, true)}</small></div><div class="course-record-meta">${statusPill(item.status)} ${correction ? statusPill(correction.status) : ''}</div><div class="course-record-actions">${btn(correction ? 'Revisar devolución' : 'Abrir entrega', 'open-submission', `data-id="${escapeHtml(item.id)}"`, correction ? 'primary' : 'secondary')}</div></article>`;
   }).join('');
 
-  const correctionRows = corrections.map(item => `<article class="course-record"><div class="course-record-main"><button type="button" class="entity-link" data-action="open-correction" data-id="${escapeHtml(item.id)}">${escapeHtml(item.submission_title || 'Evaluación')}</button><small>${escapeHtml(item.student_name || 'Estudiante')} · ${date(item.created_at, true)}</small></div><div class="course-record-meta">${statusPill(item.status)}<strong class="course-score">${escapeHtml(item.total_score ?? '—')}</strong></div><div class="course-record-actions">${btn('Abrir devolución', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary')}</div></article>`).join('');
+  const correctionRows = corrections.map(item => `<article class="course-record"><div class="course-record-main"><button type="button" class="entity-link" data-action="open-correction" data-id="${escapeHtml(item.id)}">${escapeHtml(item.submission_title || 'Evaluación')}</button><small>${escapeHtml(item.student_name || 'Estudiante')} · ${date(item.created_at, true)}</small></div><div class="course-record-meta">${statusPill(item.status)}<strong class="course-score">${escapeHtml(formatNumber(item.total_score))}</strong></div><div class="course-record-actions">${btn('Abrir devolución', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary')}</div></article>`).join('');
 
   const fold = (key, title, detail, count, body, action = '') => `<details class="course-fold" data-fold="${key}"><summary><span class="course-fold-copy"><strong>${title}</strong><small>${detail}</small></span><span class="course-fold-count">${count}</span><span class="course-card-chevron" aria-hidden="true">⌄</span></summary><div class="course-fold-body">${body}${action ? `<div class="course-fold-footer">${action}</div>` : ''}</div></details>`;
   const studentActions = `<div class="course-action-group">${btn('Agregar estudiante', 'new-student', `data-course="${course.id}"`, 'primary')}${btn('Vincular existente', 'enroll-student', `data-course="${course.id}"`)}${btn('Ver lista completa', 'manage-course-students', `data-course="${course.id}"`)}</div>`;
@@ -80,7 +80,7 @@ export function renderCourseDetail() {
 }
 
 export function courseForm(course = null) {
-  const fields = `${formField('Nombre del curso', 'name', course?.name || '', 'text', 'maxlength="180"', true)}${formField('Materia / área', 'subject', course?.subject || '', 'text', 'maxlength="120"')}${formField('Nivel', 'level', course?.level || '', 'text', 'maxlength="120"')}${formField('Ciclo lectivo', 'academic_year', course?.academic_year || '', 'text', 'maxlength="80"')}${textField('Descripción', 'description', course?.description || '')}${selectField('Estado', 'active', [{ value: 'true', label: 'Activo' }, { value: 'false', label: 'Archivado' }], String(course?.active !== false))}`;
+  const fields = `${formField('Nombre del curso', 'name', course?.name || '', 'text', 'maxlength="180"', true)}${formField('Materia / área', 'subject', course?.subject || '', 'text', 'maxlength="120"')}${formField('Nivel', 'level', course?.level || '', 'text', 'maxlength="120"')}${formField('Ciclo lectivo', 'academic_year', course?.academic_year || '', 'text', 'maxlength="80"')}${textField('Descripción', 'description', course?.description || '')}`;
   openModal(course ? 'Editar curso' : 'Crear curso', modalForm(fields), course ? 'edit-course' : 'new-course', true);
   modal.dataset.recordId = course?.id || '';
 }

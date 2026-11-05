@@ -1,6 +1,7 @@
 import { api } from './core/api.js';
 import { state, content, $$ } from './core/state.js';
-import { loadProfile, refreshCore, refreshAdmin } from './data/repository.js';
+import { loadProfile, refreshCore, refreshAdmin, readOverviewCache } from './data/repository.js';
+import { listFrom } from './core/utils.js';
 import { render, navigate } from './core/router.js';
 import { restoreSidebarPreference, applyTheme, updateChrome } from './core/ui.js';
 import { maybeOpenQuickStart, bindQuickStartEvents } from './features/guide.js';
@@ -15,6 +16,7 @@ import { renderSubmissions, renderSubmissionDetail } from './features/submission
 import { renderCorrections, renderCorrection } from './features/corrections.js';
 import { renderAdmin, renderInstitutionScope } from './features/admin.js';
 import { renderProfile } from './features/profile.js';
+import { loadDeliveries } from './features/share.js';
 
 import './events.js'; // initialize delegated event handlers
 
@@ -46,6 +48,7 @@ window.addEventListener('maestria:render', (e) => {
     if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
   });
   content.focus({ preventScroll: true });
+  if (view === 'correction') loadDeliveries();
 });
 
 let initializationPromise = null;
@@ -54,7 +57,10 @@ async function runInit() {
   restoreSidebarPreference();
   applyTheme(document.documentElement.dataset.theme || 'light', false);
   state.loading = true;
-  content.innerHTML = `<section class="panel" aria-live="polite"><div class="panel-body"><p>Conectando con MaestrIA…</p></div></section>`;
+  content.innerHTML = `<section class="panel" aria-live="polite" aria-busy="true"><div class="panel-body"><p>Conectando con MaestrIA…</p><div class="skeleton-grid" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton skeleton-wide"></span></div></div></section>`;
+  // El resumen no depende del perfil: se pide en paralelo con /me/ en lugar de esperar a que termine.
+  let overviewPromise = null;
+  if (api.getSession()) { overviewPromise = api.get('dashboard/overview/'); overviewPromise.catch(() => {}); }
   try {
     const ok = await loadProfile();
     if (!ok) return;
@@ -63,7 +69,13 @@ async function runInit() {
       await refreshAdmin();
     } else {
       state.view = 'dashboard';
-      await refreshCore({ onOverviewReady: () => render() });
+      // Pintado inmediato con el último resumen de esta sesión mientras se actualiza en segundo plano.
+      const cached = readOverviewCache();
+      if (cached) {
+        state.data.overview = cached; state.data.courses = listFrom(cached.courses); state.data.assessments = listFrom(cached.assessments);
+        state.loading = false; render();
+      }
+      await refreshCore({ overviewPromise, onOverviewReady: () => render() });
     }
     state.loading = false;
     render();

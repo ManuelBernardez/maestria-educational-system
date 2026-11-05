@@ -1,5 +1,6 @@
 import httpx
-from ..ai import locate_evidence
+from ..ai import locate_evidence, weighted_total_by_question
+from ..models import AuditEvent
 from .common import (
     AIUserRateThrottle,
     Assessment,
@@ -391,7 +392,7 @@ class SubmissionViewSet(OwnerViewSet):
             logger.warning("AI correction generation failed (%s)", ai_error_code(exc))
             return Response({"detail": _safe_ai_error_detail(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")}, status=status.HTTP_502_BAD_GATEWAY)
 
-        total = sum(Decimal(str(item.get("score", 0))) for item in aggregate["criteria"])
+        total = Decimal(str(weighted_total_by_question(aggregate["criteria"])))
         try:
             with transaction.atomic():
                 # Recheck under a row lock after the external AI call. The lease
@@ -635,7 +636,7 @@ class CorrectionViewSet(OwnerViewSet):
             correction.teacher_feedback = feedback
             correction.status = "approved"
             correction.approved_at = timezone.now()
-            correction.total_score = sum(Decimal(str(item["score"])) for item in validated_criteria)
+            correction.total_score = Decimal(str(weighted_total_by_question(validated_criteria)))
             correction.save(update_fields=["final_result", "teacher_feedback", "status", "approved_at", "total_score", "updated_at"])
             correction.criterion_results.all().delete()
             for position, item in enumerate(validated_criteria, start=1):
@@ -662,6 +663,34 @@ class CorrectionViewSet(OwnerViewSet):
             record_audit(request.user.id, "correction.approved", "correction", correction.id, {"demo": bool(final_result.get("demo"))}, request=request)
         correction.refresh_from_db()
         return Response(self.get_serializer(correction).data)
+
+    DELIVERY_CHANNELS = {"email", "whatsapp", "print", "copy", "manual"}
+
+    @action(detail=True, methods=["get", "post"], url_path="deliveries")
+    def deliveries(self, request, pk=None):
+        """Registro de devoluciones preparadas/entregadas de una corrección aprobada.
+
+        MaestrIA no envía mensajes por su cuenta ni puede confirmar la recepción: el docente
+        prepara el envío (correo, WhatsApp, PDF, copia) y este endpoint deja constancia con
+        fecha, canal y destinatario. `confirmed` marca que el docente confirmó haberlo enviado.
+        """
+        correction = self.get_object()
+        if request.method == "GET":
+            events = AuditEvent.objects.filter(
+                owner_id=request.user.id, object_type="correction", object_id=str(correction.id),
+                event_type="correction.delivery",
+            ).order_by("-created_at").values("id", "detail", "created_at")[:50]
+            return Response({"results": [{"id": e["id"], "created_at": e["created_at"].isoformat(), **(e["detail"] or {})} for e in events]})
+        if correction.status != "approved" or not correction.approved_at:
+            raise ValidationError({"correction": "Solo se registran devoluciones de correcciones aprobadas."})
+        channel = str(request.data.get("channel", "")).strip().lower()
+        if channel not in self.DELIVERY_CHANNELS:
+            raise ValidationError({"channel": "Canal inválido. Usá: " + ", ".join(sorted(self.DELIVERY_CHANNELS)) + "."})
+        recipient = str(request.data.get("recipient", "")).strip()[:254]
+        detail = {"channel": channel, "recipient": recipient, "confirmed": bool(request.data.get("confirmed", False)),
+                  "student_id": correction.submission.student_id, "note": str(request.data.get("note", "")).strip()[:300]}
+        record_audit(request.user.id, "correction.delivery", "correction", correction.id, detail, request=request)
+        return Response({"registered": True, **detail}, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["get"], url_path="export")
     def export_markdown(self, request, pk=None):
