@@ -95,7 +95,15 @@ export function updateChrome() {
   if ($('#pending-count')) $('#pending-count').textContent = String(state.data.corrections.filter(item => item.status === 'pending_review').length);
   if ($('#submission-count')) $('#submission-count').textContent = String(state.data.submissions.length);
   const shortcuts = $('#sidebar-course-shortcuts');
-  if (shortcuts) { shortcuts.hidden = true; shortcuts.innerHTML = ''; }
+  if (shortcuts) {
+    const activeCourses = state.data.courses.filter(item => item.active).slice(0, 5);
+    shortcuts.hidden = isAdmin || activeCourses.length === 0;
+    shortcuts.innerHTML = shortcuts.hidden ? '' : `<div class="sidebar-shortcut-heading"><span>MIS MATERIAS</span><button type="button" data-action="new-course" aria-label="Crear materia" title="Crear materia">＋</button></div>${activeCourses.map(course => {
+      const selected = state.view === 'course' && String(state.selectedCourse) === String(course.id);
+      const letter = String(course.subject || course.name || 'M').trim().slice(0, 1).toLocaleUpperCase('es-AR');
+      return `<button class="side-link side-link--course${selected ? ' active' : ''}" type="button" data-open-course="${escapeHtml(course.id)}" title="${escapeHtml(course.name)}" ${selected ? 'aria-current="page"' : ''}><span class="side-icon" aria-hidden="true">${escapeHtml(letter)}</span><span class="side-text">${escapeHtml(course.name)}</span></button>`;
+    }).join('')}`;
+  }
   $$('[data-teacher-nav]').forEach(link => { link.hidden = isAdmin; });
   if ($('#admin-nav')) $('#admin-nav').hidden = !isAdmin;
   if ($('#institution-nav')) $('#institution-nav').hidden = true;
@@ -106,7 +114,7 @@ export function updateChrome() {
   const sideNav = $('.side-nav'); if (sideNav) sideNav.setAttribute('aria-label', isAdmin ? 'Navegación de administración' : 'Navegación del espacio docente');
   const today = $('#today-label');
   if (today) today.textContent = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
-  const navName = ({ dashboard: 'Resumen', courses: 'Cursos', course: 'Cursos', students: 'Estudiantes', assessments: 'Evaluaciones', assessment: 'Evaluaciones', rubrics: 'Rúbricas', submissions: 'Entregas', submission: 'Entregas', corrections: 'Correcciones', correction: 'Correcciones', admin: 'Administración', institution: 'Institución', 'institution-memberships': 'Institución', profile: 'Mi perfil' })[state.view] || (isAdmin ? 'Administración' : 'Resumen');
+  const navName = ({ dashboard: 'Panel docente', workspace: 'Espacio de trabajo', courses: 'Mis materias', course: 'Mis materias', students: 'Estudiantes', assessments: 'Evaluaciones', 'assessment-new': 'Nueva evaluación', assessment: 'Evaluación', rubrics: 'Rúbricas', submissions: 'Entregas', submission: 'Entregas', corrections: 'Correcciones', correction: 'Correcciones', admin: 'Administración', institution: 'Institución', 'institution-memberships': 'Institución', profile: 'Mi perfil' })[state.view] || (isAdmin ? 'Administración' : 'Resumen');
   if ($('#breadcrumb-current')) $('#breadcrumb-current').textContent = navName;
 }
 

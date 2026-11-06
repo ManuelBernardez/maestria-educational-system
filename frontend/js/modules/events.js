@@ -10,6 +10,7 @@ import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsFo
 import { copyCorrection, openCorrectionShareModal, handleShareAction } from './features/share.js';
 import { saveProfilePreferences } from './features/profile.js';
 import { GUIDE_STEPS, guideStep, setGuideStep, renderQuickStart, openQuickStart, closeQuickStart } from './features/guide.js';
+import { handleWorkspaceAction, handleWorkspaceSubmit, handleWorkspaceInput, handleWorkspaceChange } from './features/workspace.js';
 
 async function openSubmission(id) {
   const submission = await api.get(`submissions/${id}/`);
@@ -51,6 +52,7 @@ async function clickAction(button) {
   const action = button.dataset.action;
   const id = button.dataset.id;
   try {
+    if (action?.startsWith('workspace-') && await handleWorkspaceAction(button)) return;
     switch (action) {
       case 'navigate': navigate(button.dataset.view); break;
       case 'open-fold': {
@@ -72,7 +74,7 @@ async function clickAction(button) {
       case 'toggle-course': {
         const item = state.data.courses.find(row => String(row.id) === String(id));
         if (!item || !window.confirm(item.active ? '¿Archivar este curso?' : '¿Reactivar este curso?')) break;
-        await api.patch(`courses/${id}/`, { active: !item.active }); await afterWrite(item.active ? 'Curso archivado.' : 'Curso reactivado.'); break;
+        await api.patch(`courses/${id}/`, { active: !item.active }); await afterWrite(item.active ? 'Curso archivado.' : 'Curso reactivado.', ['courses']); break;
       }
       case 'new-student': {
         const defaultCourse = button.dataset.course || (state.view === 'course' ? state.selectedCourse : !['all', 'unassigned'].includes(state.studentCourseFilter) ? state.studentCourseFilter : '');
@@ -82,7 +84,7 @@ async function clickAction(button) {
       case 'toggle-student': {
         const item = state.data.students.find(row => String(row.id) === String(id));
         if (!item || !window.confirm(item.active ? '¿Desactivar a este estudiante?' : '¿Reactivar a este estudiante?')) break;
-        await api.patch(`students/${id}/`, { active: !item.active }); await afterWrite(item.active ? 'Estudiante desactivado.' : 'Estudiante reactivado.'); break;
+        await api.patch(`students/${id}/`, { active: !item.active }); await afterWrite(item.active ? 'Estudiante desactivado.' : 'Estudiante reactivado.', ['students']); break;
       }
       case 'import-students': {
         const defaultCourse = button.dataset.course || (state.view === 'course' ? state.selectedCourse : !['all', 'unassigned'].includes(state.studentCourseFilter) ? state.studentCourseFilter : '');
@@ -90,8 +92,8 @@ async function clickAction(button) {
       }
       case 'manage-course-students': state.studentCourseFilter = String(button.dataset.course || state.selectedCourse || 'all'); state.view = 'students'; render(); break;
       case 'enroll-student': enrollmentForm(button.dataset.course); break;
-      case 'deactivate-enrollment': if (window.confirm('¿Desmatricular a este estudiante?')) { await api.patch(`enrollments/${id}/`, { status: 'inactive' }); await afterWrite('Matrícula desactivada.'); } break;
-      case 'new-assessment': state.selectedCourse = button.dataset.course || state.selectedCourse; state.selectedAssessment = null; assessmentForm(null, state.selectedCourse || ''); break;
+      case 'deactivate-enrollment': if (window.confirm('¿Desmatricular a este estudiante?')) { await api.patch(`enrollments/${id}/`, { status: 'inactive' }); await afterWrite('Matrícula desactivada.', ['enrollments']); } break;
+      case 'new-assessment': { state.selectedCourse = button.dataset.course || state.selectedCourse; state.selectedAssessment = null; const url = new URL(window.location.href); if (state.selectedCourse) url.searchParams.set('course', state.selectedCourse); else url.searchParams.delete('course'); window.history.replaceState({ ...(window.history.state || {}), view: 'assessment-new' }, '', url.toString()); navigate('assessment-new'); break; }
       case 'edit-assessment': {
         const assessment = state.data.assessments.find(item => String(item.id) === String(id));
         const full = await api.get(`assessments/${id}/editor/`); assessmentForm({ ...assessment, ...full.assessment }); break;
@@ -204,6 +206,7 @@ content?.addEventListener('click', event => {
 });
 
 content?.addEventListener('input', event => {
+  if (handleWorkspaceInput(event)) return;
   if (event.target.matches('[data-admin-search]')) {
     state.adminSearch = event.target.value;
     const position = event.target.selectionStart; render();
@@ -217,6 +220,7 @@ content?.addEventListener('input', event => {
 });
 
 content?.addEventListener('change', async event => {
+  if (await handleWorkspaceChange(event)) return;
   if (event.target.matches('[data-filter="student-course"]')) { state.studentCourseFilter = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="student-status"]')) { state.studentStatusFilter = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="assessment-course"]')) { state.assessmentCourseFilter = event.target.value; render(); return; }
@@ -240,12 +244,37 @@ content?.addEventListener('change', async event => {
 
 document.addEventListener('submit', async event => {
   const form = event.target;
+  // El formulario del modal comparte el prefijo «workspace-» con los formularios
+  // del espacio de trabajo; debe resolverse por id exacto ANTES del startsWith,
+  // porque handleWorkspaceSubmit no matchea este id y dejaría el submit absorbido.
   if (form.id === 'workspace-modal-form') { event.preventDefault(); await handleModalSubmit(form, form.querySelector('[type="submit"]')); }
+  else if (form.id?.startsWith('workspace-')) { event.preventDefault(); await handleWorkspaceSubmit(form); }
   else if (form.id === 'proposal-questions-form') { event.preventDefault(); await handleQuestionProposal(form, form.querySelector('[type="submit"]')); }
   else if (form.id === 'add-submission-answer-form') { event.preventDefault(); await handleAddSubmissionAnswer(form); }
   else if (form.id === 'generate-correction-form') { event.preventDefault(); await handleGenerateCorrection(form, form.querySelector('[type="submit"]')); }
   else if (form.id === 'approve-correction-form') { event.preventDefault(); await handleApproveCorrection(form, form.querySelector('[type="submit"]')); }
   else if (form.id === 'generate-rubric-form') { event.preventDefault(); }
+  else if (form.id === 'assessment-create-page-form') {
+    event.preventDefault();
+    if (form.dataset.busy === 'true' || !form.reportValidity()) return;
+    const submit = form.querySelector('[type=submit]');
+    const values = Object.fromEntries(new FormData(form).entries());
+    form.dataset.busy = 'true'; if (submit) { submit.disabled = true; submit.textContent = 'Creando…'; }
+    try {
+      const created = await api.post('assessments/', { title: String(values.title || '').trim(), course: Number(values.course), subject: String(values.subject || '').trim(), level: String(values.level || '').trim(), objectives: String(values.objectives || '').trim(), instructions: String(values.instructions || '').trim(), reference_material: '', status: 'draft' });
+      const url = new URL(window.location.href); url.searchParams.set('assessment', created.id); url.searchParams.delete('course');
+      window.history.replaceState({ ...(window.history.state || {}), view: 'assessment-new' }, '', url.toString());
+      state.selectedAssessment = created.id; state.selectedCourse = values.course; state.view = 'assessment-new';
+      navigate('workspace');
+      toast('Evaluación creada. Ya podés preparar materiales, consignas y entregas.');
+    } catch (error) {
+      let alert = form.querySelector('[data-form-error]');
+      if (!alert) { alert = document.createElement('p'); alert.dataset.formError = 'true'; alert.className = 'notice notice-error'; alert.setAttribute('role', 'alert'); form.prepend(alert); }
+      alert.textContent = errorText(error);
+    } finally {
+      form.dataset.busy = 'false'; if (submit) { submit.disabled = false; submit.textContent = 'Crear y preparar corrección →'; }
+    }
+  }
   else if (form.id === 'profile-settings-form') { event.preventDefault(); await saveProfilePreferences(form); }
 });
 

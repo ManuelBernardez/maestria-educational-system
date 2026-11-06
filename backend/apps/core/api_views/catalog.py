@@ -33,6 +33,7 @@ from .common import (
     _read_document,
     _safe_ai_error_detail,
     ai_error_code,
+    ai_error_http_status,
     action,
     active_ai_provider_config,
     async_to_sync,
@@ -74,16 +75,14 @@ class CourseViewSet(OwnerViewSet):
     def _save_course(self, serializer, **kwargs):
         owner_id = kwargs.get("owner_id") or self.request.user.id
         with transaction.atomic():
-            # The canonical database schema has no case-insensitive unique index.
-            # Lock the Auth identity row so concurrent API writes for one owner
-            # serialize duplicate checks without inventing a database constraint.
-            from django.db import connection
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(owner_id)])
-                if cursor.fetchone() is None:
-                    raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
-            name = serializer.validated_data.get("name", getattr(serializer.instance, "name", ""))
-            duplicates = Course.objects.filter(owner_id=owner_id, name__iexact=name.strip())
+            # El esquema canónico no tiene un índice único insensible a mayúsculas sobre
+            # (owner_id, name). Para serializar comprobaciones concurrentes de nombre
+            # duplicado sin tocar la tabla externa auth.users (que el rol de la aplicación
+            # puede no poder leer/bloquear en Supabase), se bloquean las filas propias
+            # del curso que coinciden por nombre antes de validar y guardar.
+            name = serializer.validated_data.get("name", getattr(serializer.instance, "name", "")).strip()
+            Course.objects.filter(owner_id=owner_id, name__iexact=name).select_for_update()
+            duplicates = Course.objects.filter(owner_id=owner_id, name__iexact=name)
             if serializer.instance:
                 duplicates = duplicates.exclude(pk=serializer.instance.pk)
             if duplicates.exists():
@@ -119,20 +118,15 @@ class EnrollmentViewSet(OwnerViewSet):
             serializer.save(owner_id=self.request.user.id)
 
     def perform_update(self, serializer):
-        from django.db import connection
-        with transaction.atomic(), connection.cursor() as cursor:
-            cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(self.request.user.id)])
-            if cursor.fetchone() is None:
-                raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
-            course = serializer.validated_data.get("course", serializer.instance.course)
-            student = serializer.validated_data.get("student", serializer.instance.student)
-            course = Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
-            student = Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
-            next_status = serializer.validated_data.get("status", serializer.instance.status)
-            if next_status == "active":
-                duplicate = Enrollment.objects.filter(owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active").exclude(pk=serializer.instance.pk)
-                if duplicate.exists():
-                    raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
+        course = serializer.validated_data.get("course", serializer.instance.course)
+        student = serializer.validated_data.get("student", serializer.instance.student)
+        course = Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
+        student = Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
+        next_status = serializer.validated_data.get("status", serializer.instance.status)
+        if next_status == "active":
+            duplicate = Enrollment.objects.filter(owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active").exclude(pk=serializer.instance.pk)
+            if duplicate.exists():
+                raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
             serializer.save()
 
     def get_queryset(self):
@@ -167,17 +161,14 @@ class AssessmentViewSet(OwnerViewSet):
         return super().get_serializer_class()
 
     def perform_update(self, serializer):
-        # The generation worker reads an evaluation as a coherent input snapshot.
-        # Lock the parent row in the same order as the worker and reject edits
-        # while an associated delivery is processing.
+        # El docente puede editar el contexto aunque haya una corrección en
+        # curso: el endpoint de corrección comparar updated_at al prepararse y
+        # al confirmar, de modo que una edición concurrente solo hace fallar
+        # esa corrida (con mensaje de recargar), nunca la corrompe.
         with transaction.atomic():
             assessment = Assessment.objects.select_for_update().get(
                 pk=serializer.instance.pk, owner_id=self.request.user.id,
             )
-            if Submission.objects.filter(
-                owner_id=self.request.user.id, assessment=assessment, status="processing",
-            ).exists():
-                raise ValidationError({"assessment": "No se puede editar la evaluación mientras se procesa una corrección."})
             serializer.instance = assessment
             serializer.save()
 
@@ -212,10 +203,6 @@ class AssessmentViewSet(OwnerViewSet):
             assessment = Assessment.objects.select_for_update().get(
                 pk=assessment.pk, owner_id=request.user.id,
             )
-            if Submission.objects.filter(
-                owner_id=request.user.id, assessment=assessment, status="processing",
-            ).exists():
-                raise ValidationError({"assessment": "No se puede cambiar el material mientras se procesa una corrección."})
             combined = (
                 text
                 if mode == "replace" or not assessment.reference_material
@@ -253,14 +240,7 @@ class AssessmentViewSet(OwnerViewSet):
         except Exception as exc:
             record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), ai_error_code(exc), assessment=assessment, provider_config=locals().get("provider_config"))
             logger.warning("AI questions generation failed (%s)", type(exc).__name__)
-            error_code = ai_error_code(exc)
-            configuration_errors = {
-                "EXTERNAL_PROCESSING_NOT_APPROVED", "GEMINI_PAID_TIER_NOT_CONFIRMED",
-                "MISSING_GEMINI_API_KEY", "MISSING_OPENAI_API_KEY", "INVALID_AI_PROVIDER",
-                "INVALID_GEMINI_MODEL",
-            }
-            response_status = status.HTTP_503_SERVICE_UNAVAILABLE if error_code in configuration_errors else status.HTTP_502_BAD_GATEWAY
-            return Response({"detail": _safe_ai_error_detail(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=response_status)
+            return Response({"detail": _safe_ai_error_detail(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=ai_error_http_status(exc))
         return Response(result, status=status.HTTP_200_OK)
 
 class StudentViewSet(OwnerViewSet):
@@ -268,32 +248,20 @@ class StudentViewSet(OwnerViewSet):
     serializer_class = StudentSerializer
 
     def perform_update(self, serializer):
-        from django.db import connection
-        with transaction.atomic(), connection.cursor() as cursor:
-            cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(self.request.user.id)])
-            if cursor.fetchone() is None:
-                raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
-            code = str(serializer.validated_data.get("external_code", getattr(serializer.instance, "external_code", ""))).strip()
-            if code:
-                duplicates = Student.objects.filter(owner_id=self.request.user.id, external_code=code).exclude(pk=serializer.instance.pk)
-                if duplicates.exists():
-                    raise ValidationError({"external_code": "Ya existe un estudiante con ese código externo."})
+        code = str(serializer.validated_data.get("external_code", getattr(serializer.instance, "external_code", ""))).strip()
+        if code:
+            duplicates = Student.objects.filter(owner_id=self.request.user.id, external_code=code).exclude(pk=serializer.instance.pk)
+            if duplicates.exists():
+                raise ValidationError({"external_code": "Ya existe un estudiante con ese código externo."})
             serializer.save()
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        # Lock the Auth identity row so duplicate external_code checks serialize
-        # across requests, since the canonical physical schema has no unique index.
-        from django.db import connection
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(request.user.id)])
-            if cursor.fetchone() is None:
-                raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
         course_id = request.data.get("course")
         try:
             course = Course.objects.select_for_update().get(pk=course_id, owner_id=request.user.id, active=True)
         except (Course.DoesNotExist, ValueError, TypeError):
-            raise ValidationError({"course": "Elegí una materia o curso activo antes de agregar al estudiante."})
+            raise ValidationError({"course": ["Elegí una materia o curso activo antes de agregar al estudiante."]})
         payload = request.data.copy()
         payload.pop("course", None)
         serializer = self.get_serializer(data=payload)
@@ -314,7 +282,7 @@ class StudentViewSet(OwnerViewSet):
         try:
             course = Course.objects.get(pk=request.data.get("course"), owner_id=request.user.id, active=True)
         except (Course.DoesNotExist, ValueError, TypeError):
-            raise ValidationError({"course": "Elegí una materia o curso activo para asignar a los estudiantes importados."})
+            raise ValidationError({"course": ["Elegí una materia o curso activo para asignar a los estudiantes importados."]})
         try:
             text = uploaded.read().decode("utf-8-sig")
             # Excel en español exporta con «;»: se detecta el separador de la primera línea.
@@ -327,12 +295,7 @@ class StudentViewSet(OwnerViewSet):
                 raise ValidationError({"file": "El CSV debe incluir una columna name."})
             created, skipped, errors = 0, 0, []
             owner_id = request.user.id
-            from django.db import connection
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT id FROM auth.users WHERE id = %s FOR UPDATE", [str(owner_id)])
-                if cursor.fetchone() is None:
-                    raise ValidationError({"detail": "La identidad autenticada no existe en Supabase Auth."})
-            course = Course.objects.select_for_update().get(pk=course.pk, owner_id=owner_id, active=True)
+        course = Course.objects.select_for_update().get(pk=course.pk, owner_id=owner_id, active=True)
             seen_codes = set(Student.objects.filter(owner_id=owner_id).exclude(external_code="").values_list("external_code", flat=True))
             for row_number, row in enumerate(reader, start=2):
                 if row_number > 501:
@@ -449,7 +412,7 @@ class RubricViewSet(OwnerViewSet):
         except Exception as exc:
             record_ai_generation(request.user.id, "generate_rubric", started, False, fingerprint(context), ai_error_code(exc), provider_config=provider_config)
             logger.warning("AI rubric generation failed (%s)", type(exc).__name__)
-            return Response({"detail": _safe_ai_error_detail(exc, "No se pudo proponer la rúbrica. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=status.HTTP_502_BAD_GATEWAY)
+            return Response({"detail": _safe_ai_error_detail(exc, "No se pudo proponer la rúbrica. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=ai_error_http_status(exc))
         return Response(result)
 
 class QuestionViewSet(OwnerViewSet):
@@ -472,10 +435,6 @@ class QuestionViewSet(OwnerViewSet):
             raise ValidationError("Evaluación no disponible.") from exc
         if assessment.status == "archived":
             raise ValidationError({"assessment": "No se pueden agregar consignas a una evaluación archivada."})
-        if Submission.objects.filter(
-            owner_id=self.request.user.id, assessment=assessment, status="processing",
-        ).exists():
-            raise ValidationError({"assessment": "No se pueden modificar las consignas mientras se procesa una corrección."})
         position = (Question.objects.filter(assessment=assessment).aggregate(max_position=Max("position"))["max_position"] or 0) + 1
         serializer.save(owner_id=self.request.user.id, assessment=assessment, position=position)
         # Treat a question-list change as an assessment-context update so in-flight
@@ -488,10 +447,6 @@ class QuestionViewSet(OwnerViewSet):
         assessment = Assessment.objects.select_for_update().get(
             pk=requested_question.assessment_id, owner_id=self.request.user.id,
         )
-        if Submission.objects.filter(
-            owner_id=self.request.user.id, assessment=assessment, status="processing",
-        ).exists():
-            raise ValidationError({"question": "No se pueden modificar consignas mientras se procesa una corrección."})
         question = Question.objects.select_for_update().get(
             pk=requested_question.pk, assessment=assessment, owner_id=self.request.user.id,
         )
@@ -505,10 +460,6 @@ class QuestionViewSet(OwnerViewSet):
             assessment = Assessment.objects.select_for_update().get(
                 pk=question.assessment_id, owner_id=request.user.id,
             )
-            if Submission.objects.filter(
-                owner_id=request.user.id, assessment=assessment, status="processing",
-            ).exists():
-                raise ValidationError({"question": "No se pueden modificar consignas mientras se procesa una corrección."})
             # select_for_update() no admite el LEFT JOIN de select_related('rubric'): se bloquea la fila sola.
             question = Question.objects.select_for_update().get(pk=question.pk, assessment=assessment, owner_id=request.user.id)
             if Submission.objects.filter(question=question).exists() or SubmissionAnswer.objects.filter(question=question).exists():

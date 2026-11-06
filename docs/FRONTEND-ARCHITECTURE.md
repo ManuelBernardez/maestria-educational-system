@@ -23,7 +23,8 @@ frontend/js/
     │   ├── ui.js             # Modales, toast, tema y navegación lateral
     │   └── utils.js          # Formateo, escape y helpers de vistas
     ├── data/
-    │   └── repository.js     # Lectura, refresco y normalización de recursos
+    │   ├── resources.js      # Listas bajo demanda: qué necesita cada vista y carga deduplicada
+    │   └── repository.js     # Perfil, resumen, administración y refresco tras escrituras
     ├── events.js             # Delegación de eventos del espacio
     └── features/
         ├── dashboard.js
@@ -52,6 +53,14 @@ frontend/js/
 - `events.js` traduce interacciones del DOM a acciones de dominio.
 - Django es la autoridad para autenticación, autorización, validación y aislamiento de datos.
 - El estado global se mantiene pequeño y explícito; no se incorpora una librería de estado para este MVP.
+
+## Carga de datos y rendimiento
+
+- **Inicio:** solo `/api/me/` y `/api/dashboard/overview/` (en paralelo). El resumen trae cursos y evaluaciones compactos y los contadores del panel; el panel se dibuja con eso.
+- **Por vista:** `data/resources.js` declara qué listas necesita cada vista (`hard`: bloquea el dibujado con un esqueleto; `soft`: completa el panel sin bloquearlo). Cada lista se pide una sola vez por sesión y las solicitudes simultáneas se comparten.
+- **Tras guardar:** `refreshCore()` actualiza el resumen y únicamente las listas que la sesión ya cargó, en lugar de las siete.
+- **Módulos:** `espacio-docente/index.html` precarga con `modulepreload` todo el grafo de módulos (25 archivos, profundidad 4), de modo que el navegador los pide en paralelo y no en cascada. `scripts/check_static_frontend.py` falla si la lista y el grafo real difieren.
+- **Una sola página:** el espacio docente mantiene una única página con navegación del lado del cliente. Separar secciones en HTML distintos obligaría a repetir el menú lateral y a volver a validar sesión y perfil en cada cambio, que es más lento que la navegación actual con datos bajo demanda.
 
 ## Decisiones de resiliencia y accesibilidad
 

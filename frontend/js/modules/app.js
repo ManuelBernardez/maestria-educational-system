@@ -10,24 +10,39 @@ import { maybeOpenQuickStart, bindQuickStartEvents } from './features/guide.js';
 import { renderDashboard } from './features/dashboard.js';
 import { renderCourses, renderCourseDetail } from './features/courses.js';
 import { renderStudents } from './features/students.js';
-import { renderAssessments, renderAssessmentDetail } from './features/assessments.js';
+import { renderAssessments, renderAssessmentDetail, renderNewAssessment } from './features/assessments.js';
 import { renderRubrics, renderRubricDetail } from './features/rubrics.js';
 import { renderSubmissions, renderSubmissionDetail } from './features/submissions.js';
 import { renderCorrections, renderCorrection } from './features/corrections.js';
 import { renderAdmin, renderInstitutionScope } from './features/admin.js';
 import { renderProfile } from './features/profile.js';
+import { renderWorkspace, ensureWorkspaceLoaded } from './features/workspace.js';
 import { loadDeliveries } from './features/share.js';
 
 import './events.js'; // initialize delegated event handlers
 
 const VIEW_RENDERERS = Object.freeze({
   dashboard: renderDashboard, courses: renderCourses, course: renderCourseDetail,
-  students: renderStudents, assessments: renderAssessments, assessment: renderAssessmentDetail,
+  students: renderStudents, assessments: renderAssessments, 'assessment-new': renderNewAssessment, assessment: renderAssessmentDetail,
   rubrics: renderRubrics, rubric: renderRubricDetail, submissions: renderSubmissions,
   submission: renderSubmissionDetail, corrections: renderCorrections, correction: renderCorrection,
   admin: renderAdmin, institution: renderInstitutionScope,
-  'institution-memberships': renderInstitutionScope, profile: renderProfile
+  'institution-memberships': renderInstitutionScope, profile: renderProfile, workspace: renderWorkspace
 });
+
+const LOADING_VIEW = `<section class="panel" aria-live="polite" aria-busy="true"><div class="panel-body"><div class="skeleton-grid" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton skeleton-wide"></span></div></div></section>`;
+
+// Vista de detalle -> entrada del menú lateral que debe quedar marcada.
+const NAV_PARENT = Object.freeze({ 'assessment-new': 'workspace', course: 'courses', assessments: 'workspace', assessment: 'workspace', rubrics: 'workspace', rubric: 'workspace', 'institution-memberships': 'admin' });
+
+function markActiveNav() {
+  const active = NAV_PARENT[state.view] || state.view;
+  $$('.side-link[data-view]').forEach(link => {
+    const isActive = link.dataset.view === active;
+    link.classList.toggle('active', isActive);
+    if (isActive) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+  });
+}
 
 // Al refrescar datos (alta de estudiante, evaluación, etc.) la vista se vuelve a dibujar;
 // se conservan los bloques desplegados del curso para que el docente vea lo que acaba de crear.
@@ -35,6 +50,7 @@ let lastRendered = { view: null, course: null };
 
 window.addEventListener('maestria:render', (e) => {
   const view = e.detail.view;
+  if (e.detail.pending) { content.innerHTML = LOADING_VIEW; markActiveNav(); return; }
   const sameCourse = lastRendered.view === 'course' && view === 'course' && String(lastRendered.course) === String(state.selectedCourse);
   const openFolds = sameCourse ? $$('details[data-fold][open]', content).map(node => node.dataset.fold) : [];
   const scrollY = sameCourse ? window.scrollY : null;
@@ -42,13 +58,10 @@ window.addEventListener('maestria:render', (e) => {
   lastRendered = { view, course: state.selectedCourse };
   openFolds.forEach(key => { const fold = content.querySelector(`details[data-fold="${key}"]`); if (fold) fold.open = true; });
   if (scrollY != null) window.scrollTo({ top: scrollY, behavior: 'auto' });
-  $$('.side-link').forEach(link => {
-    const active = link.dataset.view === state.view || (state.view === 'course' && link.dataset.view === 'courses') || (state.view === 'assessment' && link.dataset.view === 'assessments') || (state.view === 'submission' && link.dataset.view === 'submissions') || (state.view === 'correction' && link.dataset.view === 'corrections') || (state.view === 'rubric' && link.dataset.view === 'rubrics') || (state.view === 'institution-memberships' && link.dataset.view === 'admin');
-    link.classList.toggle('active', active);
-    if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
-  });
+  markActiveNav();
   content.focus({ preventScroll: true });
   if (view === 'correction') loadDeliveries();
+  if (view === 'workspace') void ensureWorkspaceLoaded();
 });
 
 let initializationPromise = null;
@@ -68,7 +81,9 @@ async function runInit() {
       state.view = 'admin';
       await refreshAdmin();
     } else {
-      state.view = 'dashboard';
+      const allowedViews = new Set(['dashboard', 'workspace', 'courses', 'course', 'students', 'assessments', 'assessment-new', 'assessment', 'rubrics', 'rubric', 'submissions', 'submission', 'corrections', 'correction', 'profile']);
+      const requestedView = new URLSearchParams(window.location.search).get('view');
+      state.view = allowedViews.has(requestedView) ? requestedView : 'dashboard';
       // Pintado inmediato con el último resumen de esta sesión mientras se actualiza en segundo plano.
       const cached = readOverviewCache();
       if (cached) {

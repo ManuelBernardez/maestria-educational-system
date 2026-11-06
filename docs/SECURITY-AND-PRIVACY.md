@@ -39,3 +39,16 @@ Ejecutar pruebas con al menos dos usuarios distintos para comprobar aislamiento 
 - La auditoría almacena IP y user-agent en algunos eventos administrativos. Definir retención, acceso, borrado y finalidad antes de un piloto con personas reales.
 - El Shared Pooler transaccional debe probarse con las versiones reales de psycopg/Django y el plan Supabase. `prepare_threshold=None` evita el auto-prepare de psycopg en ese host; verificar en staging que no aparezcan errores de prepared statements.
 - El health check `/api/health/` es de vida (liveness), no prueba la disponibilidad de PostgreSQL ni Gemini. La disponibilidad de dependencias debe observarse por separado.
+
+
+## Nota (MVP actual, v1.0.9+)
+
+Las compuertas `AI_EXTERNAL_PROCESSING_APPROVED` y `AI_GEMINI_PAID_TIER_CONFIRMED` fueron eliminadas para el MVP: el backend envía el contenido directo al proveedor configurado sin validar el nivel gratuito/pago. El resto de validaciones pedagógicas de la IA (puntajes dentro de la rúbrica, evidencia literal, revisión y aprobación docente) siguen intactas. Este artículo describe el diseño de la versión 1.0.7 y conserva utilidad si más adelante se restaura ese `fail-closed`.
+
+<details><summary>Historial: habilitación consciente de IA externa (v1.0.7)</summary>
+
+Gemini y OpenAI permanecían bloqueados en el backend mientras `AI_EXTERNAL_PROCESSING_APPROVED` no fuese explícitamente verdadero. La variable no debía cambiarse para ocultar el error: antes, el responsable del tratamiento debía revisar la finalidad, la base jurídica aplicable, los avisos a docentes/estudiantes, los términos y la retención del proveedor, la ubicación/procesamiento de datos y la minimización o anonimización del contenido.
+
+Para Gemini se exigía además `AI_GEMINI_PAID_TIER_CONFIRMED=True`; no debían enviarse entregas reales usando el nivel gratuito. Ambas variables se configuraban exclusivamente en el entorno del backend y el servicio debía reiniciarse después del cambio. Si no había aprobaciones, se mantenían ambas en `False` y se usaba un proveedor local como Ollama únicamente si se instaló, protegió y probó en la infraestructura propia.
+
+</details>

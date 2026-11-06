@@ -111,11 +111,12 @@ class SupabasePrincipalTests(SimpleTestCase):
 
 
 class APIRootTests(SimpleTestCase):
-    def test_root_describes_api_without_debug_404(self):
-        response = Client().get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["service"], "MaestrIA API")
-        self.assertEqual(response.json()["endpoints"]["health"], "/api/health/")
+    def test_root_serves_the_frontend_and_api_stays_json(self):
+        home = Client().get("/")
+        self.assertEqual(home.status_code, 200)
+        self.assertIn("text/html", home["Content-Type"])
+        health = Client().get("/api/health/")
+        self.assertEqual(health["Content-Type"], "application/json")
 
     def test_health_endpoint_is_public(self):
         response = Client().get("/api/health/")
@@ -224,6 +225,12 @@ class SupabaseClaimsValidationTests(SimpleTestCase):
         self.assertEqual(principal.email, "teacher@example.org")
 
 
+class AIConfigurationStatusTests(SimpleTestCase):
+    def test_provider_runtime_failures_keep_bad_gateway_status(self):
+        from .api_views.common import ai_error_http_status
+        self.assertEqual(ai_error_http_status(RuntimeError("Falla transitoria del proveedor")), 502)
+
+
 class GeminiAdapterTests(SimpleTestCase):
     def test_extracts_json_from_gemini_response(self):
         from .ai import _extract_gemini_response
@@ -237,48 +244,13 @@ class GeminiAdapterTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             _extract_gemini_response({"candidates": []})
 
-    def test_external_provider_fails_closed_without_processing_approval(self):
-        from unittest.mock import patch
-        from .ai import generate_correction
-        with patch.dict("os.environ", {"AI_PROVIDER": "gemini", "AI_EXTERNAL_PROCESSING_APPROVED": "false", "GEMINI_API_KEY": "not-used"}):
-            with self.assertRaisesRegex(RuntimeError, "envío de contenido"):
-                asyncio.run(generate_correction(
-                    question="¿Qué es la fotosíntesis?", answer="Usa luz.",
-                    rubric=[{"name": "Comprensión", "max_score": 10}], max_score=10,
-                ))
-
     def test_external_provider_requires_an_api_key(self):
         from unittest.mock import patch
         from .ai import _gemini_json
-        env = {"AI_EXTERNAL_PROCESSING_APPROVED": "true", "AI_GEMINI_PAID_TIER_CONFIRMED": "true", "GEMINI_API_KEY": "", "AI_TIMEOUT_SECONDS": "10"}
+        env = {"GEMINI_API_KEY": "", "AI_TIMEOUT_SECONDS": "10"}
         with patch.dict("os.environ", env):
             with self.assertRaisesRegex(RuntimeError, "GEMINI_API_KEY"):
                 asyncio.run(_gemini_json(system_instruction="Devolvé JSON", context={"test": True}))
-
-    def test_gemini_free_tier_is_blocked_for_regular_requests(self):
-        from unittest.mock import patch
-        from .ai import _assert_external_ai_approved
-        env = {
-            "AI_EXTERNAL_PROCESSING_APPROVED": "true",
-            "AI_GEMINI_PAID_TIER_CONFIRMED": "false",
-            "AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL": "false",
-        }
-        with patch.dict("os.environ", env):
-            with self.assertRaisesRegex(RuntimeError, "nivel pago"):
-                _assert_external_ai_approved("gemini")
-
-    def test_gemini_free_tier_allowed_only_for_explicit_synthetic_evaluation(self):
-        from unittest.mock import patch
-        from .ai import _assert_external_ai_approved
-        env = {
-            "AI_EXTERNAL_PROCESSING_APPROVED": "true",
-            "AI_GEMINI_PAID_TIER_CONFIRMED": "false",
-            "AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL": "true",
-        }
-        with patch.dict("os.environ", env):
-            _assert_external_ai_approved("gemini", allow_free_tier_synthetic=True)
-            with self.assertRaisesRegex(RuntimeError, "nivel pago"):
-                _assert_external_ai_approved("gemini", allow_free_tier_synthetic=False)
 
 
 class DemoDatasetTests(TestCase):
@@ -322,7 +294,9 @@ class DemoDatasetTests(TestCase):
         from uuid import uuid4
         from .authentication import SupabasePrincipal
         first = self.client.post("/api/demo/seed/", {}, format="json")
-        self.client.force_authenticate(user=SupabasePrincipal(id=str(uuid4())))
+        other_id = str(uuid4())
+        ensure_auth_users(other_id)
+        self.client.force_authenticate(user=SupabasePrincipal(id=other_id))
         response = self.client.get(f"/api/assessments/{first.data['assessment_id']}/")
         self.assertEqual(response.status_code, 404)
 

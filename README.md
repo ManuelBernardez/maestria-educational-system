@@ -1,13 +1,17 @@
-# MaestrIA v1.0.6
+# MaestrIA v1.0.9
 
 Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
+
+## Configuración de IA
+
+Consultar [`docs/CONFIGURAR-IA.md`](docs/CONFIGURAR-IA.md) para activar OpenAI API, usar Ollama privado o evaluar Gemini sin exponer contenido estudiantil al tier gratuito.
 
 ## Arquitectura
 
 - `frontend/`: sitio público y espacio docente HTML5 estáticos. Django los sirve en producción; no utiliza Next.js, React, Node ni un proceso de compilación.
 - `frontend/js/api.js`: cliente HTTP/Auth, sesión Supabase por pestaña, renovación controlada, cancelación y llamadas autenticadas a Django.
 - `frontend/js/workspace.js`: punto de entrada ES module del espacio docente; `modules/core/api.js` inicializa y expone el cliente como dependencia modular. El espacio docente usa `assets/css/workspace.css`, un bundle CSS nativo que conserva el orden de cascada de sus seis hojas originales y se sirve comprimido por WhiteNoise.
-- `frontend/js/modules/`: capas `core`, `data`, `features` y `events`; cada dominio mantiene sus vistas y operaciones.
+- `frontend/js/modules/`: capas `core`, `data`, `features` y `events`; cada dominio mantiene sus vistas y operaciones. El shell docente sigue siendo una SPA nativa con módulos por dominio, navegación enlazable mediante `?view=...` y soporte de Atrás/Adelante; no requiere React, Next.js ni un bundler.
 - `backend/`: Django REST Framework, autenticación JWT Supabase, permisos, reglas de negocio, integración IA y servicio del frontend con WhiteNoise. Las vistas API están agrupadas en `apps/core/api_views/` por dashboard, catálogo y entregas/correcciones; `apps/core/views.py` conserva el punto de importación compatible.
 - `docs/`: contratos y decisiones técnicas.
 
@@ -33,7 +37,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Completá `backend/.env` con `DJANGO_SECRET_KEY`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` si corresponde y la configuración Gemini. `backend/.env` está excluido de Git. En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`.
+Completá `backend/.env` con `DJANGO_SECRET_KEY`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` si corresponde y la configuración del proveedor IA (ver `docs/CONFIGURAR-IA.md`). `backend/.env` está excluido de Git. En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`.
 
 Iniciá la aplicación integrada:
 
@@ -41,7 +45,7 @@ Iniciá la aplicación integrada:
 python manage.py runserver 127.0.0.1:8000
 ```
 
-La API queda en `http://127.0.0.1:8000/api`. `GET /api/client-config/` entrega únicamente `SUPABASE_URL` y la clave pública anon. La API key Gemini y todos los secretos permanecen en el backend.
+La API queda en `http://127.0.0.1:8000/api`. `GET /api/client-config/` entrega únicamente `SUPABASE_URL` y la clave pública anon. Las claves de Gemini/OpenAI y todos los secretos permanecen en el backend.
 
 ### 2. Frontend HTML5
 
@@ -90,7 +94,7 @@ Para un preview estático en `localhost:5500`, `config.js` apunta al backend loc
 
 ## Comportamiento IA y revisión humana
 
-La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue selecciona Gemini (`gemini-3.5-flash-lite`), limita cada llamada a un máximo de 18 segundos y guarda `GEMINI_API_KEY` exclusivamente en el backend. Activar el procesamiento externo sólo después de revisar condiciones, informar a usuarios y confirmar el nivel pago del proyecto. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno. No utilizar respuestas reales de estudiantes con tiers que permitan entrenamiento del proveedor.
+La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue propone OpenAI API (`gpt-6-luna`); la clave se guarda exclusivamente en el backend y la aprobación de procesamiento externo permanece desactivada hasta la decisión documentada del responsable. OpenAI indica que los datos de API no se usan para entrenar modelos por defecto, aunque los registros de monitoreo de abuso pueden conservarse hasta 30 días. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno. Consultá `docs/CONFIGURAR-IA.md` antes de activar un proveedor.
 
 Los datos de práctica se crean mediante `POST /api/demo/seed/` bajo confirmación explícita y se identifican como ficticios. No son datos de producción ni una autenticación simulada del frontend.
 
@@ -137,7 +141,7 @@ La suite backend usa PostgreSQL y un esquema de prueba separado. No apunta a Sup
 
 ## Despliegue en Render
 
-El `render.yaml` despliega un único Web Service Python: Django sirve el frontend y la API desde el mismo origen. No hay servicio estático separado ni build de Node. Configurá `DATABASE_URL` con Shared Pooler IPv4 de Supabase cuando Render no tenga IPv6; para este backend persistente, preferí session mode (puerto 5432) y copiá la URI exacta desde Supabase > Connect. Configurá Supabase URL/anon key/JWT secret y `GEMINI_API_KEY` sólo en el backend. `AI_EXTERNAL_PROCESSING_APPROVED` y `AI_GEMINI_PAID_TIER_CONFIRMED` quedan sin valor por defecto: activalos únicamente después de aprobar el tratamiento externo y confirmar que el proyecto usa un nivel compatible con datos estudiantiles. Confirmá Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
+El `render.yaml` despliega un único Web Service Python: Django sirve el frontend y la API desde el mismo origen. No hay servicio estático separado ni build de Node. Configurá `DATABASE_URL` con Shared Pooler IPv4 de Supabase cuando Render no tenga IPv6; para este backend persistente, preferí session mode (puerto 5432) y copiá la URI exacta desde Supabase > Connect. Configurá Supabase URL/anon key/JWT secret y la clave del proveedor IA sólo en el backend. En este MVP el adaptador de IA no exige validar el nivel gratuito o pago del proveedor: con `GEMINI_API_KEY` configurada las correcciones funcionan de forma inmediata. Si más adelante se pasa a producción con datos reales de estudiantes, un responsable debe revisar finalidad, base legal, información a docentes y términos/retención del proveedor (releé `docs/CONFIGURACION-IA-EXTERNA.md`). Guardá los cambios en el entorno del backend y reiniciá/reimplementá el servicio. No existe un interruptor equivalente para docentes en el navegador. Confirmá Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
 
 No habilites despliegue final hasta comprobar login, logout, recuperación de contraseña, contacto, CRUD docente, aislamiento de dos propietarios, permisos administrativos y generación IA real con una configuración de privacidad aprobada.
 
@@ -161,11 +165,36 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - `docs/AUDITORIA-TECNICA-2026-11-05.md`: hallazgos, cambios y riesgos pendientes.
 - `docs/ADAPTACION-DJANGO-POSTGRESQL-SUPABASE-2026-11-04.md`: adaptación del ORM, permisos, migraciones y administración.
 - `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
+- `docs/CONFIGURACION-IA-EXTERNA.md`: pasos para revisar y habilitar proveedores externos sin desactivar el bloqueo por defecto.
+- `docs/CHANGELOG-v1.0.7.md`: resumen de correcciones, privacidad, visualización numérica y rediseño del espacio docente.
+- `docs/CHANGELOG-v1.0.8.md`: optimizaciones de carga, limpieza del frontend y correcciones de backend.
+- `docs/CHANGELOG-v1.0.9.md`: réplica nativa del panel docente, espacio de trabajo integrado y navegación con deep links.
+- `docs/ADR-001-native-teacher-spa.md`: decisión de mantener el panel como SPA nativa modular y sus guardrails de rendimiento, seguridad y accesibilidad.
+
+## Cambios v1.0.9
+
+- **Espacio de trabajo docente:** se incorpora en JavaScript nativo el flujo de tres etapas Contexto → Entrega → Revisar, incluyendo objetivos, instrucciones, consignas, propuestas de consignas, material de referencia, selección de estudiante y rúbrica, importación de archivos, cola filtrable, revisión de criterios, aprobación, exportación y opciones de compartir.
+- **Contrato de backend:** se reutilizan las rutas y payloads ya existentes (`correction-workspace/`, `assessments/`, `questions/`, `submissions/`, `corrections/`). No se agrega una API paralela ni se cambia el backend para simular funciones.
+- **Rendimiento y asincronía:** la primera carga consulta el resumen liviano del espacio; los detalles completos de entrega/corrección se obtienen al seleccionarlos. Las lecturas cancelables evitan que respuestas fuera de orden sobrescriban la selección actual y un bloqueo síncrono evita duplicar operaciones de IA/importación.
+- **Navegación:** se mantiene una SPA HTML/CSS/JS por módulos, ahora con vistas enlazables (`?view=...`) y soporte de historial del navegador. El estado compartido del flujo de revisión permanece dentro de una misma vista sin fragmentarse entre páginas.
+- **Accesibilidad y seguridad:** formularios nativos etiquetados, estados `aria-live`, foco visible, controles semánticos, mensajes de error y validación en cliente; la aprobación real y los controles de autorización siguen siendo responsabilidad del backend.
+- **Mantenimiento:** se retiran copias estáticas antiguas que no forman parte del frontend servido por Django, se conserva el directorio de imágenes, se versiona el CSS para invalidar caché y se agregan verificaciones del contrato del workspace.
+- **Base recibida:** el ZIP `maestria-starter.zip` declara la versión `1.0.8`, no `1.0.7`. Para no degradar ni sobrescribir cambios posteriores, esta entrega se construye sobre esa base y se publica como `1.0.9`.
 
 ## Despliegue
 
-La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Seguí `docs/DEPLOYMENT-v0.2.0.md` para completar las variables privadas y la configuración de Supabase/Gemini. No cargar `backend/.env` en Git.
+La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Seguí `docs/DEPLOYMENT-v0.2.0.md` para completar las variables privadas y `docs/CONFIGURAR-IA.md` para activar OpenAI API u Ollama. No cargar `backend/.env` en Git.
 
+
+
+## Cambios v1.0.7
+
+- **IA y privacidad:** se conserva el bloqueo *fail-closed* para Gemini/OpenAI. El error ahora explica qué revisión debe realizar el responsable antes de habilitar el procesamiento externo. Nunca se activa el permiso automáticamente ni desde la interfaz docente.
+- **Estados HTTP de IA:** correcciones, rúbricas y consignas devuelven `503` cuando falta una aprobación o una configuración local; los errores reales del proveedor continúan devolviendo `502`.
+- **Puntajes y decimales:** la presentación limita la visualización a dos decimales significativos (por ejemplo, `10`, `8,5` o `8,25`) y oculta la escala de almacenamiento de PostgreSQL. Los valores persistidos no se redondean ni modifican.
+- **Identidad visual del espacio docente:** sidebar verde bosque, fondo cuadriculado tipo papel, superficies cálidas en modo claro y paneles profundos en modo oscuro, manteniendo el selector de tema y el diseño responsive.
+- **Caché:** versión de assets actualizada a `1.0.7` para evitar que se reutilice el CSS anterior.
+- **Verificación:** comprobaciones estáticas de frontend, sintaxis JS/Python e inspección de las rutas de error/configuración. La generación IA real requiere configurar claves y autorizaciones en el entorno desplegado; no puede darse por probada sin esas credenciales.
 
 ## Cambios v1.0.6
 
@@ -202,7 +231,7 @@ Auditoría estática del tramo «generar corrección → editar → aprobar → 
 - **Tiempos de carga:** compresión GZip de la API; el resumen se pide en paralelo con `/me/`; pintado inmediato desde caché de sesión (10 min, se limpia al cerrar sesión) mientras se actualiza; esqueleto de carga.
 - **Registro de devoluciones:** `GET/POST corrections/{id}/deliveries/` deja constancia (canal, destinatario, fecha) en la auditoría, sin cambios de esquema; la pantalla de una devolución aprobada muestra «Envíos registrados». No hay envío automático ni confirmación de recepción.
 
-Pendiente: `db/maestria_schema_v2.sql` desactualizado; 11 tests de backend desactualizados; listas globales de Entregas/Evaluaciones/Correcciones sin acceso desde el menú; prueba E2E con Gemini real en Render (requiere `AI_EXTERNAL_PROCESSING_APPROVED=True` y `AI_GEMINI_PAID_TIER_CONFIRMED=True`; con `mock` las correcciones no se aprueban por diseño).
+Pendiente de despliegue: aplicar la migración SQL v1.0.9 de timeout en la base existente, configurar la clave del proveedor y la aprobación operativa correspondiente, y ejecutar `verify_ai --live` más pruebas E2E en el entorno real. Las pruebas de adaptadores usan HTTP simulado y no sustituyen una prueba con credenciales de producción.
 
 ## Cambios v1.0.4
 - Corregido STATICFILES_DIRS (tuplas prefijo/directorio invertidas): rompía collectstatic y el servido de CSS/JS.

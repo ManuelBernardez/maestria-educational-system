@@ -54,7 +54,7 @@ class PublicContactMessageSerializer(serializers.ModelSerializer):
 
     def to_internal_value(self, data):
         if not hasattr(data, "keys"):
-            raise serializers.ValidationError("El cuerpo debe ser un objeto JSON.")
+            raise serializers.ValidationError({"non_field_errors": ["El cuerpo debe ser un objeto JSON."]})
         allowed = {"name", "email", "subject", "message", "category", "website"}
         forbidden = set(data.keys()) - allowed
         if forbidden:
@@ -485,8 +485,8 @@ class AIProviderConfigSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "updated_by", "updated_at")
 
     def validate_timeout_seconds(self, value):
-        if not 5 <= value <= 18:
-            raise serializers.ValidationError("El timeout debe estar entre 5 y 18 segundos para respetar el tiempo máximo de la solicitud.")
+        if not 5 <= value <= 85:
+            raise serializers.ValidationError("El timeout debe estar entre 5 y 85 segundos para respetar el máximo del adaptador de IA.")
         return value
 
     def validate_priority(self, value):

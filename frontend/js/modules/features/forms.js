@@ -27,17 +27,17 @@ export async function handleModalSubmit(form, button) {
       const payload = { name: values.name.trim(), subject: values.subject.trim(), level: values.level.trim(), academic_year: values.academic_year.trim(), description: values.description.trim() };
       if (kind === 'new-course') await api.post('courses/', payload);
       else await api.patch(`courses/${modal.dataset.recordId}/`, payload);
-      closeModal(true); await afterWrite(kind === 'new-course' ? 'Curso creado.' : 'Curso actualizado.');
+      closeModal(true); await afterWrite(kind === 'new-course' ? 'Curso creado.' : 'Curso actualizado.', ['courses']);
     } else if (kind === 'new-student' || kind === 'edit-student') {
       const payload = { name: values.name.trim(), email: values.email.trim(), phone: values.phone.trim(), external_code: values.external_code.trim() };
       if (kind === 'new-student') { payload.course = Number(values.course); await api.post('students/', payload); }
       else { payload.active = values.active === 'true'; await api.patch(`students/${modal.dataset.recordId}/`, payload); }
-      closeModal(true); await afterWrite(kind === 'new-student' ? 'Estudiante agregado y matriculado.' : 'Estudiante actualizado.');
+      closeModal(true); await afterWrite(kind === 'new-student' ? 'Estudiante agregado y matriculado.' : 'Estudiante actualizado.', ['students', 'enrollments']);
     } else if (kind === 'new-assessment' || kind === 'edit-assessment') {
       const payload = { title: values.title.trim(), course: values.course ? Number(values.course) : null, subject: values.subject.trim(), level: values.level.trim(), status: values.status, objectives: values.objectives.trim(), instructions: values.instructions.trim(), reference_material: values.reference_material.trim() };
       if (kind === 'new-assessment') await api.post('assessments/', payload);
       else await api.patch(`assessments/${modal.dataset.recordId}/`, payload);
-      closeModal(true); await afterWrite(kind === 'new-assessment' ? 'Evaluación creada.' : 'Evaluación actualizada.');
+      closeModal(true); await afterWrite(kind === 'new-assessment' ? 'Evaluación creada.' : 'Evaluación actualizada.', ['assessments']);
     } else if (kind === 'new-question' || kind === 'edit-question') {
       const assessmentId = Number(modal.dataset.assessmentId || state.selectedAssessment || values.assessment || 0);
       const payload = { prompt: values.prompt.trim(), expected_answer: values.expected_answer.trim(), question_type: values.question_type, max_score: Number(values.max_score), position: Number(values.position || 0), rubric: values.rubric ? Number(values.rubric) : null };
@@ -59,7 +59,7 @@ export async function handleModalSubmit(form, button) {
         payload.criteria = names.map(name => ({ name, description: '', max_score: 10, weight: Math.round(100 / names.length * 100) / 100 }));
         await api.post('rubrics/create-with-criteria/', payload);
       }
-      closeModal(true); await afterWrite(kind === 'new-rubric' ? 'Rúbrica creada.' : 'Rúbrica actualizada.');
+      closeModal(true); await afterWrite(kind === 'new-rubric' ? 'Rúbrica creada.' : 'Rúbrica actualizada.', ['rubrics']);
     } else if (kind === 'import-students') {
       const file = form.querySelector('[name="file"]')?.files?.[0];
       if (!file) throw new Error('Seleccioná un archivo CSV.');
@@ -223,10 +223,10 @@ export async function handleGenerateCorrection(form, button) {
   const values = formValues(form);
   try {
     button.disabled = true; button.textContent = 'Generando…';
-    const result = await api.post(`submissions/${state.currentSubmission.id}/generate-correction/`, { rubric_id: values.rubric_id ? Number(values.rubric_id) : null, feedback_style: values.feedback_style || state.feedbackStyle || 'constructivo' }, { timeoutMs: 180000 });
+    const result = await api.post(`submissions/${state.currentSubmission.id}/generate-correction/`, { rubric_id: values.rubric_id ? Number(values.rubric_id) : null, feedback_style: values.feedback_style || state.feedbackStyle || 'constructivo' }, { timeoutMs: 90000 });
     state.currentCorrection = result; state.selectedCorrection = result.id; state.view = 'correction';
     if (state.currentSubmission) state.currentSubmission = { ...state.currentSubmission, status: 'review' };
-    await afterWrite(result.proposal?.demo ? 'Se generó una propuesta de demostración.' : 'Propuesta generada.');
+    await afterWrite(result.proposal?.demo ? 'Se generó una propuesta de demostración.' : 'Propuesta generada.', ['corrections', 'submissions']);
   } catch (error) { toast(errorText(error), 'error'); button.disabled = false; button.textContent = 'Generar propuesta de corrección'; }
 }
 
@@ -253,7 +253,7 @@ export async function handleApproveCorrection(form, button) {
     state.currentCorrection = result;
     state.selectedCorrection = result.id;
     state.view = 'correction';
-    await afterWrite('Devolución aprobada y registrada.');
+    await afterWrite('Devolución aprobada y registrada.', ['corrections', 'submissions']);
   } catch (error) { toast(errorText(error), 'error'); button.disabled = false; button.textContent = 'Aprobar devolución'; }
 }
 
@@ -266,6 +266,6 @@ export async function handleAddSubmissionAnswer(form) {
   try {
     await api.post('submission-answers/', { submission: Number(state.currentSubmission.id), question: Number(values.question), answer_text: values.answer_text.trim() });
     state.currentSubmission = await api.get(`submissions/${state.currentSubmission.id}/`);
-    await afterWrite('Respuesta agregada a la entrega.');
+    await afterWrite('Respuesta agregada a la entrega.', ['submissions']);
   } catch (error) { toast(errorText(error), 'error'); if (button) { button.disabled = false; button.textContent = 'Agregar respuesta'; } }
 }

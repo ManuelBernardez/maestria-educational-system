@@ -1,6 +1,9 @@
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import serializers
 from .models import (
-    AIGeneration, Assessment, ContactMessage, Correction, CorrectionCriterionResult,
+    PROCESSING_LEASE_MINUTES, AIGeneration, Assessment, ContactMessage, Correction, CorrectionCriterionResult,
     CorrectionRevision, Course, Enrollment, Question, Rubric, RubricCriterion,
     RubricLevel, Student, Submission, SubmissionAnswer,
 )
@@ -307,7 +310,9 @@ class SubmissionAnswerSerializer(OwnedSerializer):
                 raise serializers.ValidationError({"question": "No se puede cambiar la pregunta vinculada a una respuesta existente."})
         if submission and str(submission.owner_id) != user_id:
             raise serializers.ValidationError({"submission": "Entrega no disponible."})
-        if submission and submission.status == "processing":
+        # Igual ventana de lease que el worker de corrección: un «processing»
+        # vencido no bloquea la edición de respuestas (el guard de la vista lo reclama).
+        if submission and submission.status == "processing" and submission.updated_at >= timezone.now() - timedelta(minutes=PROCESSING_LEASE_MINUTES):
             raise serializers.ValidationError({"submission": "No se pueden modificar respuestas mientras se procesa una corrección."})
         if question and str(question.owner_id) != user_id:
             raise serializers.ValidationError({"question": "Pregunta no disponible."})
@@ -437,34 +442,3 @@ class CorrectionSerializer(OwnedSerializer):
         data["course_name"] = course.name if course else None
         data["subject"] = assessment.subject
         return data
-
-
-class ContactMessageSerializer(serializers.ModelSerializer):
-    website = serializers.CharField(write_only=True, required=False, allow_blank=True)
-
-    class Meta:
-        model = ContactMessage
-        fields = ("name", "email", "subject", "message", "website")
-
-    def validate_website(self, value):
-        if value.strip():
-            raise serializers.ValidationError("Solicitud inválida.")
-        return value
-
-    def validate_name(self, value):
-        value = value.strip()
-        if not value or len(value) > 120:
-            raise serializers.ValidationError("Indicá un nombre válido.")
-        return value
-
-    def validate_subject(self, value):
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("El asunto es obligatorio.")
-        return value
-
-    def validate_message(self, value):
-        value = value.strip()
-        if len(value) < 10:
-            raise serializers.ValidationError("El mensaje debe tener al menos 10 caracteres.")
-        return value

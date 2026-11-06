@@ -160,6 +160,11 @@ REST_FRAMEWORK = {
         "ai": os.getenv("THROTTLE_AI_RATE", "120/hour"),
         "contact": "5/hour",
     },
+    # Paginar los listados por defecto para evitar respuestas ilimitadas a medida que
+    # crecen los cursos, entregas, correcciones y mensajes de administración.
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": int(os.getenv("API_PAGE_SIZE", "20")),
+    "MAX_PAGE_SIZE": int(os.getenv("API_MAX_PAGE_SIZE", "100")),
 }
 
 # Upload/body limits are intentionally conservative; CSV import also checks 2 MB and 500 rows.
@@ -175,7 +180,12 @@ SECURE_HSTS_PRELOAD = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
-CSRF_COOKIE_HTTPONLY = False  # Django's CSRF token may be read by trusted frontend code if needed.
+SESSION_COOKIE_SAMESITE = "Lax"
+# La API se autentica con Bearer JWT en sessionStorage, no con cookies de sesión,
+# por lo que la cookie CSRF no necesita leerse desde JS ni enviarse en peticiones
+# cruzadas del frontend. SameSite Lax es suficiente para el uso de un mismo origen.
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = "Lax"
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 X_FRAME_OPTIONS = "DENY"
 

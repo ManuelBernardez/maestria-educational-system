@@ -1,6 +1,7 @@
 """PostgreSQL integration tests for composite integrity and administrative APIs."""
 from uuid import uuid4
 
+from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -56,6 +57,7 @@ class PublicSchemaMappingTests(TestCase):
 
 class PublicContactMessageTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.teacher_id = uuid4()
         ensure_auth_users(self.teacher_id)
         self.payload = {
@@ -99,6 +101,7 @@ class PublicContactMessageTests(TestCase):
 
 class GlobalAdminContactTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.admin_id, self.teacher_id = uuid4(), uuid4()
         ensure_auth_users(self.admin_id, self.teacher_id)
         _set_profile(self.admin_id, role="admin", status="active", email="admin@example.test")
@@ -176,6 +179,7 @@ class GlobalRoleAndInstitutionTests(TestCase):
     def test_regular_admin_can_create_teacher_profile_but_not_global_admin(self):
         new_teacher, new_admin = uuid4(), uuid4()
         ensure_auth_users(new_teacher, new_admin)
+        UserProfile.objects.filter(user_id__in=[new_teacher, new_admin]).delete()
         allowed = self.admin.post("/api/admin/users/", {
             "user_id": str(new_teacher), "role": "teacher", "email": "new-teacher@example.test",
         }, format="json")

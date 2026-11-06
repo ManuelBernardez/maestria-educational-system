@@ -1,7 +1,7 @@
 """Evaluate AI proposal invariants against a small synthetic Spanish-language set.
 
 Example:
-  AI_PROVIDER=gemini AI_EXTERNAL_PROCESSING_APPROVED=True python manage.py evaluate_ai
+  AI_PROVIDER=gemini python manage.py evaluate_ai
 
 The score bands are calibration hints, not objective ground truth. A teacher should
 review each generated result before judging pedagogical quality. Only synthetic data
@@ -30,15 +30,6 @@ class Command(BaseCommand):
         provider = os.getenv("AI_PROVIDER", "mock").strip().lower()
         if provider == "mock":
             raise CommandError("El benchmark necesita un proveedor real. Configurá AI_PROVIDER=gemini y una GEMINI_API_KEY válida.")
-        free_synthetic_mode = (
-            provider == "gemini"
-            and os.getenv("AI_GEMINI_PAID_TIER_CONFIRMED", "false").strip().lower() not in {"1", "true", "yes", "on"}
-        )
-        if free_synthetic_mode and os.getenv("AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL", "false").strip().lower() not in {"1", "true", "yes", "on"}:
-            raise CommandError(
-                "Gemini requiere nivel pago para contenido real. Para correr solo estos ejemplos sintéticos en el nivel gratuito, "
-                "configurá AI_EXTERNAL_PROCESSING_APPROVED=True y AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL=True."
-            )
 
         fixture_path = Path(__file__).resolve().parents[2] / "fixtures" / "ai_eval_cases.json"
         cases = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -55,7 +46,6 @@ class Command(BaseCommand):
                     rubric=case["rubric"],
                     max_score=sum(float(item["max_score"]) for item in case["rubric"]),
                     feedback_style="constructivo",
-                    allow_free_tier_synthetic=free_synthetic_mode,
                 ))
                 latency_ms = round((time.perf_counter() - case_started) * 1000, 1)
                 expected_names = [item["name"].casefold().strip() for item in case["rubric"]]

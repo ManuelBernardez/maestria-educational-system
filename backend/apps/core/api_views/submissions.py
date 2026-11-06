@@ -37,6 +37,7 @@ from .common import (
     _read_document,
     _safe_ai_error_detail,
     ai_error_code,
+    ai_error_http_status,
     action,
     active_ai_provider_config,
     async_to_sync,
@@ -48,9 +49,10 @@ from .common import (
     os,
     record_ai_generation,
     record_audit,
+    claim_expired_processing_lease,
+    processing_is_fresh,
     status,
     time,
-    timedelta,
     timezone,
     transaction,
 )
@@ -97,8 +99,10 @@ class SubmissionViewSet(OwnerViewSet):
         submission = Submission.objects.select_for_update().get(
             pk=requested_submission.pk, owner_id=self.request.user.id,
         )
-        if submission.status == "processing":
+        if processing_is_fresh(submission):
             raise ValidationError({"status": "No se puede editar una entrega mientras se procesa una corrección."})
+        # Un lease vencido (worker caído sin liberar la reserva) no bloquea: se reclama.
+        claim_expired_processing_lease(submission)
         serializer.instance = submission
         serializer.save()
 
@@ -111,8 +115,9 @@ class SubmissionViewSet(OwnerViewSet):
             submission = Submission.objects.select_for_update().get(
                 pk=requested_submission.pk, owner_id=request.user.id,
             )
-            if submission.status == "processing":
+            if processing_is_fresh(submission):
                 raise ValidationError({"status": "No se puede eliminar una entrega mientras se procesa una corrección."})
+            claim_expired_processing_lease(submission)
             if Correction.objects.filter(submission=submission).exists():
                 return Response(
                     {"detail": "No se puede eliminar una entrega con historial de corrección. Conservá el registro y corregí la propuesta existente."},
@@ -351,10 +356,16 @@ class SubmissionViewSet(OwnerViewSet):
                     submission=locked_submission, status="pending_review",
                 ).exists():
                     raise ValidationError({"submission": "Ya existe una propuesta pendiente para esta entrega."})
-                if locked_submission.status == "processing" and locked_submission.updated_at >= timezone.now() - timedelta(minutes=15):
-                    raise ValidationError({"submission": "Esta entrega ya se está procesando. Esperá a que termine antes de reintentar."})
+                if processing_is_fresh(locked_submission):
+                    raise ValidationError({"submission": "Esta entrega ya se está procesando. Esperá a que termine (o reintentá en unos minutos si el servidor se interrumpió) antes de reintentar."})
                 locked_submission.status = "processing"
                 locked_submission.save(update_fields=["status", "updated_at"])
+                # El trigger `submission_touch_updated_at` (BEFORE UPDATE en
+                # Supabase) reescribe updated_at con clock_timestamp(): el valor
+                # del instance NO es el persistido. Releer para tomar el
+                # timestamp real como identidad del lease; comparar el valor de
+                # Python haría fallar siempre la confirmación y la liberación.
+                locked_submission.refresh_from_db(fields=["updated_at"])
                 reservation_timestamp = locked_submission.updated_at
                 reservation_acquired = True
 
@@ -390,7 +401,7 @@ class SubmissionViewSet(OwnerViewSet):
                 release_reservation()
             record_ai_generation(request.user.id, "generate_correction", started, False, fingerprint(context), ai_error_code(exc), assessment=submission.assessment, submission=submission, provider_config=locals().get("provider_config"))
             logger.warning("AI correction generation failed (%s)", ai_error_code(exc))
-            return Response({"detail": _safe_ai_error_detail(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")}, status=status.HTTP_502_BAD_GATEWAY)
+            return Response({"detail": _safe_ai_error_detail(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")}, status=ai_error_http_status(exc))
 
         total = Decimal(str(weighted_total_by_question(aggregate["criteria"])))
         try:
@@ -468,8 +479,9 @@ class SubmissionAnswerViewSet(OwnerViewSet):
         submission = Submission.objects.select_for_update().get(
             pk=requested_submission.pk, owner_id=self.request.user.id,
         )
-        if submission.status == "processing":
+        if processing_is_fresh(submission):
             raise ValidationError({"submission": "No se pueden agregar respuestas mientras se procesa una corrección."})
+        claim_expired_processing_lease(submission)
         serializer.save(owner_id=self.request.user.id, submission=submission)
 
     @transaction.atomic
@@ -481,13 +493,14 @@ class SubmissionAnswerViewSet(OwnerViewSet):
         submission = Submission.objects.select_for_update().get(
             pk=requested_submission.pk, owner_id=self.request.user.id,
         )
-        if submission.status == "processing":
+        if processing_is_fresh(submission):
             raise ValidationError({"submission": "No se pueden modificar respuestas mientras se procesa una corrección."})
+        claim_expired_processing_lease(submission)
         serializer.instance.submission = submission
         serializer.save()
 
 class CorrectionViewSet(OwnerViewSet):
-    queryset = Correction.objects.all().select_related("submission__assessment", "submission__student", "rubric").prefetch_related("criterion_results").order_by("-created_at")
+    queryset = Correction.objects.all().select_related("submission__assessment__course", "submission__student", "rubric").prefetch_related("criterion_results").order_by("-created_at")
     serializer_class = CorrectionSerializer
 
     def get_serializer_class(self):

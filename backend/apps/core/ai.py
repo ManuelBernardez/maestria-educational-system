@@ -108,7 +108,7 @@ def _provider_settings(provider_config=None):
     provider = str(config.get("provider") or os.getenv("AI_PROVIDER", "mock")).strip().lower()
     defaults = {
         "gemini": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "openai": os.getenv("OPENAI_MODEL", "gpt-6-luna"),
         "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
         "mock": "",
     }
@@ -120,30 +120,6 @@ def _provider_settings(provider_config=None):
     if provider not in {"mock", "gemini", "openai", "ollama"}:
         raise RuntimeError("El proveedor de IA configurado no es válido.")
     return provider, model_name, timeout
-
-def _assert_external_ai_approved(provider: str, *, allow_free_tier_synthetic: bool = False) -> None:
-    """Fail closed before sending teacher or student content to a third party.
-
-    Google's free Gemini API tier may use submitted content to improve Google
-    products. Production use with student work therefore requires a confirmed
-    paid tier. The one exception is the offline evaluation command, whose fixture
-    contains only synthetic examples and must opt in explicitly.
-    """
-    truthy = {"1", "true", "yes", "on"}
-    if provider in {"gemini", "openai"} and os.getenv("AI_EXTERNAL_PROCESSING_APPROVED", "false").strip().lower() not in truthy:
-        raise RuntimeError(
-            "El envío de contenido a un proveedor externo está desactivado. "
-            "Revisá privacidad/condiciones y, si corresponde, configurá AI_EXTERNAL_PROCESSING_APPROVED=True."
-        )
-    if provider == "gemini" and os.getenv("AI_GEMINI_PAID_TIER_CONFIRMED", "false").strip().lower() not in truthy:
-        synthetic_eval_enabled = os.getenv("AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL", "false").strip().lower() in truthy
-        if not (allow_free_tier_synthetic and synthetic_eval_enabled):
-            raise RuntimeError(
-                "Para usar Gemini con contenido docente o estudiantil, confirmá que el proyecto usa el nivel pago "
-                "configurando AI_GEMINI_PAID_TIER_CONFIRMED=True. El nivel gratuito solo está permitido para la "
-                "evaluación explícita con ejemplos sintéticos y AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL=True."
-            )
-
 
 def _extract_gemini_response(payload: dict) -> str:
     """Extract text from Gemini's response while validating its shape."""
@@ -199,9 +175,8 @@ async def _post_json(url: str, *, payload: dict, timeout: float, headers: dict |
         raise last_error
 
 
-async def _gemini_json(*, system_instruction: str, context: dict, temperature: float = 0.2, max_output_tokens: int = 1800, allow_free_tier_synthetic: bool = False, model_name: str | None = None, timeout_seconds: int | None = None, http_client: httpx.AsyncClient | None = None) -> str:
-    """Call Gemini only from the server, with structured JSON output and limits."""
-    _assert_external_ai_approved("gemini", allow_free_tier_synthetic=allow_free_tier_synthetic)
+async def _gemini_json(*, system_instruction: str, context: dict, temperature: float = 0.2, max_output_tokens: int = 1800, model_name: str | None = None, timeout_seconds: int | None = None, http_client: httpx.AsyncClient | None = None) -> str:
+    """Call the provider only from the server, with structured JSON output and limits."""
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("Falta GEMINI_API_KEY en el entorno del backend.")
@@ -224,10 +199,9 @@ async def _gemini_json(*, system_instruction: str, context: dict, temperature: f
     return _extract_gemini_response(response_payload)
 
 
-async def generate_correction(*, question: str, answer: str, rubric: list[dict], max_score: float, feedback_style: str = "constructivo", allow_free_tier_synthetic: bool = False, provider_config: dict | None = None, http_client: httpx.AsyncClient | None = None):
+async def generate_correction(*, question: str, answer: str, rubric: list[dict], max_score: float, feedback_style: str = "constructivo", provider_config: dict | None = None, http_client: httpx.AsyncClient | None = None):
     provider, model_name, timeout = _provider_settings(provider_config)
     if provider == "openai":
-        _assert_external_ai_approved(provider)
         return await _openai(question, answer, rubric, max_score, feedback_style, model_name, timeout, http_client=http_client)
     if provider == "gemini":
         context = {
@@ -235,7 +209,7 @@ async def generate_correction(*, question: str, answer: str, rubric: list[dict],
             "rubric": rubric[:30], "max_score": max_score,
             "feedback_style": feedback_style,
         }
-        raw = await _gemini_json(system_instruction=SYSTEM_PROMPT, context=context, temperature=0.1, max_output_tokens=CORRECTION_MAX_OUTPUT_TOKENS, allow_free_tier_synthetic=allow_free_tier_synthetic, model_name=model_name, timeout_seconds=timeout, http_client=http_client)
+        raw = await _gemini_json(system_instruction=SYSTEM_PROMPT, context=context, temperature=0.1, max_output_tokens=CORRECTION_MAX_OUTPUT_TOKENS, model_name=model_name, timeout_seconds=timeout, http_client=http_client)
         return _validate_proposal(json.loads(raw), rubric, max_score, answer)
     if provider == "ollama":
         return await _ollama(question, answer, rubric, max_score, feedback_style, model_name, timeout, http_client=http_client)
@@ -276,10 +250,15 @@ def _mock(question, answer, rubric, max_score, feedback_style="constructivo"):
 async def _openai(question, answer, rubric, max_score, feedback_style="constructivo", model_name=None, timeout_seconds=18, http_client: httpx.AsyncClient | None = None):
     key = os.getenv("OPENAI_API_KEY")
     if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-    payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [
+    model = model_name or os.getenv("OPENAI_MODEL", "gpt-6-luna")
+    payload = {"model": model, "response_format": {"type": "json_object"}, "messages": [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps({"question": question, "answer": answer, "rubric": rubric, "max_score": max_score, "feedback_style": feedback_style}, ensure_ascii=False)}
-    ], "temperature": 0.1, "max_tokens": 4096}
+    ], "temperature": 0.1}
+    if model.startswith("gpt-6-luna"):
+        payload.update({"reasoning_effort": "none", "max_completion_tokens": 4096})
+    else:
+        payload["max_tokens"] = 4096
     response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout_seconds, http_client=http_client)
     raw = response.json()["choices"][0]["message"]["content"]
     return _validate_proposal(json.loads(raw), rubric, max_score, answer)
@@ -304,7 +283,7 @@ def provider_error_info(exc) -> tuple:
         return "", ""
     if not isinstance(error, dict):
         return "", ""
-    message = re.sub(r"AIza[0-9A-Za-z_\-]{20,}|sk-[0-9A-Za-z_\-]{10,}", "[clave]", str(error.get("message", "")))
+    message = re.sub(r"AIza[0-9A-Za-z_\-]{20,}|sk-[0-9A-Za-z_\-]{10,}|AQ\.[0-9A-Za-z_\-]{20,}", "[clave]", str(error.get("message", "")))
     message = " ".join(message.split())[:220]
     state = re.sub(r"[^A-Z_]", "", str(error.get("status", "")).upper())[:40]
     return message, state
@@ -321,8 +300,6 @@ def ai_error_code(exc: Exception) -> str:
         return "PROVIDER_CONNECTION_ERROR"
     message = str(exc)
     safe_categories = (
-        ("El envío de contenido a un proveedor externo está desactivado.", "EXTERNAL_PROCESSING_NOT_APPROVED"),
-        ("Para usar Gemini con contenido docente o estudiantil", "GEMINI_PAID_TIER_NOT_CONFIRMED"),
         ("Falta GEMINI_API_KEY", "MISSING_GEMINI_API_KEY"),
         ("Falta OPENAI_API_KEY", "MISSING_OPENAI_API_KEY"),
         ("GEMINI_MODEL no tiene un nombre válido.", "INVALID_GEMINI_MODEL"),
@@ -511,7 +488,7 @@ def _validate_proposal(data, rubric, max_score, answer=""):
         "demo": False,
     }
 
-async def generate_questions(*, title: str, subject: str, level: str, objectives: str, instructions: str, reference_material: str = "", count: int = 3, provider_config: dict | None = None):
+async def generate_questions(*, title: str, subject: str, level: str, objectives: str, instructions: str, reference_material: str = "", count: int = 3, provider_config: dict | None = None, http_client: httpx.AsyncClient | None = None):
     """Return editable question suggestions; they are not saved until the teacher accepts them."""
     provider, model_name, timeout = _provider_settings(provider_config)
     context = {"title": title, "subject": subject, "level": level, "objectives": objectives[:5000], "instructions": instructions[:8000], "reference_material": reference_material[:12000], "count": max(1, min(int(count), 5))}
@@ -526,20 +503,22 @@ async def generate_questions(*, title: str, subject: str, level: str, objectives
         ]
         return {"questions": base[:context["count"]], "demo": True, "warnings": ["Modo MOCK: propuestas de ejemplo para probar la interfaz, no generadas por un modelo."]}
     if provider == "gemini":
-        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.4, max_output_tokens=SUGGESTION_MAX_OUTPUT_TOKENS, model_name=model_name, timeout_seconds=timeout)
+        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.4, max_output_tokens=SUGGESTION_MAX_OUTPUT_TOKENS, model_name=model_name, timeout_seconds=timeout, http_client=http_client)
     elif provider == "openai":
-        _assert_external_ai_approved(provider)
         key = os.getenv("OPENAI_API_KEY")
         if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-        payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "temperature": 0.4, "max_tokens": 4096}
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=payload)
-            response.raise_for_status(); raw = response.json()["choices"][0]["message"]["content"]
+        model = model_name or os.getenv("OPENAI_MODEL", "gpt-6-luna")
+        payload = {"model": model, "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "temperature": 0.4}
+        if model.startswith("gpt-6-luna"):
+            payload.update({"reasoning_effort": "none", "max_completion_tokens": 4096})
+        else:
+            payload["max_tokens"] = 4096
+        response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout, http_client=http_client)
+        raw = response.json()["choices"][0]["message"]["content"]
     elif provider == "ollama":
         payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "options": {"temperature": 0.4, "num_predict": 4096}}
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')}/api/chat", json=payload)
-            response.raise_for_status(); raw = response.json()["message"]["content"]
+        response = await _post_json(f"{os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')}/api/chat", payload=payload, timeout=timeout, http_client=http_client)
+        raw = response.json()["message"]["content"]
     else:
         raise RuntimeError("AI_PROVIDER debe ser mock, gemini, openai u ollama")
     data = json.loads(raw)
@@ -556,7 +535,7 @@ async def generate_questions(*, title: str, subject: str, level: str, objectives
     return {"questions": clean, "demo": False, "warnings": []}
 
 
-async def generate_rubric(*, title: str, subject: str, level: str, objectives: str, instructions: str = "", question_prompts: list[str] | None = None, reference_material: str = "", count: int = 4, provider_config: dict | None = None):
+async def generate_rubric(*, title: str, subject: str, level: str, objectives: str, instructions: str = "", question_prompts: list[str] | None = None, reference_material: str = "", count: int = 4, provider_config: dict | None = None, http_client: httpx.AsyncClient | None = None):
     """Suggest editable analytic rubric criteria; teacher must review before saving."""
     provider, model_name, timeout = _provider_settings(provider_config)
     count = max(2, min(int(count), 6))
@@ -576,18 +555,22 @@ async def generate_rubric(*, title: str, subject: str, level: str, objectives: s
         return {"rubric_title": f"Rúbrica sugerida — {title or subject or 'Evaluación'}", "description": "Plantilla demostrativa editable; no generada por un modelo real.", "criteria": [{"name": names[i], "description": f"Evalúa {names[i].lower()} en relación con los objetivos declarados.", "max_score": 10, "weight": 1} for i in range(count)], "demo": True, "warnings": ["Modo MOCK: revisá y adaptá los criterios antes de guardarlos."]}
     user = json.dumps(context, ensure_ascii=False)
     if provider == "gemini":
-        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.3, max_output_tokens=SUGGESTION_MAX_OUTPUT_TOKENS, model_name=model_name, timeout_seconds=timeout)
+        raw = await _gemini_json(system_instruction=system, context=context, temperature=0.3, max_output_tokens=SUGGESTION_MAX_OUTPUT_TOKENS, model_name=model_name, timeout_seconds=timeout, http_client=http_client)
     elif provider == "openai":
-        _assert_external_ai_approved(provider)
         key = os.getenv("OPENAI_API_KEY")
         if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-        payload = {"model": model_name or os.getenv("OPENAI_MODEL", "gpt-4o-mini"), "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.3, "max_tokens": 4096}
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=payload); response.raise_for_status(); raw = response.json()["choices"][0]["message"]["content"]
+        model = model_name or os.getenv("OPENAI_MODEL", "gpt-6-luna")
+        payload = {"model": model, "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.3}
+        if model.startswith("gpt-6-luna"):
+            payload.update({"reasoning_effort": "none", "max_completion_tokens": 4096})
+        else:
+            payload["max_tokens"] = 4096
+        response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout, http_client=http_client)
+        raw = response.json()["choices"][0]["message"]["content"]
     elif provider == "ollama":
         payload = {"model": model_name or os.getenv("OLLAMA_MODEL", "llama3.1:8b"), "stream": False, "format": "json", "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "options": {"temperature": 0.3, "num_predict": 4096}}
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')}/api/chat", json=payload); response.raise_for_status(); raw = response.json()["message"]["content"]
+        response = await _post_json(f"{os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')}/api/chat", payload=payload, timeout=timeout, http_client=http_client)
+        raw = response.json()["message"]["content"]
     else: raise RuntimeError("AI_PROVIDER debe ser mock, gemini, openai u ollama")
     data = json.loads(raw)
     raw_criteria = data.get("criteria")

@@ -52,7 +52,7 @@ BEGIN
                AND status = 'active'
                AND user_id <> OLD.user_id;
             IF v_remaining = 0 THEN
-                RAISE EXCEPTION 'No se puede eliminar el último superadministrador activo.';
+                RAISE EXCEPTION 'No se puede eliminar el último superadministrador activo.' USING ERRCODE = '23514';
             END IF;
         END IF;
         RETURN OLD;
@@ -66,7 +66,7 @@ BEGIN
            AND status = 'active'
            AND user_id <> OLD.user_id;
         IF v_remaining = 0 THEN
-            RAISE EXCEPTION 'No se puede degradar ni suspender al último superadministrador activo.';
+            RAISE EXCEPTION 'No se puede degradar ni suspender al último superadministrador activo.' USING ERRCODE = '23514';
         END IF;
     END IF;
 

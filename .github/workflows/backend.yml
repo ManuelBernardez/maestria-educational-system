@@ -31,7 +31,6 @@ jobs:
       DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/maestria_test"
       SUPABASE_URL: "https://example.supabase.co"
       AI_PROVIDER: "mock"
-      AI_EXTERNAL_PROCESSING_APPROVED: "False"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

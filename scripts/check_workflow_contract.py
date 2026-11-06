@@ -24,6 +24,23 @@ for label, (path, needle) in checks.items():
     if not path.is_file() or needle not in path.read_text(encoding="utf-8"):
         errors.append(f"Frontend missing workflow stage: {label}")
 
+
+workspace_checks = {
+    "workspace summary endpoint": (FRONT / "features/workspace.js", "correction-workspace/?${params.toString()}"),
+    "save workspace context": (FRONT / "features/workspace.js", "api.patch(`assessments/${assessment.id}/`"),
+    "import reference material": (FRONT / "features/workspace.js", "assessments/${assessment.id}/import-reference/"),
+    "generate question suggestions": (FRONT / "features/workspace.js", "assessments/${assessment.id}/generate-questions/"),
+    "create suggested question": (FRONT / "features/workspace.js", "api.post('questions/'"),
+    "import answer file": (FRONT / "features/workspace.js", "submissions/import-file/"),
+    "create or update text submission": (FRONT / "features/workspace.js", "api.patch(`submissions/${workspace.activeSubmission.id}/`"),
+    "generate workspace correction": (FRONT / "features/workspace.js", "submissions/${submission.id}/generate-correction/"),
+    "approve workspace correction": (FRONT / "features/workspace.js", "corrections/${correction.id}/approve/"),
+    "export workspace correction": (FRONT / "features/workspace.js", "corrections/${workspace.correction.id}/export/"),
+}
+for label, (path, needle) in workspace_checks.items():
+    if not path.is_file() or needle not in path.read_text(encoding="utf-8"):
+        errors.append(f"Workspace missing contract stage: {label}")
+
 backend_checks = {
     "course API": (BACK / "api_views/catalog.py", "class CourseViewSet"),
     "student API": (BACK / "api_views/catalog.py", "class StudentViewSet"),
@@ -36,6 +53,16 @@ backend_checks = {
 for label, (path, needle) in backend_checks.items():
     if not path.is_file() or needle not in path.read_text(encoding="utf-8"):
         errors.append(f"Backend missing workflow stage: {label}")
+
+
+route_checks = {
+    "workspace view in role router": (FRONT / "core/router.js", "'dashboard', 'workspace'"),
+    "workspace view renderer": (FRONT / "app.js", "workspace: renderWorkspace"),
+    "workspace view loads its own data": (FRONT / "data/resources.js", "correction-workspace/"),
+}
+for label, (path, needle) in route_checks.items():
+    if not path.is_file() or needle not in path.read_text(encoding="utf-8"):
+        errors.append(f"Frontend missing workspace integration: {label}")
 
 urls = (BACK / "urls.py").read_text(encoding="utf-8")
 for endpoint in ('"courses"', '"students"', '"assessments"', '"questions"', '"submissions"', '"corrections"'):

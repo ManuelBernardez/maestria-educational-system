@@ -159,8 +159,8 @@ CREATE TABLE public.ai_provider_config (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, provider varchar NOT NULL UNIQUE
  CHECK (provider IN ('mock','gemini','openai','ollama')),
  model_name varchar NOT NULL DEFAULT '', enabled boolean NOT NULL DEFAULT false,
- priority smallint NOT NULL DEFAULT 10, timeout_seconds smallint NOT NULL DEFAULT 18
- CHECK (timeout_seconds >= 5 AND timeout_seconds <= 18),
+ priority smallint NOT NULL DEFAULT 10, timeout_seconds smallint NOT NULL DEFAULT 60
+ CHECK (timeout_seconds >= 5 AND timeout_seconds <= 85),
  input_usd_per_1k_tokens numeric CHECK (input_usd_per_1k_tokens IS NULL OR input_usd_per_1k_tokens >= 0),
  output_usd_per_1k_tokens numeric CHECK (output_usd_per_1k_tokens IS NULL OR output_usd_per_1k_tokens >= 0),
  updated_by uuid REFERENCES auth.users(id) ON DELETE SET NULL, updated_at timestamptz NOT NULL DEFAULT now()
@@ -235,13 +235,13 @@ BEGIN
  IF TG_OP='DELETE' THEN
   IF OLD.role='superadmin' AND OLD.status='active' THEN
    SELECT count(*) INTO remaining FROM public.user_profile WHERE role='superadmin' AND status='active' AND user_id<>OLD.user_id;
-   IF remaining=0 THEN RAISE EXCEPTION 'No se puede eliminar el último superadministrador activo.'; END IF;
+   IF remaining=0 THEN RAISE EXCEPTION 'No se puede eliminar el último superadministrador activo.' USING ERRCODE = '23514'; END IF;
   END IF;
   RETURN OLD;
  END IF;
  IF OLD.role='superadmin' AND OLD.status='active' AND (NEW.role<>'superadmin' OR NEW.status<>'active') THEN
   SELECT count(*) INTO remaining FROM public.user_profile WHERE role='superadmin' AND status='active' AND user_id<>OLD.user_id;
-  IF remaining=0 THEN RAISE EXCEPTION 'No se puede degradar ni suspender al último superadministrador activo.'; END IF;
+  IF remaining=0 THEN RAISE EXCEPTION 'No se puede degradar ni suspender al último superadministrador activo.' USING ERRCODE = '23514'; END IF;
  END IF;
  IF NEW.role IS DISTINCT FROM OLD.role THEN NEW.role_updated_at:=now(); END IF;
  IF OLD.role IN ('admin','superadmin') AND OLD.status='active' AND (NEW.role NOT IN ('admin','superadmin') OR NEW.status<>'active') THEN
@@ -270,3 +270,28 @@ BEGIN
  RETURN NEW;
 END $$;
 CREATE TRIGGER trg_contact_message_admin_workflow BEFORE INSERT OR UPDATE ON public.contact_message FOR EACH ROW EXECUTE FUNCTION public.maestria_contact_message_admin_workflow();
+
+-- Paridad con el esquema real de Supabase: toda tabla con updated_at tiene un
+-- trigger BEFORE UPDATE que lo reescribe con clock_timestamp(). Esto es clave
+-- para que los tests detecten comparaciones inválidas contra el valor del
+-- instance de Django (el valor persistido puede diferir del que asignó auto_now).
+CREATE OR REPLACE FUNCTION public.maestria_touch_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.updated_at = clock_timestamp(); RETURN NEW; END $$;
+
+CREATE TRIGGER ai_provider_config_touch_updated_at BEFORE UPDATE ON public.ai_provider_config FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER assessment_touch_updated_at BEFORE UPDATE ON public.assessment FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER contact_message_touch_updated_at BEFORE UPDATE ON public.contact_message FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER correction_touch_updated_at BEFORE UPDATE ON public.correction FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER correction_criterion_result_touch_updated_at BEFORE UPDATE ON public.correction_criterion_result FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER course_touch_updated_at BEFORE UPDATE ON public.course FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER enrollment_touch_updated_at BEFORE UPDATE ON public.enrollment FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER institution_touch_updated_at BEFORE UPDATE ON public.institution FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER institution_membership_touch_updated_at BEFORE UPDATE ON public.institution_membership FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER question_touch_updated_at BEFORE UPDATE ON public.question FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER rubric_touch_updated_at BEFORE UPDATE ON public.rubric FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER rubric_criterion_touch_updated_at BEFORE UPDATE ON public.rubric_criterion FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER rubric_level_touch_updated_at BEFORE UPDATE ON public.rubric_level FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER student_touch_updated_at BEFORE UPDATE ON public.student FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER submission_touch_updated_at BEFORE UPDATE ON public.submission FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER submission_answer_touch_updated_at BEFORE UPDATE ON public.submission_answer FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+CREATE TRIGGER user_profile_touch_updated_at BEFORE UPDATE ON public.user_profile FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();

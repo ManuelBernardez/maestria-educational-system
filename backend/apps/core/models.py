@@ -7,6 +7,13 @@ Supabase Auth UUIDs are never mapped to django.contrib.auth.User.
 """
 from django.db import models
 
+# Ventana de lease de corrección: un status="processing" cuya fila fue
+# actualizada hace más tiempo que esta ventana es un lease expirado de un
+# worker caído (p. ej. el servidor de desarrollo se recargó a mitad de la
+# request), no una corrección en curso. Valida un máximo realista de duración
+# de la generación (HTTP capped en 85 s por respuesta) con margen.
+PROCESSING_LEASE_MINUTES = 5
+
 
 class PublicTable(models.Model):
     class Meta:
@@ -362,7 +369,7 @@ class AIProviderConfig(PublicTable):
     model_name = models.CharField(max_length=160, blank=True, default="")
     enabled = models.BooleanField(default=False)
     priority = models.SmallIntegerField(default=10)
-    timeout_seconds = models.SmallIntegerField(default=18)
+    timeout_seconds = models.SmallIntegerField(default=60)
     input_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
     output_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
     updated_by = models.UUIDField(null=True, blank=True)

@@ -168,8 +168,26 @@ import json as _json
 _version = _json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
 if workspace_html.count('rel="stylesheet"') < 2 or f'href="/assets/css/workspace.css?v={_version}"' not in workspace_html:
     fail("El espacio docente no está usando el CSS combinado versionado.")
-if 'href="/assets/js/modules/app.js"' not in workspace_html:
-    fail("El espacio docente no está precargando el grafo principal de módulos.")
+# El HTML precarga todo el grafo de módulos para evitar la cascada de imports (profundidad 4).
+def _module_graph(entry):
+    seen, pending = set(), [entry.resolve()]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        source = current.read_text(encoding="utf-8")
+        for match in re.finditer(r"(?:import|export)[^;'\"]*?from\s*['\"]([^'\"]+)['\"]|(?<![\w.])import\s*['\"]([^'\"]+)['\"]", source):
+            target = match.group(1) or match.group(2)
+            if target.startswith("."):
+                pending.append((current.parent / target).resolve())
+    return seen
+
+_js_root = (FRONTEND / "js").resolve()
+_expected = {"/assets/js/" + path.relative_to(_js_root).as_posix() for path in _module_graph(FRONTEND / "js/workspace.js")} - {"/assets/js/workspace.js"}
+_preloaded = set(re.findall(r'rel="modulepreload" href="([^"]+)"', workspace_html))
+if _expected != _preloaded:
+    fail("modulepreload desactualizado en el espacio docente. Faltan: %s. Sobran: %s." % (sorted(_expected - _preloaded), sorted(_preloaded - _expected)))
 if not (FRONTEND / "js/api.js").is_file():
     fail("Falta el cliente HTTP frontend/js/api.js.")
 

@@ -3,6 +3,7 @@ import { state, content } from '../core/state.js';
 import { listFrom, errorText, escapeHtml } from '../core/utils.js';
 import { toast, updateChrome } from '../core/ui.js';
 import { render } from '../core/router.js';
+import { loadedResources, reloadLoadedResources } from './resources.js';
 
 async function settleWithConcurrency(resources, concurrency = 4) {
   const results = new Array(resources.length);
@@ -38,27 +39,21 @@ function writeOverviewCache(data) {
 }
 
 export async function refreshCore({ onOverviewReady, overviewPromise } = {}) {
-  const resources = [
-    ['courses', 'courses/'], ['students', 'students/'],
-    ['enrollments', 'enrollments/'], ['assessments', 'assessments/'], ['rubrics', 'rubrics/'],
-    ['submissions', 'submissions/'], ['corrections', 'corrections/?summary=1']
-  ];
-
-  // The overview already contains compact course/assessment cards and exact
-  // aggregate counters. Resolve it independently so the dashboard can paint
-  // without waiting for the longer lists needed by its secondary screens.
+  // El resumen trae cursos y evaluaciones compactos y los contadores exactos del panel.
+  // Las demás listas se piden bajo demanda (data/resources.js); aquí solo se actualizan las ya cargadas.
   const overviewTask = (overviewPromise || api.get('dashboard/overview/')).then(
     value => ({ status: 'fulfilled', value }),
     reason => ({ status: 'rejected', reason }),
   );
-  const resourcesTask = settleWithConcurrency(resources, 4);
+  const resourcesTask = reloadLoadedResources();
   const overviewResult = await overviewTask;
 
-  state.errors = Object.fromEntries(Object.entries(state.errors).filter(([key]) => key.startsWith('admin_') || key.startsWith('institution_')));
+  state.errors = Object.fromEntries(Object.entries(state.errors).filter(([key]) => key.startsWith('admin_') || key.startsWith('institution_') || loadedResources().includes(key)));
   if (overviewResult.status === 'fulfilled') {
+    const fullListsLoaded = loadedResources();
     state.data.overview = overviewResult.value;
-    state.data.courses = listFrom(overviewResult.value.courses);
-    state.data.assessments = listFrom(overviewResult.value.assessments);
+    if (!fullListsLoaded.includes('courses')) state.data.courses = listFrom(overviewResult.value.courses);
+    if (!fullListsLoaded.includes('assessments')) state.data.assessments = listFrom(overviewResult.value.assessments);
     delete state.errors.overview;
     writeOverviewCache(overviewResult.value);
     try { onOverviewReady?.(overviewResult.value); } catch {
@@ -69,16 +64,7 @@ export async function refreshCore({ onOverviewReady, overviewPromise } = {}) {
     state.errors.overview = errorText(overviewResult.reason);
   }
 
-  const results = await resourcesTask;
-  results.forEach((result, index) => {
-    const [key] = resources[index];
-    if (result.status === 'fulfilled') {
-      state.data[key] = listFrom(result.value);
-      delete state.errors[key];
-    } else {
-      state.errors[key] = errorText(result.reason);
-    }
-  });
+  await resourcesTask;
   state.loading = false;
   updateChrome();
 }
@@ -168,8 +154,14 @@ export async function loadProfile() {
   if (!state.profile.full_name && metadataName) {
     state.profile = { ...state.profile, full_name: metadataName };
   }
+  let savedFeedbackStyle = 'constructivo';
+  try {
+    const localPreference = localStorage.getItem('maestria-feedback-style');
+    if (['formal', 'constructivo', 'motivador'].includes(localPreference)) savedFeedbackStyle = localPreference;
+  } catch { /* El almacenamiento local puede estar restringido. */ }
   state.feedbackStyle = ['formal', 'constructivo', 'motivador'].includes(session.user?.user_metadata?.maestria_feedback_style)
-    ? session.user.user_metadata.maestria_feedback_style : 'constructivo';
+    ? session.user.user_metadata.maestria_feedback_style : savedFeedbackStyle;
+  try { localStorage.setItem('maestria-feedback-style', state.feedbackStyle); } catch { /* La preferencia también queda en memoria. */ }
 
   if (state.profile.role === 'student') {
     content.innerHTML = `<section class="panel" role="alert"><div class="panel-body"><div class="empty-state"><div class="empty-icon" aria-hidden="true">!</div><h2>Acceso docente no disponible</h2><p>Esta cuenta no tiene permisos para ingresar al espacio docente.</p><a class="btn btn-secondary" href="../index.html">Volver al sitio</a></div></div></section>`;
@@ -192,8 +184,18 @@ export async function loadCorrectionForSubmission(submissionId) {
 
 export async function afterWrite(message, keys = []) {
   toast(message);
+  // El resumen del dashboard es barato y mantiene los contadores actualizados tras cada escritura.
+  try {
+    const overview = await api.get('dashboard/overview/');
+    state.data.overview = overview;
+    delete state.errors.overview;
+    writeOverviewCache(overview);
+  } catch {
+    // El resumen es complementario: no hacer fallar la operación de escritura por él.
+  }
   if (state.profile && ['admin', 'superadmin'].includes(state.profile.role)) await refreshAdmin();
-  else await refreshCore();
+  // Recarga solo las listas afectadas (pasadas por el llamador), no todas las cargadas.
+  await reloadResources(keys);
   if (state.view === 'course') state.view = 'course';
   if (state.view === 'assessment') {
     try { state.assessmentEditor = await loadAssessmentEditor(state.selectedAssessment); } catch (error) { toast(errorText(error), 'error'); }
@@ -202,4 +204,10 @@ export async function afterWrite(message, keys = []) {
     try { state.currentCorrection = await api.get(`corrections/${state.selectedCorrection}/`); } catch (error) { toast(errorText(error), 'error'); }
   }
   render();
+}
+
+/** Vuelve a pedir solo las listas indicadas tras una escritura (p. ej. cursos tras crear uno).
+ *  Usa `loadOne` para forzar el refetch incluso si la lista ya estaba cargada. */
+export async function reloadResources(keys) {
+  await Promise.all((keys || []).map(key => (RESOURCES[key] ? loadOne(key) : Promise.resolve())));
 }

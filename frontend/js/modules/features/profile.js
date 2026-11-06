@@ -44,6 +44,7 @@ export async function saveProfilePreferences(form) {
     else api.setSession({ ...session, user: { ...(session.user || {}), user_metadata: { ...(session.user?.user_metadata || {}), full_name: cleanName, maestria_feedback_style: feedbackStyle } } });
     state.profile = { ...state.profile, full_name: cleanName };
     state.feedbackStyle = feedbackStyle;
+    try { localStorage.setItem('maestria-feedback-style', feedbackStyle); } catch { /* Preferencia conservada en la sesión actual. */ }
     updateChrome();
     if (successNode) successNode.textContent = 'Preferencias guardadas en tu cuenta.';
     toast('Perfil actualizado.');

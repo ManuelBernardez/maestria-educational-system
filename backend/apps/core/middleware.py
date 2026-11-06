@@ -21,4 +21,7 @@ class ApiServerTimingMiddleware:
             response["Server-Timing"] = f"django;dur={duration_ms:.1f}"
             response["X-Request-ID"] = request.request_id
             response["Cache-Control"] = "no-store"
+            # La API devuelve JSON; no debe cargar ni incrustar recursos de ningún origen.
+            response.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none';")
+            response.setdefault("Cross-Origin-Resource-Policy", "same-origin")
         return response

@@ -30,7 +30,7 @@ from rest_framework.response import Response
 
 from ..ai import ai_error_code, default_rubric_for_question, generate_correction, generate_questions, generate_rubric
 from ..models import (
-    AIProviderConfig, AIGeneration, Assessment, AuditEvent, ContactMessage, Correction,
+    PROCESSING_LEASE_MINUTES, AIProviderConfig, AIGeneration, Assessment, AuditEvent, ContactMessage, Correction,
     CorrectionCriterionResult, CorrectionRevision, Course, Enrollment,
     Question, Rubric, RubricCriterion, RubricLevel, Student, Submission,
     SubmissionAnswer, UserProfile,
@@ -51,6 +51,33 @@ MAX_CORRECTION_ANSWERS = 10
 MAX_CORRECTION_INPUT_CHARS = 100_000
 MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
 MAX_DOCX_MEMBERS = 1_000
+
+# Misma ventana que el worker de corrección (submissions.py): un
+# status="processing" con updated_at anterior al corte es un lease expirado de
+# un worker caído, no una corrección en curso, y no debe bloquear la edición
+# indefinidamente. La constante vive en models.py (fuente única compartida
+# con serializers.py).
+def processing_lease_cutoff():
+    return timezone.now() - timedelta(minutes=PROCESSING_LEASE_MINUTES)
+
+
+def processing_is_fresh(record) -> bool:
+    """True solo si el lease de corrección de la fila sigue en su ventana."""
+    return record.status == "processing" and record.updated_at >= processing_lease_cutoff()
+
+
+def claim_expired_processing_lease(record) -> bool:
+    """Reclama un lease vencido devolviendo la fila a `pending` (devuelve True).
+
+    Debe llamarse con la fila bloqueada (select_for_update) dentro de una
+    transacción; la ejecución posterior debe volver a considerar el estado.
+    """
+    if record.status != "processing" or record.updated_at >= processing_lease_cutoff():
+        return False
+    record.status = "pending"
+    record.save(update_fields=["status"])
+    return True
+
 
 def record_audit(owner_id, event_type, object_type, object_id, detail=None, request=None):
     """Persist minimal trace metadata; never include response content or secrets."""
@@ -97,7 +124,7 @@ def record_ai_generation(owner_id, task, started, ok, fingerprint="", error_code
     elapsed = min(max(int((time.monotonic() - started) * 1000), 0), 2_147_483_647)
     model_name = {
         "gemini": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "openai": os.getenv("OPENAI_MODEL", "gpt-6-luna"),
         "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
     }.get(provider, "")
     model_name = provider_config.get("model_name") or model_name
@@ -131,14 +158,25 @@ def clear_mock_practice_corrections(owner_id, assessment):
         corrections__isnull=False,
     ).update(status="pending")
 
+AI_CONFIGURATION_ERROR_CODES = frozenset({
+    "MISSING_GEMINI_API_KEY",
+    "MISSING_OPENAI_API_KEY",
+    "INVALID_AI_PROVIDER",
+    "INVALID_GEMINI_MODEL",
+})
+
+
+def ai_error_http_status(exc):
+    """Configuration/policy gates are service-unavailable, not provider failures."""
+    return status.HTTP_503_SERVICE_UNAVAILABLE if ai_error_code(exc) in AI_CONFIGURATION_ERROR_CODES else status.HTTP_502_BAD_GATEWAY
+
+
 def _safe_ai_error_detail(exc, fallback):
     """Expose actionable local configuration errors, never raw provider responses."""
     message = str(exc).strip()
     safe_prefixes = (
-        "El envío de contenido a un proveedor externo está desactivado.",
         "Falta GEMINI_API_KEY",
         "Falta OPENAI_API_KEY",
-        "Para usar Gemini con contenido docente o estudiantil",
         "AI_PROVIDER debe ser",
         "GEMINI_MODEL no tiene un nombre válido.",
     )
@@ -151,17 +189,27 @@ def _safe_ai_error_detail(exc, fallback):
         code = exc.response.status_code
         if code == 429:
             return "El proveedor de IA alcanzó su límite de cuota o de velocidad. Esperá un minuto e intentá de nuevo (o revisá la cuota del proyecto)."
+        host = (getattr(exc.response, "url", None).host if getattr(exc.response, "url", None) else "")
         if code in (401, 403):
-            return "El proveedor de IA rechazó la clave API (HTTP %d). Revisá GEMINI_API_KEY y que la API esté habilitada para el proyecto." % code
+            if host == "api.openai.com":
+                return "OpenAI rechazó la clave API (HTTP %d). Revisá OPENAI_API_KEY y el acceso al modelo configurado." % code
+            if host == "generativelanguage.googleapis.com":
+                return "Gemini rechazó la clave API (HTTP %d). Revisá GEMINI_API_KEY y que la API esté habilitada para el proyecto." % code
+            return "El proveedor de IA rechazó la autenticación (HTTP %d). Revisá la credencial configurada." % code
         if code in (400, 404):
             from ..ai import provider_error_info
             provider_message, provider_state = provider_error_info(exc)
-            hint = " Revisá GEMINI_API_KEY (una clave inválida responde 400) y GEMINI_MODEL."
-            if "location" in provider_message.lower():
-                hint = " La región del servidor no está habilitada para esta API."
-            elif "billing" in provider_message.lower() or "quota" in provider_message.lower():
-                hint = " Revisá la facturación/cuota del proyecto en Google AI Studio."
-            return f"Google rechazó la solicitud (HTTP {code} {provider_state}): {provider_message}.{hint}".replace("..", ".")
+            if host == "api.openai.com":
+                hint = " Revisá OPENAI_MODEL, los permisos de la clave y la disponibilidad del modelo en tu proyecto."
+                return f"OpenAI rechazó la solicitud (HTTP {code} {provider_state}): {provider_message}.{hint}".replace("..", ".")
+            if host == "generativelanguage.googleapis.com":
+                hint = " Revisá GEMINI_API_KEY y GEMINI_MODEL."
+                if "location" in provider_message.lower():
+                    hint = " La región del servidor no está habilitada para esta API."
+                elif "billing" in provider_message.lower() or "quota" in provider_message.lower():
+                    hint = " Revisá la facturación/cuota del proyecto en Google AI Studio."
+                return f"Google rechazó la solicitud (HTTP {code} {provider_state}): {provider_message}.{hint}".replace("..", ".")
+            return f"El proveedor rechazó la solicitud (HTTP {code}): {provider_message}. Revisá el modelo y la configuración.".replace("..", ".")
         if code >= 500:
             return "El proveedor de IA tuvo un error temporal (HTTP %d). Intentá nuevamente en unos instantes." % code
     if isinstance(exc, httpx.TimeoutException):

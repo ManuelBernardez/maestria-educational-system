@@ -15,13 +15,20 @@ export const formatInputNumber = (value) => {
   return normalized === '-0' ? '0' : normalized;
 };
 
-/** Display numeric values in es-AR, hiding decimals that are only database padding. */
+/** Display application scores with at most two meaningful decimal places.
+ * PostgreSQL DecimalFields use scale 18; those storage zeros must never leak into UI.
+ * Inputs keep their exact normalized decimal string through formatInputNumber().
+ */
 export const formatNumber = (value) => {
   const normalized = formatInputNumber(value);
   if (normalized === '') return '—';
   const number = Number(normalized);
   if (!Number.isFinite(number)) return normalized;
-  return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 18 }).format(number);
+  const safeNumber = Math.abs(number) < 0.005 ? 0 : number;
+  return new Intl.NumberFormat('es-AR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(safeNumber);
 };
 
 export const date = (value, includeTime = false) => {

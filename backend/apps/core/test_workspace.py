@@ -1,6 +1,7 @@
 """Regression tests for the compact, owner-scoped workspace APIs."""
 from uuid import uuid4
 
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -78,7 +79,7 @@ class CorrectionWorkspaceApiTests(TestCase):
         self.other_owner_id = uuid4()
         ensure_auth_users(self.owner_id, self.other_owner_id)
         self.client = APIClient()
-        self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
+        self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id), role="teacher", profile_status="active"))
         self.assessment = Assessment.objects.create(
             owner_id=self.owner_id,
             title="Evaluación propia",
@@ -100,7 +101,7 @@ class CorrectionWorkspaceApiTests(TestCase):
         self.assertNotIn("Evaluación ajena", titles)
 
     def test_workspace_summary_without_assessment_returns_selector_only(self):
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):  # evaluaciones, cursos activos y proveedor de IA
             response = self.client.get("/api/correction-workspace/?summary=1")
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.data["selected_assessment"])
@@ -218,7 +219,7 @@ class CorrectionWorkspaceApiTests(TestCase):
             student_name="Estudiante ficticio", answer_text="Respuesta de prueba",
             status="processing",
         )
-        with patch("apps.core.views.generate_correction") as provider:
+        with patch("apps.core.api_views.submissions.generate_correction") as provider:
             response = self.client.post(
                 f"/api/submissions/{submission.id}/generate-correction/", {}, format="json",
             )
@@ -228,6 +229,39 @@ class CorrectionWorkspaceApiTests(TestCase):
         provider.assert_not_called()
         submission.refresh_from_db()
         self.assertEqual(submission.status, "processing")
+
+    def test_generate_correction_success_releases_lease_and_reaches_review(self):
+        # Regresión: el trigger de Supabase reescribe updated_at (clock_timestamp)
+        # después del save; si el worker guarda el valor del instance como
+        # identidad del lease, la confirmación falla SIEMPRE y la entrega queda
+        # atascada en processing. Este test cubre el camino completo.
+        from unittest.mock import AsyncMock, patch
+        from .models import Correction, Submission, SubmissionAnswer  # noqa: F401
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment,
+            student_name="Estudiante de prueba", answer_text="Respuesta de prueba",
+        )
+        fake_proposal = {
+            "summary": "Síntesis de prueba",
+            "criteria": [{"criterion": "Comprensión", "score": 8, "max_score": 10}],
+            "feedback": "Buen trabajo",
+            "strengths": ["Claridad"],
+            "improvement_suggestions": [],
+            "warnings": [],
+            "demo": False,
+        }
+        with patch(
+            "apps.core.api_views.submissions.generate_correction",
+            new_callable=AsyncMock, return_value=fake_proposal,
+        ):
+            response = self.client.post(
+                f"/api/submissions/{submission.id}/generate-correction/", {}, format="json",
+            )
+
+        self.assertEqual(response.status_code, 201, getattr(response, "data", None))
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, "review")
+        self.assertTrue(Correction.objects.filter(submission=submission).exists())
 
     def test_demo_correction_cannot_be_approved_even_if_client_calls_api_directly(self):
         submission = Submission.objects.create(
@@ -258,11 +292,13 @@ class CorrectionWorkspaceApiTests(TestCase):
             student_name="Estudiante de prueba",
             answer_text="Respuesta sintética",
         )
-        Correction.objects.create(
-            owner_id=self.other_owner_id,
-            submission=submission,
-            proposal={"criteria": [{"criterion": "Comprensión", "score": 1, "max_score": 2}]},
-        )
+        # La FK compuesta (submission_id, owner_id) impide crear la inconsistencia en la base.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Correction.objects.create(
+                owner_id=self.other_owner_id,
+                submission=submission,
+                proposal={"criteria": [{"criterion": "Comprensión", "score": 1, "max_score": 2}]},
+            )
         response = self.client.get("/api/corrections/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, [])
@@ -292,7 +328,7 @@ class CorrectionWorkspaceApiTests(TestCase):
         response = self.client.get(f"/api/assessments/{self.assessment.id}/editor/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["assessment"]["id"], self.assessment.id)
-        self.assertNotIn("reference_material", response.data["assessment"])
+        self.assertIn("reference_material", response.data["assessment"])
         self.assertIsInstance(response.data["questions"], list)
 
     def test_assessment_editor_hides_foreign_assessment(self):

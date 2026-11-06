@@ -40,11 +40,29 @@ def frontend_file(request, frontend_path=""):
     response["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response["X-Frame-Options"] = "DENY"
     response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+    # Cabecera de contenido cruzado: los recursos estáticos solo son legibles por el mismo origen.
+    response["Cross-Origin-Resource-Policy"] = "same-origin"
     if candidate.suffix.lower() in {".html", ".htm"}:
         response["Cache-Control"] = "no-store, max-age=0"
+        # La aplicación usa un script en línea reducido (tema) en espacio-docente/index.html;
+        # se permite 'unsafe-inline' solo para scripts, el resto se restringe a mismo origen.
+        # El frontend contacta al Auth de Supabase desde el navegador para OAuth y
+        # refresco de tokens; esas llamadas salen a *.supabase.co y deben estar permitidas.
+        response["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self' https://*.supabase.co https://*.supabase.com; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'"
+        )
     elif candidate.suffix.lower() in {".js", ".css", ".csv"}:
         # Sin hash en el nombre: revalidar siempre (igual que WhiteNoise) para no servir JS viejo.
         response["Cache-Control"] = "no-cache"
+        response["Content-Security-Policy"] = "default-src 'none'; script-src 'self'; style-src 'self'; object-src 'none';"
     else:
         response["Cache-Control"] = "public, max-age=3600"
     return response

@@ -1175,7 +1175,7 @@ main .process-ethos-copy h2 em {
   background-color: #1d3d33;
   background-image:
     linear-gradient(100deg, rgba(20, 49, 41, .88), rgba(20, 49, 41, .73)),
-    url("../assets/images/hero-nosotros.webp");
+    url("../images/hero-nosotros.webp");
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
