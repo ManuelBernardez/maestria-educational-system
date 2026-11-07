@@ -96,3 +96,7 @@ button:focus-visible,a:focus-visible{outline:3px solid #d77c65;outline-offset:3p
 .auth-page .auth-submit:active,.auth-page .demo-submit:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(23,54,46,.2)}
 @media(max-width:980px){.auth-page .auth-shell{min-height:calc(100svh - 72px)}.auth-page .auth-art,.auth-page .auth-content{min-height:calc(100svh - 72px)}}
 @media(max-width:680px){.auth-page .auth-shell{min-height:calc(100svh - 68px)}.auth-page .auth-art,.auth-page .auth-content{min-height:auto}}
+
+/* Layout for the standalone password-reset page (loads auth.css, not workspace.css). */
+.auth-shell-reset { min-height: 65vh; grid-template-columns: 1fr; }
+.auth-card-reset { max-width: 520px; margin: auto; }

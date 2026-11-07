@@ -116,7 +116,7 @@ class GlobalAdminContactTests(TestCase):
     def test_admin_lists_filters_and_updates_contact_message_with_audit(self):
         response = self.client.get("/api/admin/contact-messages/?status=new&q=sender")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(len(response.data["results"]), 1)
         update = self.client.patch(
             f"/api/admin/contact-messages/{self.message.pk}/",
             {"status": "handled", "internal_notes": "Seguimiento interno", "assigned_to": str(self.admin_id)},
@@ -234,7 +234,7 @@ class GlobalRoleAndInstitutionTests(TestCase):
         teacher.force_authenticate(user=SupabasePrincipal(id=str(self.teacher_id)))
         response = teacher.get("/api/admin/institution-memberships/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([row["id"] for row in response.data], [own.pk])
+        self.assertEqual([row["id"] for row in response.data["results"]], [own.pk])
 
     def test_institution_admin_cannot_assign_global_or_self_memberships(self):
         institution_admin_id, target_id = uuid4(), uuid4()

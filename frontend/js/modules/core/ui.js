@@ -13,7 +13,6 @@ export function toast(message, type = 'success') {
 }
 
 let modalReturnFocus = null;
-let previousBodyOverflow = '';
 
 function trapModalFocus(event) {
   if (event.key !== 'Tab' || modal?.hidden) return;
@@ -44,8 +43,7 @@ export function openModal(title, body, kind, wide = false) {
   state.modalBusy = false;
   $('.modal-dialog').classList.toggle('modal-wide', wide);
   modal.hidden = false;
-  previousBodyOverflow = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
+  document.body.classList.add('has-open-modal');
   modal.addEventListener('keydown', trapModalFocus);
   window.setTimeout(() => {
     ($('#modal-content input:not([type="hidden"]), #modal-content select, #modal-content textarea, #modal-close') || $('.modal-dialog'))?.focus();
@@ -55,7 +53,7 @@ export function openModal(title, body, kind, wide = false) {
 export function closeModal(force = false) {
   if (!modal || modal.hidden || (state.modalBusy && !force)) return;
   modal.hidden = true;
-  document.body.style.overflow = previousBodyOverflow;
+  document.body.classList.remove('has-open-modal');
   state.modalKind = null;
   state.modalBusy = false;
   modalContent.innerHTML = '';

@@ -10,15 +10,11 @@
     document.addEventListener('click', event => { if (nav.classList.contains('is-open') && !nav.contains(event.target) && !menuButton.contains(event.target)) closeMenu(); });
   }
   const progress = document.querySelector('.scroll-progress'), header = document.querySelector('.site-header'); let ticking = false;
-  const updateScrollUI = () => { const max = document.documentElement.scrollHeight - window.innerHeight; if (progress) progress.style.width = `${max > 0 ? (window.scrollY / max) * 100 : 0}%`; if (header) header.classList.toggle('is-scrolled', window.scrollY > 12); ticking = false; };
+  const updateScrollUI = () => { const max = document.documentElement.scrollHeight - window.innerHeight; if (progress) progress.value = max > 0 ? (window.scrollY / max) * 100 : 0; if (header) header.classList.toggle('is-scrolled', window.scrollY > 12); ticking = false; };
   window.addEventListener('scroll', () => { if (!ticking) { requestAnimationFrame(updateScrollUI); ticking = true; } }, { passive: true }); updateScrollUI();
   const revealItems = document.querySelectorAll('.reveal');
   if ('IntersectionObserver' in window) { const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add('is-visible'); observer.unobserve(entry.target); } }), { threshold: .12, rootMargin: '0px 0px -45px 0px' }); revealItems.forEach(item => observer.observe(item)); }
   else revealItems.forEach(item => item.classList.add('is-visible'));
-  document.querySelectorAll('.magnetic').forEach(button => {
-    button.addEventListener('pointermove', event => { if (matchMedia('(prefers-reduced-motion: reduce)').matches || event.pointerType === 'touch' || button.matches(':active')) return; const rect = button.getBoundingClientRect(); button.style.translate = `${(event.clientX - rect.left - rect.width / 2) * .055}px ${(event.clientY - rect.top - rect.height / 2) * .055}px`; });
-    button.addEventListener('pointerleave', () => { button.style.translate = ''; });
-  });
   const form = document.querySelector('[data-contact-form]');
   if (form) {
     const status = document.getElementById('contact-status'), submit = form.querySelector('[type="submit"]');

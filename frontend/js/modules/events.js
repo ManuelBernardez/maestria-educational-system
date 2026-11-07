@@ -130,7 +130,7 @@ async function clickAction(button) {
           assigned += pct;
           await api.patch(`rubric-criteria/${item.id}/`, { weight: pct });
         }
-        await afterWrite('Ponderaciones normalizadas a 100%.'); break;
+        await afterWrite('Ponderaciones normalizadas a 100%.', ['rubrics']); break;
       }
       case 'generate-rubric': await generateRubric(); break;
       case 'generate-assessment-rubric': await generateRubric(id); break;
@@ -170,7 +170,7 @@ async function clickAction(button) {
       case 'manage-institution': state.selectedInstitution = id; state.adminTab = 'institutions'; state.view = 'institution-memberships'; render(); break;
       case 'new-membership': membershipForm(null, button.dataset.institution || state.selectedInstitution || ''); break;
       case 'edit-membership': membershipForm(state.data.admin.memberships.find(item => String(item.id) === String(id))); break;
-      case 'suspend-membership': if (window.confirm('¿Suspender esta membresía?')) { await api.delete(`admin/institution-memberships/${id}/`); await afterWrite('Membresía suspendida.'); } break;
+      case 'suspend-membership': if (window.confirm('¿Suspender esta membresía?')) { await api.delete(`admin/institution-memberships/${id}/`); await afterWrite('Membresía suspendida.', ['admin']); } break;
       case 'view-memberships': {
         const tab = $('#app-content [data-admin-tab="institutions"]'); tab?.click();
         break;

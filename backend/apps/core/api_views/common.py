@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 MAX_ANSWER_CHARS = 50_000
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 MAX_CORRECTION_ANSWERS = 10
+MAX_CORRECTION_GENERATION_SECONDS = 120
 MAX_CORRECTION_INPUT_CHARS = 100_000
 MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
 MAX_DOCX_MEMBERS = 1_000
@@ -57,6 +58,19 @@ MAX_DOCX_MEMBERS = 1_000
 # un worker caído, no una corrección en curso, y no debe bloquear la edición
 # indefinidamente. La constante vive en models.py (fuente única compartida
 # con serializers.py).
+def lock_owner_profile(owner_id):
+    """Lock the authenticated owner's public profile as a per-user write mutex.
+
+    Supabase owns auth.users and the application role must not lock that internal
+    table. user_profile is application-owned, has one row per Auth UUID, and is
+    already required by SupabaseJWTAuthentication.
+    """
+    try:
+        return UserProfile.objects.select_for_update().get(user_id=owner_id, status="active")
+    except UserProfile.DoesNotExist as exc:
+        raise ValidationError({"detail": "El perfil autenticado no está disponible."}) from exc
+
+
 def processing_lease_cutoff():
     return timezone.now() - timedelta(minutes=PROCESSING_LEASE_MINUTES)
 
@@ -77,6 +91,25 @@ def claim_expired_processing_lease(record) -> bool:
     record.status = "pending"
     record.save(update_fields=["status"])
     return True
+
+
+def has_fresh_processing_submission(assessment, owner_id) -> bool:
+    """Return whether the locked assessment has a live correction lease.
+
+    Call inside transaction.atomic() after locking the Assessment row. Stale
+    leases are reclaimed so crashed requests cannot block editing indefinitely.
+    Lock submissions in stable PK order to keep concurrent mutations predictable.
+    """
+    active = False
+    records = Submission.objects.select_for_update().filter(
+        owner_id=owner_id, assessment=assessment, status="processing",
+    ).order_by("pk")
+    for record in records:
+        if processing_is_fresh(record):
+            active = True
+        else:
+            claim_expired_processing_lease(record)
+    return active
 
 
 def record_audit(owner_id, event_type, object_type, object_id, detail=None, request=None):
@@ -124,7 +157,7 @@ def record_ai_generation(owner_id, task, started, ok, fingerprint="", error_code
     elapsed = min(max(int((time.monotonic() - started) * 1000), 0), 2_147_483_647)
     model_name = {
         "gemini": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        "openai": os.getenv("OPENAI_MODEL", "gpt-6-luna"),
+        "openai": os.getenv("OPENAI_MODEL", ""),
         "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
     }.get(provider, "")
     model_name = provider_config.get("model_name") or model_name
@@ -161,22 +194,31 @@ def clear_mock_practice_corrections(owner_id, assessment):
 AI_CONFIGURATION_ERROR_CODES = frozenset({
     "MISSING_GEMINI_API_KEY",
     "MISSING_OPENAI_API_KEY",
+    "MISSING_OPENAI_MODEL",
     "INVALID_AI_PROVIDER",
     "INVALID_GEMINI_MODEL",
 })
 
 
 def ai_error_http_status(exc):
-    """Configuration/policy gates are service-unavailable, not provider failures."""
-    return status.HTTP_503_SERVICE_UNAVAILABLE if ai_error_code(exc) in AI_CONFIGURATION_ERROR_CODES else status.HTTP_502_BAD_GATEWAY
+    """Map provider/configuration/deadline failures to actionable HTTP statuses."""
+    code = ai_error_code(exc)
+    if code in AI_CONFIGURATION_ERROR_CODES:
+        return status.HTTP_503_SERVICE_UNAVAILABLE
+    if code == "PROVIDER_TIMEOUT":
+        return status.HTTP_504_GATEWAY_TIMEOUT
+    return status.HTTP_502_BAD_GATEWAY
 
 
 def _safe_ai_error_detail(exc, fallback):
     """Expose actionable local configuration errors, never raw provider responses."""
     message = str(exc).strip()
+    if ai_error_code(exc) == "PROVIDER_TIMEOUT":
+        return "La generación superó el tiempo máximo de procesamiento. La entrega quedó disponible para reintentar; revisá el proveedor o reducí la cantidad de respuestas."
     safe_prefixes = (
         "Falta GEMINI_API_KEY",
         "Falta OPENAI_API_KEY",
+        "Falta OPENAI_MODEL",
         "AI_PROVIDER debe ser",
         "GEMINI_MODEL no tiene un nombre válido.",
     )

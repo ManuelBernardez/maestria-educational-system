@@ -1,3 +1,5 @@
+> **Documento histórico — no usar como configuración operativa vigente.** Sus valores de timeout, proveedor y variables de aprobación de IA quedaron obsoletos. Para el estado actual, usá `render.yaml`, `backend/.env.example`, `docs/CONFIGURACION-IA-EXTERNA.md` y el informe raíz `ANALISIS-ESTABILIZACION-REFACTORING.md`. En particular, `AI_PROVIDER=mock` es el fallback, pero una configuración habilitada en `AIProviderConfig` puede seleccionar un proveedor externo.
+
 # Despliegue — MaestrIA en un único servicio
 
 Esta versión publica el sitio HTML5, el espacio docente y la API Django bajo **un mismo dominio**. Django sirve las páginas; WhiteNoise sirve los recursos de `frontend/assets`; `/api/` atiende la API. No se despliega un Static Site separado ni se necesita `API_INTERNAL_URL`.

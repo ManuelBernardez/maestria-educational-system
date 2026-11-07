@@ -1,6 +1,6 @@
 # Adaptación de Django al esquema PostgreSQL/Supabase — MaestrIA
 
-**Fecha:** 4 de noviembre de 2026  
+**Fecha:** 4 de noviembre de 2026
 **Alcance:** backend Django REST Framework y su contrato con el esquema post-migración de `public`.
 
 ## 1. Resultado y criterio de diseño

@@ -2,6 +2,7 @@ import asyncio
 from django.test import SimpleTestCase, Client
 from .ai import _mock, _validate_proposal, ai_error_code, default_rubric_for_question, generate_questions
 from .authentication import SupabasePrincipal
+from .api_views.common import ai_error_http_status
 
 class AIAdapterTests(SimpleTestCase):
     def test_mock_is_marked_as_demo(self):
@@ -90,6 +91,13 @@ class AIErrorTelemetryTests(SimpleTestCase):
         import httpx
         self.assertEqual(ai_error_code(httpx.ReadTimeout("private timeout data")), "PROVIDER_TIMEOUT")
 
+    def test_timeout_maps_to_gateway_timeout(self):
+        import httpx
+        self.assertEqual(ai_error_http_status(httpx.ReadTimeout("provider timed out")), 504)
+
+    def test_missing_provider_credentials_map_to_service_unavailable(self):
+        self.assertEqual(ai_error_http_status(RuntimeError("Falta GEMINI_API_KEY en el entorno del backend.")), 503)
+
 
 class AIRubricTests(SimpleTestCase):
     def test_mock_rubric_is_marked_as_demo_and_editable(self):
@@ -111,12 +119,19 @@ class SupabasePrincipalTests(SimpleTestCase):
 
 
 class APIRootTests(SimpleTestCase):
-    def test_root_serves_the_frontend_and_api_stays_json(self):
+    def test_root_serves_the_frontend_with_strict_csp_and_api_stays_json(self):
         home = Client().get("/")
         self.assertEqual(home.status_code, 200)
         self.assertIn("text/html", home["Content-Type"])
+        csp = home["Content-Security-Policy"]
+        self.assertIn("script-src 'self'", csp)
+        self.assertIn("style-src 'self' https://fonts.googleapis.com", csp)
+        self.assertIn("connect-src 'self' https://*.supabase.co https://*.supabase.com", csp)
+        self.assertNotIn("unsafe-inline", csp)
         health = Client().get("/api/health/")
         self.assertEqual(health["Content-Type"], "application/json")
+        # Browser CSP belongs to HTML documents; API JSON does not need style-src/connect-src.
+        self.assertNotIn("Content-Security-Policy", health)
 
     def test_health_endpoint_is_public(self):
         response = Client().get("/api/health/")
@@ -146,8 +161,18 @@ class TenantIsolationTests(TestCase):
         self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_a))
         response = self.client.get("/api/courses/")
         self.assertEqual(response.status_code, 200)
-        names = [item["name"] for item in response.data]
+        names = [item["name"] for item in response.data["results"]]
         self.assertEqual(names, ["Curso A"])
+
+    def test_course_list_uses_bounded_page_number_pagination(self):
+        from .authentication import SupabasePrincipal
+        self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_a))
+        Course.objects.create(owner_id=self.owner_a, name="Curso A2")
+        response = self.client.get("/api/courses/?page_size=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertIsNotNone(response.data["next"])
 
     def test_cross_tenant_course_is_not_retrievable(self):
         from .authentication import SupabasePrincipal
@@ -174,6 +199,28 @@ class TenantIsolationTests(TestCase):
         # The API enforces this for application writes under an owner-row lock.
         duplicate = Course.objects.create(owner_id=self.owner_a, name="curso a")
         self.assertTrue(Course.objects.filter(owner_id=self.owner_a, pk=duplicate.pk).exists())
+
+    def test_active_enrollment_rejects_archived_course(self):
+        from .authentication import SupabasePrincipal
+        from .models import Student
+        self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_a))
+        course = Course.objects.get(owner_id=self.owner_a)
+        course.active = False
+        course.save(update_fields=["active"])
+        student = Student.objects.create(owner_id=self.owner_a, name="Estudiante de prueba")
+        response = self.client.post("/api/enrollments/", {"course": course.id, "student": student.id, "status": "active"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("course", response.data)
+
+    def test_active_enrollment_rejects_inactive_student(self):
+        from .authentication import SupabasePrincipal
+        from .models import Student
+        self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_a))
+        course = Course.objects.get(owner_id=self.owner_a)
+        student = Student.objects.create(owner_id=self.owner_a, name="Estudiante inactivo", active=False)
+        response = self.client.post("/api/enrollments/", {"course": course.id, "student": student.id, "status": "active"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("student", response.data)
 
     def test_student_creation_requires_a_course(self):
         from .authentication import SupabasePrincipal

@@ -1,7 +1,7 @@
 # MaestrIA — revisión y rediseño UX/UI
 
-**Fecha:** 28 de octubre de 2026  
-**Alcance:** frontend docente y recorridos principales.  
+**Fecha:** 28 de octubre de 2026
+**Alcance:** frontend docente y recorridos principales.
 **Referencia visual aportada:** `index (1).html` (prototipo de Asistente de Corrección Docente).
 
 ## 1. Criterios de diseño utilizados

@@ -15,4 +15,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: python scripts/check_static_frontend.py
+      - run: npm run check:frontend

@@ -13,7 +13,7 @@ async function settleWithConcurrency(resources, concurrency = 4) {
       const index = nextIndex++;
       if (index >= resources.length) return;
       try {
-        results[index] = { status: 'fulfilled', value: await api.get(resources[index][1]) };
+        results[index] = { status: 'fulfilled', value: await api.list(resources[index][1]) };
       } catch (reason) {
         results[index] = { status: 'rejected', reason };
       }
@@ -86,7 +86,7 @@ export async function refreshAdmin() {
 export async function refreshInstitutionScope() {
   const memberships = (state.profile?.memberships || []).filter(item => item.status === 'active' && ['institution_admin', 'department_admin'].includes(item.role));
   if (!memberships.length || ['admin', 'superadmin'].includes(state.profile?.role)) return;
-  const results = await Promise.allSettled([api.get('admin/institutions/'), api.get('admin/institution-memberships/')]);
+  const results = await Promise.allSettled([api.list('admin/institutions/'), api.list('admin/institution-memberships/')]);
   if (results[0].status === 'fulfilled') state.data.admin.institutions = listFrom(results[0].value);
   else state.errors.institution_scope = errorText(results[0].reason);
   if (results[1].status === 'fulfilled') state.data.admin.memberships = listFrom(results[1].value);
@@ -193,7 +193,10 @@ export async function afterWrite(message, keys = []) {
   } catch {
     // El resumen es complementario: no hacer fallar la operación de escritura por él.
   }
-  if (state.profile && ['admin', 'superadmin'].includes(state.profile.role)) await refreshAdmin();
+  if (keys.includes('admin') && state.profile) {
+    if (['admin', 'superadmin'].includes(state.profile.role)) await refreshAdmin();
+    else if (['institution_admin', 'department_admin'].includes(state.profile.role)) await refreshInstitutionScope();
+  }
   // Recarga solo las listas afectadas (pasadas por el llamador), no todas las cargadas.
   await reloadResources(keys);
   if (state.view === 'course') state.view = 'course';
@@ -209,5 +212,5 @@ export async function afterWrite(message, keys = []) {
 /** Vuelve a pedir solo las listas indicadas tras una escritura (p. ej. cursos tras crear uno).
  *  Usa `loadOne` para forzar el refetch incluso si la lista ya estaba cargada. */
 export async function reloadResources(keys) {
-  await Promise.all((keys || []).map(key => (RESOURCES[key] ? loadOne(key) : Promise.resolve())));
+  await Promise.all((keys || []).map(async key => { if (RESOURCES[key] && await loadOne(key)) loaded.add(key); }));
 }

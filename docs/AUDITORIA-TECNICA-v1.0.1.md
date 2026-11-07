@@ -1,7 +1,7 @@
 # Auditoría técnica — MaestrIA v1.0.1
 
-**Fecha:** 5 de noviembre de 2026  
-**Base revisada:** `maestria-starter-v1.0.0.zip`  
+**Fecha:** 5 de noviembre de 2026
+**Base revisada:** `maestria-starter-v1.0.0.zip`
 **Alcance:** frontend, API, autenticación, permisos, persistencia, configuración, seguridad, concurrencia, ciclo de vida, accesibilidad y CI.
 
 ## 1. Resumen ejecutivo

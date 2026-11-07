@@ -4,7 +4,7 @@ Plataforma educativa para asistir a docentes en la preparación de evaluaciones,
 
 ## Configuración de IA
 
-Consultar [`docs/CONFIGURAR-IA.md`](docs/CONFIGURAR-IA.md) para activar OpenAI API, usar Ollama privado o evaluar Gemini sin exponer contenido estudiantil al tier gratuito.
+Consultar [`docs/CONFIGURACION-IA-EXTERNA.md`](docs/CONFIGURACION-IA-EXTERNA.md) para configurar OpenAI, Gemini u Ollama. La configuración externa puede enviar contenido de entregas a un tercero: revisar el informe de estabilización y las condiciones institucionales antes de habilitarla.
 
 ## Arquitectura
 
@@ -32,17 +32,20 @@ No se necesita `npm install`, `npm run build` ni `node_modules` para ejecutar el
 ```powershell
 cd backend
 py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Completá `backend/.env` con `DJANGO_SECRET_KEY`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` si corresponde y la configuración del proveedor IA (ver `docs/CONFIGURAR-IA.md`). `backend/.env` está excluido de Git. En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`.
+Usá siempre `backend\.venv\Scripts\python.exe` para instalar dependencias, ejecutar chequeos y levantar Django. Así evitás mezclar el Django instalado globalmente con paquetes de otro intérprete (por ejemplo, `corsheaders` o `rest_framework`). Si el proyecto se ejecuta con Python 3.13, creá el entorno con `py -3.13 -m venv .venv`; el archivo `requirements.txt` instala las dependencias runtime y de desarrollo en ese mismo entorno.
 
-Iniciá la aplicación integrada:
+Completá `backend/.env` con `DJANGO_SECRET_KEY`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` si corresponde y la configuración del proveedor IA (ver `docs/CONFIGURACION-IA-EXTERNA.md`). `backend/.env` está excluido de Git. En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`.
+
+Validá e iniciá la aplicación integrada con el mismo intérprete del entorno virtual:
 
 ```powershell
-python manage.py runserver 127.0.0.1:8000
+.\.venv\Scripts\python.exe manage.py check
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
 ```
 
 La API queda en `http://127.0.0.1:8000/api`. `GET /api/client-config/` entrega únicamente `SUPABASE_URL` y la clave pública anon. Las claves de Gemini/OpenAI y todos los secretos permanecen en el backend.
@@ -94,7 +97,7 @@ Para un preview estático en `localhost:5500`, `config.js` apunta al backend loc
 
 ## Comportamiento IA y revisión humana
 
-La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue propone OpenAI API (`gpt-6-luna`); la clave se guarda exclusivamente en el backend y la aprobación de procesamiento externo permanece desactivada hasta la decisión documentada del responsable. OpenAI indica que los datos de API no se usan para entrenar modelos por defecto, aunque los registros de monitoreo de abuso pueden conservarse hasta 30 días. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno. Consultá `docs/CONFIGURAR-IA.md` antes de activar un proveedor.
+La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue usa `mock` por defecto; para activar OpenAI hay que configurar explícitamente `OPENAI_API_KEY` y `OPENAI_MODEL` con un modelo habilitado en el proyecto. Las credenciales se guardan exclusivamente en el backend. La activación de procesamiento externo requiere una decisión institucional y una revisión de las condiciones vigentes de tratamiento y retención del proveedor. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno; por eso `AI_PROVIDER=mock` no deshabilita una configuración externa activa en base de datos. Consultá `docs/CONFIGURACION-IA-EXTERNA.md` y `ANALISIS-ESTABILIZACION-REFACTORING.md` antes de activar un proveedor.
 
 Los datos de práctica se crean mediante `POST /api/demo/seed/` bajo confirmación explícita y se identifican como ficticios. No son datos de producción ni una autenticación simulada del frontend.
 
@@ -141,7 +144,7 @@ La suite backend usa PostgreSQL y un esquema de prueba separado. No apunta a Sup
 
 ## Despliegue en Render
 
-El `render.yaml` despliega un único Web Service Python: Django sirve el frontend y la API desde el mismo origen. No hay servicio estático separado ni build de Node. Configurá `DATABASE_URL` con Shared Pooler IPv4 de Supabase cuando Render no tenga IPv6; para este backend persistente, preferí session mode (puerto 5432) y copiá la URI exacta desde Supabase > Connect. Configurá Supabase URL/anon key/JWT secret y la clave del proveedor IA sólo en el backend. En este MVP el adaptador de IA no exige validar el nivel gratuito o pago del proveedor: con `GEMINI_API_KEY` configurada las correcciones funcionan de forma inmediata. Si más adelante se pasa a producción con datos reales de estudiantes, un responsable debe revisar finalidad, base legal, información a docentes y términos/retención del proveedor (releé `docs/CONFIGURACION-IA-EXTERNA.md`). Guardá los cambios en el entorno del backend y reiniciá/reimplementá el servicio. No existe un interruptor equivalente para docentes en el navegador. Confirmá Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
+El `render.yaml` despliega un único Web Service Python: Django sirve el frontend y la API desde el mismo origen. No hay servicio estático separado ni build de Node. Configurá `DATABASE_URL` con Shared Pooler IPv4 de Supabase cuando Render no tenga IPv6; para este backend persistente, preferí session mode (puerto 5432) y copiá la URI exacta desde Supabase > Connect. Configurá Supabase URL/anon key/JWT secret y la clave del proveedor IA sólo en el backend. En este MVP el adaptador no valida automáticamente el nivel gratuito o pago del proveedor: si se configura Gemini y hay credenciales válidas, las correcciones pueden enviar contenido al proveedor. Antes de procesar datos reales, un responsable debe revisar finalidad, base legal, información a docentes y términos/retención del proveedor (releé `docs/CONFIGURACION-IA-EXTERNA.md`). Una fila habilitada en `public.ai_provider_config` puede sobreescribir `AI_PROVIDER=mock`. Guardá los cambios en el entorno del backend y reiniciá/reimplementá el servicio. No existe un interruptor equivalente para docentes en el navegador. Confirmá Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
 
 No habilites despliegue final hasta comprobar login, logout, recuperación de contraseña, contacto, CRUD docente, aislamiento de dos propietarios, permisos administrativos y generación IA real con una configuración de privacidad aprobada.
 
@@ -165,7 +168,7 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - `docs/AUDITORIA-TECNICA-2026-11-05.md`: hallazgos, cambios y riesgos pendientes.
 - `docs/ADAPTACION-DJANGO-POSTGRESQL-SUPABASE-2026-11-04.md`: adaptación del ORM, permisos, migraciones y administración.
 - `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
-- `docs/CONFIGURACION-IA-EXTERNA.md`: pasos para revisar y habilitar proveedores externos sin desactivar el bloqueo por defecto.
+- `docs/CONFIGURACION-IA-EXTERNA.md`: referencia para configurar proveedores externos y revisar el tratamiento de datos antes de habilitarlos.
 - `docs/CHANGELOG-v1.0.7.md`: resumen de correcciones, privacidad, visualización numérica y rediseño del espacio docente.
 - `docs/CHANGELOG-v1.0.8.md`: optimizaciones de carga, limpieza del frontend y correcciones de backend.
 - `docs/CHANGELOG-v1.0.9.md`: réplica nativa del panel docente, espacio de trabajo integrado y navegación con deep links.
@@ -183,7 +186,7 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 
 ## Despliegue
 
-La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Seguí `docs/DEPLOYMENT-v0.2.0.md` para completar las variables privadas y `docs/CONFIGURAR-IA.md` para activar OpenAI API u Ollama. No cargar `backend/.env` en Git.
+La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Usá `render.yaml`, `backend/.env.example`, `docs/CONFIGURACION-IA-EXTERNA.md` y el informe vigente `ANALISIS-ESTABILIZACION-REFACTORING.md` para completar las variables privadas y habilitar un proveedor. `docs/DEPLOYMENT-v0.2.0.md` es histórico y no debe usarse como receta operativa. No cargar `backend/.env` en Git.
 
 
 

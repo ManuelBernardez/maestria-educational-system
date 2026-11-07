@@ -28,8 +28,8 @@ services:
       - key: FRONTEND_URL
         sync: false
       # IA: usar 'mock' por defecto en producción hasta que se configure un proveedor real.
-      # Configurar manualmente OPENAI_API_KEY y un modelo válido (no usar nombres inexistentes
-      # como gpt-6-luna) antes de cambiar a openai/gemini/ollama.
+      # Para un proveedor real, configurar sus credenciales y un identificador de modelo
+      # vigente y compatible con el endpoint usado por el adaptador.
       - key: AI_PROVIDER
         value: mock
       - key: OPENAI_API_KEY

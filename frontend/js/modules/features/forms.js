@@ -48,7 +48,7 @@ export async function handleModalSubmit(form, button) {
         // The assessment relationship is immutable after creation; do not send a stale FK in PATCH.
         await api.patch(`questions/${modal.dataset.recordId}/`, payload);
       }
-      closeModal(true); state.assessmentEditor = await loadAssessmentEditor(assessmentId); await afterWrite(kind === 'new-question' ? 'Consigna creada.' : 'Consigna actualizada.');
+      closeModal(true); state.assessmentEditor = await loadAssessmentEditor(assessmentId); await afterWrite(kind === 'new-question' ? 'Consigna creada.' : 'Consigna actualizada.', ['assessments']);
     } else if (kind === 'new-rubric' || kind === 'edit-rubric') {
       const payload = { title: values.title.trim(), description: values.description.trim(), scale_type: values.scale_type };
       if (kind === 'edit-rubric') {
@@ -68,10 +68,10 @@ export async function handleModalSubmit(form, button) {
       closeModal(true);
       const skipped = Number(result.skipped || 0);
       const reasons = (result.errors || []).slice(0, 3).map(item => `fila ${item.row}: ${item.reason}`).join('; ');
-      await afterWrite(`Importación finalizada: ${result.created ?? 0} estudiantes agregados${skipped ? `, ${skipped} omitidos (${reasons})` : ''}.`);
+      await afterWrite(`Importación finalizada: ${result.created ?? 0} estudiantes agregados${skipped ? `, ${skipped} omitidos (${reasons})` : ''}.`, ['students', 'enrollments']);
     } else if (kind === 'enroll-student') {
       await api.post('enrollments/', { course: Number(modal.dataset.courseId), student: Number(values.student), status: 'active', notes: values.notes.trim() });
-      closeModal(true); await afterWrite('Estudiante matriculado.');
+      closeModal(true); await afterWrite('Estudiante matriculado.', ['students', 'enrollments']);
     } else if (kind === 'new-submission') {
       const file = form.querySelector('[name="file"]')?.files?.[0];
       if (file) {
@@ -84,7 +84,7 @@ export async function handleModalSubmit(form, button) {
         if (!values.answer_text.trim()) throw new Error('Ingresá una respuesta o seleccioná un archivo.');
         await api.post('submissions/', { assessment: Number(values.assessment), question: values.question ? Number(values.question) : null, student: values.student ? Number(values.student) : null, student_name: values.student_name.trim(), answer_text: values.answer_text.trim(), source_type: 'text' });
       }
-      closeModal(true); await afterWrite('Entrega registrada.');
+      closeModal(true); await afterWrite('Entrega registrada.', ['submissions']);
     } else if (kind === 'generate-questions') {
       const result = await api.post(`assessments/${modal.dataset.recordId}/generate-questions/`, { count: Number(values.count) });
       state.questionProposal = { assessmentId: Number(modal.dataset.recordId), result };
@@ -115,20 +115,20 @@ export async function handleModalSubmit(form, button) {
       await api.post('rubrics/create-with-criteria/', {
         title: values.title.trim(), description: values.description.trim(), scale_type: values.scale_type || 'both', criteria
       });
-      closeModal(true); await afterWrite('Rúbrica propuesta guardada.');
+      closeModal(true); await afterWrite('Rúbrica propuesta guardada.', ['rubrics']);
     } else if (kind === 'new-criterion') {
       const existingRubric = state.data.rubrics.find(item => String(item.id) === String(modal.dataset.rubricId));
       await api.post('rubric-criteria/', { rubric: Number(modal.dataset.rubricId), name: values.name.trim(), max_score: Number(values.max_score), weight: Number(values.weight || 1), description: values.description.trim(), position: (existingRubric?.criteria?.length || 0) + 1 });
-      closeModal(true); await afterWrite('Criterio agregado.');
+      closeModal(true); await afterWrite('Criterio agregado.', ['rubrics']);
     } else if (kind === 'edit-criterion') {
       await api.patch(`rubric-criteria/${modal.dataset.recordId}/`, { name: values.name.trim(), max_score: Number(values.max_score), weight: Number(values.weight || 0), description: values.description.trim() });
-      closeModal(true); await afterWrite('Criterio actualizado.');
+      closeModal(true); await afterWrite('Criterio actualizado.', ['rubrics']);
     } else if (kind === 'new-level') {
       await api.post('rubric-levels/', { criterion: Number(modal.dataset.criterionId), name: values.name.trim(), score: Number(values.score), description: values.description.trim(), position: 1 });
-      closeModal(true); await afterWrite('Nivel agregado.');
+      closeModal(true); await afterWrite('Nivel agregado.', ['rubrics']);
     } else if (kind === 'edit-level') {
       await api.patch(`rubric-levels/${modal.dataset.recordId}/`, { name: values.name.trim(), score: Number(values.score), description: values.description.trim() });
-      closeModal(true); await afterWrite('Nivel actualizado.');
+      closeModal(true); await afterWrite('Nivel actualizado.', ['rubrics']);
     } else if (kind === 'new-admin-user' || kind === 'edit-admin-user') {
       const payload = { email: values.email.trim(), full_name: values.full_name.trim(), role: values.role, status: values.status, suspension_reason: values.suspension_reason.trim() };
       if (kind === 'new-admin-user') { payload.user_id = values.user_id.trim(); await api.post('admin/users/', payload); }
@@ -223,7 +223,7 @@ export async function handleGenerateCorrection(form, button) {
   const values = formValues(form);
   try {
     button.disabled = true; button.textContent = 'Generando…';
-    const result = await api.post(`submissions/${state.currentSubmission.id}/generate-correction/`, { rubric_id: values.rubric_id ? Number(values.rubric_id) : null, feedback_style: values.feedback_style || state.feedbackStyle || 'constructivo' }, { timeoutMs: 90000 });
+    const result = await api.post(`submissions/${state.currentSubmission.id}/generate-correction/`, { rubric_id: values.rubric_id ? Number(values.rubric_id) : null, feedback_style: values.feedback_style || state.feedbackStyle || 'constructivo' }, { timeoutMs: 150000 });
     state.currentCorrection = result; state.selectedCorrection = result.id; state.view = 'correction';
     if (state.currentSubmission) state.currentSubmission = { ...state.currentSubmission, status: 'review' };
     await afterWrite(result.proposal?.demo ? 'Se generó una propuesta de demostración.' : 'Propuesta generada.', ['corrections', 'submissions']);

@@ -11,7 +11,7 @@ export function renderAdmin() {
   const providerMatches = data.providers.filter(item => !q || `${item.provider || ''} ${item.model_name || ''}`.toLocaleLowerCase('es-AR').includes(q));
   const membershipMatches = data.memberships.filter(item => !q || `${item.institution_name || ''} ${item.user_id || ''} ${item.role || ''} ${item.status || ''}`.toLocaleLowerCase('es-AR').includes(q));
   const messageMatches = data.messages.filter(item => !q || `${item.subject || ''} ${item.name || ''} ${item.email || ''} ${item.category || ''}`.toLocaleLowerCase('es-AR').includes(q));
-  
+
   const userRows = userMatches.map(user => `<tr><td><button type="button" class="entity-link" data-action="edit-admin-user" data-id="${escapeHtml(user.id)}">${escapeHtml(user.full_name || 'Sin nombre')}</button><small>${escapeHtml(user.email)}</small></td><td><span class="admin-role-label">${escapeHtml(user.role)}</span></td><td>${statusPill(user.status)}</td><td>${btn('Editar perfil', 'edit-admin-user', `data-id="${escapeHtml(user.id)}"`)}</td></tr>`);
   const institutionRows = institutionMatches.map(item => `<tr><td><button type="button" class="entity-link" data-action="edit-institution" data-id="${escapeHtml(item.id)}">${escapeHtml(item.name)}</button><small>${escapeHtml(item.slug || '')}</small></td><td>${escapeHtml(item.contact_email || '—')}</td><td>${statusPill(item.status)}</td><td><div class="table-actions">${btn('Editar', 'edit-institution', `data-id="${escapeHtml(item.id)}"`)}${btn('Membresías', 'manage-institution', `data-id="${escapeHtml(item.id)}"`)}</div></td></tr>`);
   const membershipRows = membershipMatches.map(item => `<tr><td>${escapeHtml(item.institution_name || item.institution)}</td><td><code>${escapeHtml(item.user_id)}</code></td><td>${escapeHtml(item.role)}</td><td>${statusPill(item.status)}</td><td>${btn('Editar', 'edit-membership', `data-id="${escapeHtml(item.id)}"`)}${item.status === 'active' ? btn('Suspender', 'suspend-membership', `data-id="${escapeHtml(item.id)}"`) : ''}</td></tr>`);
@@ -22,7 +22,7 @@ export function renderAdmin() {
   const enabledProviders = data.providers.filter(item => item.enabled).length;
   const superAdmin = state.profile?.role === 'superadmin';
   const tabs = [['users', 'Usuarios'], ['institutions', 'Instituciones'], ['services', 'Servicios e IA'], ['messages', 'Contacto'], ['audit', 'Auditoría']];
-  
+
   return `${heading('Administración', 'Gestioná las cuentas, las instituciones y los servicios de la plataforma.', `${btn('Crear institución', 'new-institution', '', 'primary')}`)}
     <section class="admin-overview-grid"><article><span>Perfiles</span><strong>${data.users.length}</strong><small>Identidades registradas</small></article><article><span>Instituciones</span><strong>${data.institutions.length}</strong><small>Organizaciones registradas</small></article><article><span>Proveedores IA activos</span><strong>${enabledProviders}</strong><small>${data.providers.length} configuraciones</small></article></section>
     <nav class="admin-tabs" aria-label="Secciones de administración">${tabs.map(([id, label]) => `<button type="button" class="admin-tab ${state.adminTab === id ? 'active' : ''}" data-admin-tab="${id}" aria-selected="${state.adminTab === id}">${label}</button>`).join('')}</nav>

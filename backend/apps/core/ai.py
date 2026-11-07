@@ -108,11 +108,15 @@ def _provider_settings(provider_config=None):
     provider = str(config.get("provider") or os.getenv("AI_PROVIDER", "mock")).strip().lower()
     defaults = {
         "gemini": os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        "openai": os.getenv("OPENAI_MODEL", "gpt-6-luna"),
+        # No fijar un identificador de modelo ficticio: OpenAI debe configurarse
+        # explícitamente con uno habilitado para el proyecto.
+        "openai": os.getenv("OPENAI_MODEL", ""),
         "ollama": os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
         "mock": "",
     }
-    model_name = str(config.get("model_name") or defaults.get(provider, ""))
+    model_name = str(config.get("model_name") or defaults.get(provider, "")).strip()
+    if provider == "openai" and not model_name:
+        raise RuntimeError("Falta OPENAI_MODEL: configurá un modelo de Chat Completions disponible en tu proyecto.")
     try:
         timeout = min(max(int(config.get("timeout_seconds") or os.getenv("AI_TIMEOUT_SECONDS", "60")), 5), MAX_PROVIDER_TIMEOUT)
     except (TypeError, ValueError):
@@ -250,15 +254,14 @@ def _mock(question, answer, rubric, max_score, feedback_style="constructivo"):
 async def _openai(question, answer, rubric, max_score, feedback_style="constructivo", model_name=None, timeout_seconds=18, http_client: httpx.AsyncClient | None = None):
     key = os.getenv("OPENAI_API_KEY")
     if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-    model = model_name or os.getenv("OPENAI_MODEL", "gpt-6-luna")
+    model = model_name or os.getenv("OPENAI_MODEL", "").strip()
     payload = {"model": model, "response_format": {"type": "json_object"}, "messages": [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps({"question": question, "answer": answer, "rubric": rubric, "max_score": max_score, "feedback_style": feedback_style}, ensure_ascii=False)}
     ], "temperature": 0.1}
-    if model.startswith("gpt-6-luna"):
-        payload.update({"reasoning_effort": "none", "max_completion_tokens": 4096})
-    else:
-        payload["max_tokens"] = 4096
+    if not model:
+        raise RuntimeError("Falta OPENAI_MODEL: configurá un modelo de Chat Completions disponible en tu proyecto.")
+    payload["max_completion_tokens"] = 4096
     response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout_seconds, http_client=http_client)
     raw = response.json()["choices"][0]["message"]["content"]
     return _validate_proposal(json.loads(raw), rubric, max_score, answer)
@@ -294,7 +297,7 @@ def ai_error_code(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         status_name = provider_error_info(exc)[1]
         return (f"HTTP_{exc.response.status_code}" + (f"_{status_name}" if status_name else ""))[:80]
-    if isinstance(exc, httpx.TimeoutException):
+    if isinstance(exc, (httpx.TimeoutException, TimeoutError, asyncio.TimeoutError)):
         return "PROVIDER_TIMEOUT"
     if isinstance(exc, httpx.ConnectError):
         return "PROVIDER_CONNECTION_ERROR"
@@ -302,6 +305,7 @@ def ai_error_code(exc: Exception) -> str:
     safe_categories = (
         ("Falta GEMINI_API_KEY", "MISSING_GEMINI_API_KEY"),
         ("Falta OPENAI_API_KEY", "MISSING_OPENAI_API_KEY"),
+        ("Falta OPENAI_MODEL", "MISSING_OPENAI_MODEL"),
         ("GEMINI_MODEL no tiene un nombre válido.", "INVALID_GEMINI_MODEL"),
         ("AI_PROVIDER debe ser", "INVALID_AI_PROVIDER"),
     )
@@ -507,12 +511,11 @@ async def generate_questions(*, title: str, subject: str, level: str, objectives
     elif provider == "openai":
         key = os.getenv("OPENAI_API_KEY")
         if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-        model = model_name or os.getenv("OPENAI_MODEL", "gpt-6-luna")
+        model = model_name or os.getenv("OPENAI_MODEL", "").strip()
         payload = {"model": model, "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(context, ensure_ascii=False)}], "temperature": 0.4}
-        if model.startswith("gpt-6-luna"):
-            payload.update({"reasoning_effort": "none", "max_completion_tokens": 4096})
-        else:
-            payload["max_tokens"] = 4096
+        if not model:
+            raise RuntimeError("Falta OPENAI_MODEL: configurá un modelo de Chat Completions disponible en tu proyecto.")
+        payload["max_completion_tokens"] = 4096
         response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout, http_client=http_client)
         raw = response.json()["choices"][0]["message"]["content"]
     elif provider == "ollama":
@@ -559,12 +562,11 @@ async def generate_rubric(*, title: str, subject: str, level: str, objectives: s
     elif provider == "openai":
         key = os.getenv("OPENAI_API_KEY")
         if not key: raise RuntimeError("Falta OPENAI_API_KEY")
-        model = model_name or os.getenv("OPENAI_MODEL", "gpt-6-luna")
+        model = model_name or os.getenv("OPENAI_MODEL", "").strip()
         payload = {"model": model, "response_format": {"type": "json_object"}, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.3}
-        if model.startswith("gpt-6-luna"):
-            payload.update({"reasoning_effort": "none", "max_completion_tokens": 4096})
-        else:
-            payload["max_tokens"] = 4096
+        if not model:
+            raise RuntimeError("Falta OPENAI_MODEL: configurá un modelo de Chat Completions disponible en tu proyecto.")
+        payload["max_completion_tokens"] = 4096
         response = await _post_json("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, payload=payload, timeout=timeout, http_client=http_client)
         raw = response.json()["choices"][0]["message"]["content"]
     elif provider == "ollama":

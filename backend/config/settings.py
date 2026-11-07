@@ -162,9 +162,7 @@ REST_FRAMEWORK = {
     },
     # Paginar los listados por defecto para evitar respuestas ilimitadas a medida que
     # crecen los cursos, entregas, correcciones y mensajes de administración.
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": int(os.getenv("API_PAGE_SIZE", "20")),
-    "MAX_PAGE_SIZE": int(os.getenv("API_MAX_PAGE_SIZE", "100")),
+    "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.BoundedPageNumberPagination",
 }
 
 # Upload/body limits are intentionally conservative; CSV import also checks 2 MB and 500 rows.

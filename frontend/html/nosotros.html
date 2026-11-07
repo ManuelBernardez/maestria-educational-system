@@ -31,7 +31,7 @@
 
 <body>
   <a class="skip-link" href="#contenido">Saltar al contenido</a>
-  <div class="scroll-progress" aria-hidden="true"></div>
+  <progress class="scroll-progress" max="100" value="0" aria-label="Progreso de lectura"></progress>
   <header class="site-header">
     <a class="brand" href="index.html" aria-label="MaestrIA, inicio"><img class="brand-logo"
         src="/assets/images/maestria-logo.png" alt="MaestrIA"></a>
@@ -49,8 +49,8 @@
     <section class="contact-section section-pad" id="contacto" aria-labelledby="contact-title">
       <div class="contact-copy reveal">
         <h2 id="contact-title">¿Tenés una pregunta o querés conocer más? <em>Nos interesa escucharte.</em></h2>
-        <p>Dejanos tu consulta, una sugerencia o tu interés en participar de una instancia de validación. El mensaje se
-          prepara en tu aplicación de correo para que puedas revisarlo antes de enviarlo.</p>
+        <p>Dejanos tu consulta, una sugerencia o tu interés en participar de una instancia de validación. El formulario
+          envía el mensaje a MaestrIA y confirma su recepción en esta misma página.</p>
         <div class="contact-aside">
           <p><strong>Un proyecto que se construye con docentes</strong><br>La experiencia de quienes enseñan es clave
             para validar la utilidad y el sentido de la propuesta</p>
@@ -58,6 +58,10 @@
       </div>
       <form class="contact-form reveal" id="contact-form" data-contact-form>
         <input type="hidden" name="category" value="general">
+        <div class="contact-honeypot" aria-hidden="true">
+          <label for="contact-website">No completar este campo</label>
+          <input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off">
+        </div>
         <div class="form-field"><label for="contact-name">Nombre</label><input id="contact-name" name="name" type="text"
             autocomplete="name" maxlength="100" placeholder="nombre" required></div>
         <div class="form-field"><label for="contact-email">Correo electrónico</label><input id="contact-email"

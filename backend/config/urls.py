@@ -44,19 +44,18 @@ def frontend_file(request, frontend_path=""):
     response["Cross-Origin-Resource-Policy"] = "same-origin"
     if candidate.suffix.lower() in {".html", ".htm"}:
         response["Cache-Control"] = "no-store, max-age=0"
-        # La aplicación usa un script en línea reducido (tema) en espacio-docente/index.html;
-        # se permite 'unsafe-inline' solo para scripts, el resto se restringe a mismo origen.
-        # El frontend contacta al Auth de Supabase desde el navegador para OAuth y
-        # refresco de tokens; esas llamadas salen a *.supabase.co y deben estar permitidas.
+        # CSP belongs on the HTML document: its connect-src directive governs
+        # browser fetches to Supabase Auth. All inline scripts/styles were removed.
         response["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
             "style-src 'self' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
             "connect-src 'self' https://*.supabase.co https://*.supabase.com; "
             "object-src 'none'; "
             "base-uri 'self'; "
+            "form-action 'self'; "
             "frame-ancestors 'none'"
         )
     elif candidate.suffix.lower() in {".js", ".css", ".csv"}:

@@ -10,6 +10,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
+EXCLUDED_DIRS = {".venv", "venv", "__pycache__", ".pytest_cache", ".ruff_cache", "staticfiles", "node_modules"}
 
 
 def fail(message: str) -> None:
@@ -54,7 +55,10 @@ def defined_names(module_name: str) -> set[str]:
 
 
 errors: list[str] = []
-files = sorted(BACKEND.rglob("*.py"))
+files = sorted(
+    path for path in BACKEND.rglob("*.py")
+    if not any(part in EXCLUDED_DIRS for part in path.relative_to(BACKEND).parts)
+)
 for source_file in files:
     relative = source_file.relative_to(BACKEND).with_suffix("")
     package_parts = list(relative.parts[:-1])

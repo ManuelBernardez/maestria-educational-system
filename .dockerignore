@@ -1,0 +1,24 @@
+# Repository and local secrets
+.git
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+**/secrets/**
+
+# Python environments/caches and generated output
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/staticfiles
+**/db.sqlite3
+
+# Frontend/build caches
+**/node_modules
+**/dist
+**/.astro
+**/.next

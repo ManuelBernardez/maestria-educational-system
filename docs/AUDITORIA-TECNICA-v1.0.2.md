@@ -1,3 +1,5 @@
+> **Auditoría histórica:** sus conclusiones de autorización de IA y algunos detalles de implementación quedaron superados por cambios posteriores. Usá el informe raíz `ANALISIS-ESTABILIZACION-REFACTORING.md` como auditoría vigente.
+
 # MaestrIA v1.0.2 — auditoría de rendimiento, guía, estadísticas, IA y Supabase
 
 Fecha de auditoría: 5 de noviembre de 2026.

@@ -195,11 +195,31 @@
     }
   }
 
-  async function list(path) {
-    const payload = await request(path);
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.results)) return payload.results;
-    return [];
+  function paginationPath(urlValue) {
+    const base = new URL(`${API_BASE.replace(/\/+$/, '')}/`, window.location.origin);
+    const target = new URL(urlValue, base);
+    if (target.origin !== base.origin || !target.pathname.startsWith(base.pathname)) {
+      throw new Error('El backend devolvió un enlace de paginación fuera de la API configurada.');
+    }
+    return `${target.pathname.slice(base.pathname.length)}${target.search}`;
+  }
+
+  async function list(path, options = {}) {
+    const initial = new URL(safePath(path), window.location.origin);
+    if (!initial.searchParams.has('page_size')) initial.searchParams.set('page_size', '100');
+    let nextPath = paginationPath(initial.href);
+    const items = [];
+    const maxPages = 100;
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const payload = await request(nextPath, options);
+      if (Array.isArray(payload)) return page ? items.concat(payload) : payload;
+      if (!payload || !Array.isArray(payload.results)) return items;
+      items.push(...payload.results);
+      if (!payload.next) return items;
+      nextPath = paginationPath(payload.next);
+    }
+    throw new Error(`El listado supera el límite de ${maxPages} páginas por consulta. Aplicá filtros para acotar los resultados.`);
   }
   async function authRequest(path, method, body) {
     const auth = await loadClientConfig();

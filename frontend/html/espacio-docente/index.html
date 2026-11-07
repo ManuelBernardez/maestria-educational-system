@@ -6,15 +6,7 @@
   <meta name="theme-color" content="#f4f1e8">
   <meta name="description" content="Espacio docente de MaestrIA.">
   <meta name="robots" content="noindex,nofollow">
-  <script>
-    (function () {
-      try {
-        var saved = sessionStorage.getItem('maestria-theme');
-        var preferred = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.dataset.theme = saved === 'dark' || saved === 'light' ? saved : preferred;
-      } catch (_) { document.documentElement.dataset.theme = 'light'; }
-    })();
-  </script>
+  <script src="/assets/js/theme-init.js"></script>
   <title>Espacio docente — MaestrIA</title>
   <link rel="icon" href="/assets/images/maestria-mark.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">

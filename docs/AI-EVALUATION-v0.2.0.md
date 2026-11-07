@@ -1,3 +1,5 @@
+> **Histórico:** las variables `AI_EXTERNAL_PROCESSING_APPROVED`, `AI_GEMINI_PAID_TIER_CONFIRMED` y `AI_GEMINI_FREE_TIER_SYNTHETIC_EVAL` ya no forman parte de la implementación vigente. Esta evaluación no es una guía de despliegue. Consultá `docs/CONFIGURACION-IA-EXTERNA.md` y `ANALISIS-ESTABILIZACION-REFACTORING.md`.
+
 # Integración y evaluación de IA — MaestrIA v0.2.0
 
 ## Decisión

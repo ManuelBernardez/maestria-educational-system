@@ -4,7 +4,7 @@
   "private": true,
   "description": "Frontend nativo HTML5, CSS y JavaScript ES modules. No requiere build de Node.",
   "scripts": {
-    "check:frontend": "python scripts/check_static_frontend.py && python scripts/check_workflow_contract.py && node --experimental-default-type=module scripts/check_display_numbers.mjs"
+    "check:frontend": "python scripts/check_static_frontend.py && python scripts/check_csp_contract.py && python scripts/check_workflow_contract.py && node --experimental-default-type=module scripts/check_display_numbers.mjs"
   },
   "type": "module"
 }

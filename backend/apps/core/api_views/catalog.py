@@ -41,6 +41,8 @@ from .common import (
     csv,
     fingerprint,
     generate_questions,
+    has_fresh_processing_submission,
+    lock_owner_profile,
     generate_rubric,
     io,
     logger,
@@ -75,14 +77,15 @@ class CourseViewSet(OwnerViewSet):
     def _save_course(self, serializer, **kwargs):
         owner_id = kwargs.get("owner_id") or self.request.user.id
         with transaction.atomic():
-            # El esquema canónico no tiene un índice único insensible a mayúsculas sobre
-            # (owner_id, name). Para serializar comprobaciones concurrentes de nombre
-            # duplicado sin tocar la tabla externa auth.users (que el rol de la aplicación
-            # puede no poder leer/bloquear en Supabase), se bloquean las filas propias
-            # del curso que coinciden por nombre antes de validar y guardar.
-            name = serializer.validated_data.get("name", getattr(serializer.instance, "name", "")).strip()
-            Course.objects.filter(owner_id=owner_id, name__iexact=name).select_for_update()
-            duplicates = Course.objects.filter(owner_id=owner_id, name__iexact=name)
+            # Serialize per-owner duplicate checks using the application-owned
+            # profile row; never lock Supabase's internal auth.users table.
+            lock_owner_profile(owner_id)
+            if serializer.instance:
+                serializer.instance = Course.objects.select_for_update().get(
+                    pk=serializer.instance.pk, owner_id=owner_id,
+                )
+            name = serializer.validated_data.get("name", getattr(serializer.instance, "name", ""))
+            duplicates = Course.objects.filter(owner_id=owner_id, name__iexact=name.strip())
             if serializer.instance:
                 duplicates = duplicates.exclude(pk=serializer.instance.pk)
             if duplicates.exists():
@@ -97,9 +100,15 @@ class CourseViewSet(OwnerViewSet):
         self._save_course(serializer)
 
     def perform_destroy(self, instance):
-        # Keep historical course/assessment relationships; deletion is logical.
-        instance.active = False
-        instance.save(update_fields=["active", "updated_at"])
+        # Serialize archival with enrollment writes and keep historical relations.
+        with transaction.atomic():
+            lock_owner_profile(self.request.user.id)
+            course = Course.objects.select_for_update().get(
+                pk=instance.pk, owner_id=self.request.user.id,
+            )
+            if course.active:
+                course.active = False
+                course.save(update_fields=["active", "updated_at"])
 
 class EnrollmentViewSet(OwnerViewSet):
     queryset = Enrollment.objects.all().select_related("course", "student")
@@ -107,26 +116,38 @@ class EnrollmentViewSet(OwnerViewSet):
 
     def perform_create(self, serializer):
         with transaction.atomic():
+            lock_owner_profile(self.request.user.id)
             course = serializer.validated_data["course"]
             student = serializer.validated_data["student"]
-            Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
-            Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
-            if serializer.validated_data.get("status", "active") == "active" and Enrollment.objects.filter(
+            course = Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
+            student = Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
+            next_status = serializer.validated_data.get("status", "active")
+            if next_status == "active" and not course.active:
+                raise ValidationError({"course": "No se puede activar una matrícula en un curso archivado."})
+            if next_status == "active" and not student.active:
+                raise ValidationError({"student": "No se puede activar una matrícula para un estudiante inactivo."})
+            if next_status == "active" and Enrollment.objects.filter(
                 owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active",
             ).exists():
                 raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
-            serializer.save(owner_id=self.request.user.id)
+            serializer.save(owner_id=self.request.user.id, course=course, student=student)
 
     def perform_update(self, serializer):
-        course = serializer.validated_data.get("course", serializer.instance.course)
-        student = serializer.validated_data.get("student", serializer.instance.student)
-        course = Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
-        student = Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
-        next_status = serializer.validated_data.get("status", serializer.instance.status)
-        if next_status == "active":
-            duplicate = Enrollment.objects.filter(owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active").exclude(pk=serializer.instance.pk)
-            if duplicate.exists():
-                raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
+        with transaction.atomic():
+            lock_owner_profile(self.request.user.id)
+            course = serializer.validated_data.get("course", serializer.instance.course)
+            student = serializer.validated_data.get("student", serializer.instance.student)
+            course = Course.objects.select_for_update().get(pk=course.pk, owner_id=self.request.user.id)
+            student = Student.objects.select_for_update().get(pk=student.pk, owner_id=self.request.user.id)
+            next_status = serializer.validated_data.get("status", serializer.instance.status)
+            if next_status == "active" and not course.active:
+                raise ValidationError({"course": "No se puede activar una matrícula en un curso archivado."})
+            if next_status == "active" and not student.active:
+                raise ValidationError({"student": "No se puede activar una matrícula para un estudiante inactivo."})
+            if next_status == "active":
+                duplicate = Enrollment.objects.filter(owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active").exclude(pk=serializer.instance.pk)
+                if duplicate.exists():
+                    raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
             serializer.save()
 
     def get_queryset(self):
@@ -169,6 +190,8 @@ class AssessmentViewSet(OwnerViewSet):
             assessment = Assessment.objects.select_for_update().get(
                 pk=serializer.instance.pk, owner_id=self.request.user.id,
             )
+            if has_fresh_processing_submission(assessment, self.request.user.id):
+                raise ValidationError({"assessment": "No se puede editar la evaluación mientras se procesa una corrección."})
             serializer.instance = assessment
             serializer.save()
 
@@ -203,6 +226,8 @@ class AssessmentViewSet(OwnerViewSet):
             assessment = Assessment.objects.select_for_update().get(
                 pk=assessment.pk, owner_id=request.user.id,
             )
+            if has_fresh_processing_submission(assessment, request.user.id):
+                raise ValidationError({"assessment": "No se puede cambiar el material mientras se procesa una corrección."})
             combined = (
                 text
                 if mode == "replace" or not assessment.reference_material
@@ -248,15 +273,23 @@ class StudentViewSet(OwnerViewSet):
     serializer_class = StudentSerializer
 
     def perform_update(self, serializer):
-        code = str(serializer.validated_data.get("external_code", getattr(serializer.instance, "external_code", ""))).strip()
-        if code:
-            duplicates = Student.objects.filter(owner_id=self.request.user.id, external_code=code).exclude(pk=serializer.instance.pk)
-            if duplicates.exists():
-                raise ValidationError({"external_code": "Ya existe un estudiante con ese código externo."})
+        with transaction.atomic():
+            lock_owner_profile(self.request.user.id)
+            serializer.instance = Student.objects.select_for_update().get(
+                pk=serializer.instance.pk, owner_id=self.request.user.id,
+            )
+            code = str(serializer.validated_data.get("external_code", getattr(serializer.instance, "external_code", ""))).strip()
+            if code:
+                duplicates = Student.objects.filter(owner_id=self.request.user.id, external_code=code).exclude(pk=serializer.instance.pk)
+                if duplicates.exists():
+                    raise ValidationError({"external_code": "Ya existe un estudiante con ese código externo."})
             serializer.save()
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+        # A profile-row mutex serializes external_code checks across all student
+        # writes for this owner without touching Supabase's internal Auth schema.
+        lock_owner_profile(request.user.id)
         course_id = request.data.get("course")
         try:
             course = Course.objects.select_for_update().get(pk=course_id, owner_id=request.user.id, active=True)
@@ -295,7 +328,8 @@ class StudentViewSet(OwnerViewSet):
                 raise ValidationError({"file": "El CSV debe incluir una columna name."})
             created, skipped, errors = 0, 0, []
             owner_id = request.user.id
-        course = Course.objects.select_for_update().get(pk=course.pk, owner_id=owner_id, active=True)
+            lock_owner_profile(owner_id)
+            course = Course.objects.select_for_update().get(pk=course.pk, owner_id=owner_id, active=True)
             seen_codes = set(Student.objects.filter(owner_id=owner_id).exclude(external_code="").values_list("external_code", flat=True))
             for row_number, row in enumerate(reader, start=2):
                 if row_number > 501:
@@ -435,6 +469,8 @@ class QuestionViewSet(OwnerViewSet):
             raise ValidationError("Evaluación no disponible.") from exc
         if assessment.status == "archived":
             raise ValidationError({"assessment": "No se pueden agregar consignas a una evaluación archivada."})
+        if has_fresh_processing_submission(assessment, self.request.user.id):
+            raise ValidationError({"assessment": "No se pueden modificar las consignas mientras se procesa una corrección."})
         position = (Question.objects.filter(assessment=assessment).aggregate(max_position=Max("position"))["max_position"] or 0) + 1
         serializer.save(owner_id=self.request.user.id, assessment=assessment, position=position)
         # Treat a question-list change as an assessment-context update so in-flight
@@ -447,6 +483,8 @@ class QuestionViewSet(OwnerViewSet):
         assessment = Assessment.objects.select_for_update().get(
             pk=requested_question.assessment_id, owner_id=self.request.user.id,
         )
+        if has_fresh_processing_submission(assessment, self.request.user.id):
+            raise ValidationError({"question": "No se pueden modificar consignas mientras se procesa una corrección."})
         question = Question.objects.select_for_update().get(
             pk=requested_question.pk, assessment=assessment, owner_id=self.request.user.id,
         )
@@ -460,6 +498,8 @@ class QuestionViewSet(OwnerViewSet):
             assessment = Assessment.objects.select_for_update().get(
                 pk=question.assessment_id, owner_id=request.user.id,
             )
+            if has_fresh_processing_submission(assessment, request.user.id):
+                raise ValidationError({"question": "No se pueden modificar consignas mientras se procesa una corrección."})
             # select_for_update() no admite el LEFT JOIN de select_related('rubric'): se bloquea la fila sola.
             question = Question.objects.select_for_update().get(pk=question.pk, assessment=assessment, owner_id=request.user.id)
             if Submission.objects.filter(question=question).exists() or SubmissionAnswer.objects.filter(question=question).exists():

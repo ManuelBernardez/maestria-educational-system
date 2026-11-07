@@ -16,6 +16,7 @@ from .common import (
     InvalidOperation,
     MAX_CORRECTION_ANSWERS,
     MAX_CORRECTION_INPUT_CHARS,
+    MAX_CORRECTION_GENERATION_SECONDS,
     MethodNotAllowed,
     MultiPartParser,
     NotFound,
@@ -369,7 +370,12 @@ class SubmissionViewSet(OwnerViewSet):
                 reservation_timestamp = locked_submission.updated_at
                 reservation_acquired = True
 
-            proposals = async_to_sync(generate_all_proposals)()
+            async def generate_with_deadline():
+                return await asyncio.wait_for(
+                    generate_all_proposals(), timeout=MAX_CORRECTION_GENERATION_SECONDS,
+                )
+
+            proposals = async_to_sync(generate_with_deadline)()
             for item, proposal in zip(prepared_items, proposals):
                 question_obj = item["question"]
                 answer_obj = item["answer_obj"]
@@ -412,7 +418,7 @@ class SubmissionViewSet(OwnerViewSet):
                 locked_submission = Submission.objects.select_for_update().get(
                     pk=submission.pk, owner_id=request.user.id,
                 )
-                # A worker whose 15-minute lease expired must not commit a stale
+                # A worker whose five-minute lease expired must not commit a stale
                 # proposal after another request reclaimed the submission.
                 if locked_submission.status != "processing" or locked_submission.updated_at != reservation_timestamp:
                     raise ValidationError({"submission": "El procesamiento fue reemplazado o venció. Recargá la entrega antes de intentar nuevamente."})

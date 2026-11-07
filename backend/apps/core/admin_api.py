@@ -499,6 +499,11 @@ class AIProviderConfigSerializer(serializers.ModelSerializer):
             value = attrs.get(field)
             if value is not None and value < 0:
                 raise serializers.ValidationError({field: "El costo no puede ser negativo."})
+        provider = attrs.get("provider", getattr(self.instance, "provider", ""))
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
+        model_name = attrs.get("model_name", getattr(self.instance, "model_name", ""))
+        if enabled and provider == "openai" and not str(model_name or "").strip():
+            raise serializers.ValidationError({"model_name": "Configurá un modelo OpenAI habilitado antes de activar este proveedor."})
         return attrs
 
 

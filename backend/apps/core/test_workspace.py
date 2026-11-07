@@ -148,9 +148,10 @@ class CorrectionWorkspaceApiTests(TestCase):
         response = self.client.get("/api/courses/?nav=1")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["id"], course.id)
-        self.assertEqual(set(response.data[0].keys()), {"id", "name", "subject", "level", "academic_year", "active"})
+        rows = response.data["results"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], course.id)
+        self.assertEqual(set(rows[0].keys()), {"id", "name", "subject", "level", "academic_year", "active"})
 
     def test_course_filters_limit_assessments_and_correction_summaries(self):
         course_a = Course.objects.create(owner_id=self.owner_id, name="Curso A")
@@ -166,9 +167,9 @@ class CorrectionWorkspaceApiTests(TestCase):
         corrections_response = self.client.get(f"/api/corrections/?summary=1&course={course_a.id}")
 
         self.assertEqual(assessments_response.status_code, 200)
-        self.assertEqual([item["id"] for item in assessments_response.data], [assessment_a.id])
+        self.assertEqual([item["id"] for item in assessments_response.data["results"]], [assessment_a.id])
         self.assertEqual(corrections_response.status_code, 200)
-        self.assertEqual([item["id"] for item in corrections_response.data], [correction_a.id])
+        self.assertEqual([item["id"] for item in corrections_response.data["results"]], [correction_a.id])
 
     def test_workspace_get_does_not_delete_synthetic_corrections(self):
         # GET is read-only. Cleaning demo data belongs to the explicit POST seed flow.
@@ -205,7 +206,7 @@ class CorrectionWorkspaceApiTests(TestCase):
         response = self.client.get("/api/submissions/")
 
         self.assertEqual(response.status_code, 200)
-        item = next(row for row in response.data if row["id"] == submission.pk)
+        item = next(row for row in response.data["results"] if row["id"] == submission.pk)
         self.assertLessEqual(len(item["answer_text"]), 301)
         self.assertNotIn("answers", item)
         self.assertNotEqual(item["answer_text"], "A" * 10_000)
@@ -301,7 +302,7 @@ class CorrectionWorkspaceApiTests(TestCase):
             )
         response = self.client.get("/api/corrections/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, [])
+        self.assertEqual(response.data["results"], [])
 
     def test_empty_proposal_cannot_be_approved(self):
         submission = Submission.objects.create(
@@ -372,6 +373,48 @@ class CorrectionWorkspaceApiTests(TestCase):
         submission.refresh_from_db()
         self.assertEqual(submission.assessment_id, self.assessment.id)
 
+    def test_submission_partial_edit_preserves_immutable_student_link(self):
+        student = Student.objects.create(
+            owner_id=self.owner_id, name="Estudiante vinculado", active=True,
+        )
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment, student=student,
+            student_name=student.name, answer_text="Respuesta original",
+        )
+
+        # The correction workspace only sends mutable fields when PATCHing an
+        # existing submission; omitting student must preserve its relation.
+        response = self.client.patch(
+            f"/api/submissions/{submission.id}/",
+            {"answer_text": "Respuesta corregida"}, format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        submission.refresh_from_db()
+        self.assertEqual(submission.answer_text, "Respuesta corregida")
+        self.assertEqual(submission.student_id, student.id)
+
+    def test_submission_still_rejects_actual_student_reassignment(self):
+        original_student = Student.objects.create(
+            owner_id=self.owner_id, name="Estudiante original", active=True,
+        )
+        other_student = Student.objects.create(
+            owner_id=self.owner_id, name="Otro estudiante", active=True,
+        )
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment, student=original_student,
+            student_name=original_student.name, answer_text="Respuesta original",
+        )
+
+        response = self.client.patch(
+            f"/api/submissions/{submission.id}/",
+            {"student": other_student.id}, format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        submission.refresh_from_db()
+        self.assertEqual(submission.student_id, original_student.id)
+
     def test_correction_summary_does_not_return_proposal_or_student_details(self):
         submission = Submission.objects.create(
             owner_id=self.owner_id, assessment=self.assessment,
@@ -385,10 +428,11 @@ class CorrectionWorkspaceApiTests(TestCase):
         response = self.client.get("/api/corrections/?summary=1")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data), 1)
-        self.assertTrue({"id", "submission", "status", "provider", "total_score", "submission_title", "student_name"}.issubset(response.data[0].keys()))
-        self.assertNotIn("proposal", response.data[0])
-        self.assertNotIn("final_result", response.data[0])
+        rows = response.data["results"]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue({"id", "submission", "status", "provider", "total_score", "submission_title", "student_name"}.issubset(rows[0].keys()))
+        self.assertNotIn("proposal", rows[0])
+        self.assertNotIn("final_result", rows[0])
 
 
 class AtomicRubricCreationTests(TestCase):
@@ -543,8 +587,9 @@ class CourseNavigationApiTests(TestCase):
     def test_course_navigation_mode_is_compact_and_owner_scoped(self):
         response = self.client.get("/api/courses/?nav=1")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([row["id"] for row in response.data], [self.own_course.pk])
-        self.assertNotIn("description", response.data[0])
-        self.assertNotIn("owner_id", response.data[0])
+        rows = response.data["results"]
+        self.assertEqual([row["id"] for row in rows], [self.own_course.pk])
+        self.assertNotIn("description", rows[0])
+        self.assertNotIn("owner_id", rows[0])
         self.assertNotIn("Curso ajeno", str(response.data))
 
