@@ -1,7 +1,7 @@
 import { state, $ } from '../core/state.js';
 import { escapeHtml, formatNumber, statusLabel } from '../core/utils.js';
 import { openModal, closeModal, toast } from '../core/ui.js';
-import { api } from '../core/api.js';
+import { api } from '../core/api-client.js';
 
 // Deja constancia (canal, destinatario, fecha) de que el docente preparó la devolución. No implica recepción.
 async function registerDelivery(channel, recipient = '') {

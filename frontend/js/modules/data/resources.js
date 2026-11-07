@@ -1,4 +1,4 @@
-import { api } from '../core/api.js';
+import { api } from '../core/api-client.js';
 import { state } from '../core/state.js';
 import { errorText } from '../core/utils.js';
 
@@ -16,10 +16,11 @@ const REVIEW = ['courses', 'assessments', 'submissions', 'corrections', 'rubrics
 // Datos que cada vista necesita antes de dibujarse (hard) y los que completan el panel sin bloquearlo (soft).
 const VIEW_RESOURCES = Object.freeze({
   dashboard: { hard: [], soft: ['corrections', 'submissions', 'assessments'] },
-  courses: { hard: ['courses'] },
+  courses: { hard: ['courses'], soft: ['enrollments', 'assessments', 'submissions', 'corrections'] },
   course: { hard: COURSE_WORK },
   students: { hard: ['courses', 'students', 'enrollments'] },
-  assessments: { hard: ['courses', 'assessments', 'rubrics'] },
+  student: { hard: ['courses', 'students', 'enrollments', 'assessments', 'submissions', 'corrections'] },
+  assessments: { hard: ['courses', 'assessments', 'submissions', 'corrections'] },
   'assessment-new': { hard: ['courses'] },
   assessment: { hard: ['courses', 'assessments', 'rubrics'] },
   rubrics: { hard: ['rubrics'] },
@@ -65,4 +66,16 @@ export function loadResources(keys) {
 /** Vuelve a pedir solo lo que la sesión ya cargó (tras guardar o al reintentar). */
 export function reloadLoadedResources() {
   return Promise.all([...loaded].map(loadOne));
+}
+
+/** Vuelve a pedir solo las listas indicadas tras una escritura (p. ej. cursos tras crear uno).
+ *  Fuerza el refetch incluso si la lista ya estaba cargada. */
+export async function reloadResources(keys) {
+  await Promise.all((keys || []).map(async key => { if (RESOURCES[key] && await loadOne(key)) loaded.add(key); }));
+}
+
+/** Marca listas como no cargadas: otra vista las reemplazó con un subconjunto
+ *  (p. ej. el espacio de trabajo trae solo las entregas de una evaluación). */
+export function invalidateResources(keys) {
+  (keys || []).forEach(key => loaded.delete(key));
 }

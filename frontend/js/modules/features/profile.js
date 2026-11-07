@@ -1,5 +1,5 @@
 import { state, $ } from '../core/state.js';
-import { api } from '../core/api.js';
+import { api } from '../core/api-client.js';
 import { escapeHtml, btn, heading, initials, statusPill, statusLabel, formValues, errorText } from '../core/utils.js';
 import { toast, updateChrome } from '../core/ui.js';
 

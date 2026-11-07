@@ -1,9 +1,9 @@
-import { api } from '../core/api.js';
+import { api } from '../core/api-client.js';
 import { state, content } from '../core/state.js';
 import { listFrom, errorText, escapeHtml } from '../core/utils.js';
 import { toast, updateChrome } from '../core/ui.js';
 import { render } from '../core/router.js';
-import { loadedResources, reloadLoadedResources } from './resources.js';
+import { loadedResources, reloadLoadedResources, reloadResources } from './resources.js';
 
 async function settleWithConcurrency(resources, concurrency = 4) {
   const results = new Array(resources.length);
@@ -207,10 +207,4 @@ export async function afterWrite(message, keys = []) {
     try { state.currentCorrection = await api.get(`corrections/${state.selectedCorrection}/`); } catch (error) { toast(errorText(error), 'error'); }
   }
   render();
-}
-
-/** Vuelve a pedir solo las listas indicadas tras una escritura (p. ej. cursos tras crear uno).
- *  Usa `loadOne` para forzar el refetch incluso si la lista ya estaba cargada. */
-export async function reloadResources(keys) {
-  await Promise.all((keys || []).map(async key => { if (RESOURCES[key] && await loadOne(key)) loaded.add(key); }));
 }

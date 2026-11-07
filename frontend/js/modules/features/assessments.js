@@ -1,6 +1,81 @@
 import { state } from '../core/state.js';
 import { formField, selectField, textField, optionRows } from '../core/utils.js';
-import { escapeHtml, formatNumber, btn, heading, table, statusPill, statusLabel, date, panel, resourceError, emptyState } from '../core/utils.js';
+import { escapeHtml, formatNumber, btn, heading, table, statusPill, statusLabel, date, panel, resourceError, emptyState, toneOf, icon, searchField, chipGroup, toolbarSelect, resultCount, filteredEmpty, showMore } from '../core/utils.js';
+import { EXAM_STATUS, examStatus, examCorrection } from './exam-status.js';
+
+const EXAM_FILTER_DEFAULTS = Object.freeze({ course: 'all', status: 'all' });
+
+function examRow(submission) {
+  const status = examStatus(submission);
+  const correction = examCorrection(submission);
+  const name = submission.student_display_name || submission.student_name || 'Estudiante sin identificar';
+  const nameMarkup = submission.student
+    ? `<button type="button" class="entity-link" data-action="open-student" data-id="${escapeHtml(submission.student)}">${escapeHtml(name)}</button>`
+    : `<strong>${escapeHtml(name)}</strong>`;
+  const action = correction
+    ? btn(status === 'review' ? 'Revisar' : 'Ver devolución', 'open-correction', `data-id="${escapeHtml(correction.id)}"`, status === 'review' ? 'primary' : 'secondary')
+    : btn('Abrir entrega', 'open-submission', `data-id="${escapeHtml(submission.id)}"`);
+  return `<article class="work-row" data-row data-status="${status}"><div class="work-row-main">${nameMarkup}<small>Entregado el ${escapeHtml(date(submission.created_at))}</small></div><div class="work-row-meta"><span class="score-value" title="Nota"><span class="visually-hidden">Nota: </span>${correction ? escapeHtml(formatNumber(correction.total_score)) : '—'}</span>${statusPill(EXAM_STATUS[status].pill, EXAM_STATUS[status].label)}</div><div class="work-row-actions">${action}</div></article>`;
+}
+
+/**
+ * Evaluaciones: todas las evaluaciones del docente con sus exámenes.
+ * Filtros en memoria: búsqueda (evaluación o estudiante), materia/curso y estado del examen.
+ */
+export function renderAssessments() {
+  const filters = state.examFilters;
+  const query = state.search.trim().toLocaleLowerCase('es-AR');
+  const examsByAssessment = new Map();
+  state.data.submissions.forEach(item => {
+    const key = String(item.assessment);
+    if (!examsByAssessment.has(key)) examsByAssessment.set(key, []);
+    examsByAssessment.get(key).push(item);
+  });
+
+  const inCourse = (assessment) => filters.course === 'all' || String(assessment.course ?? assessment.course_id ?? 'unassigned') === filters.course;
+  const groups = state.data.assessments.filter(inCourse).map(assessment => {
+    const exams = (examsByAssessment.get(String(assessment.id)) || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const titleMatches = !query || `${assessment.title} ${assessment.subject || ''} ${assessment.course_name || ''}`.toLocaleLowerCase('es-AR').includes(query);
+    const searched = titleMatches ? exams : exams.filter(item => `${item.student_display_name || item.student_name || ''}`.toLocaleLowerCase('es-AR').includes(query));
+    return { assessment, exams: searched, visible: titleMatches || searched.length > 0 };
+  }).filter(group => group.visible);
+
+  // Contadores por estado sobre el conjunto sin filtrar por estado.
+  const counts = { all: 0, pending: 0, review: 0, approved: 0, rejected: 0 };
+  groups.forEach(group => group.exams.forEach(item => { counts.all += 1; counts[examStatus(item)] += 1; }));
+
+  const visibleGroups = groups.map(group => ({ ...group, exams: filters.status === 'all' ? group.exams : group.exams.filter(item => examStatus(item) === filters.status) }))
+    .filter(group => filters.status === 'all' || group.exams.length)
+    .sort((a, b) => b.exams.filter(item => examStatus(item) === 'review').length - a.exams.filter(item => examStatus(item) === 'review').length || new Date(b.assessment.updated_at) - new Date(a.assessment.updated_at));
+  const shown = visibleGroups.slice(0, filters.limit);
+  const filtered = Boolean(query) || Object.keys(EXAM_FILTER_DEFAULTS).some(key => filters[key] !== EXAM_FILTER_DEFAULTS[key]);
+  const examTotal = visibleGroups.reduce((sum, group) => sum + group.exams.length, 0);
+
+  const courseOptions = [{ value: 'all', label: 'Todas las materias' }, ...state.data.courses.map(course => ({ value: String(course.id), label: course.name })), ...(state.data.assessments.some(item => item.course == null && item.course_id == null) ? [{ value: 'unassigned', label: 'Sin curso' }] : [])];
+  const toolbar = `<div class="toolbar" role="search">
+    ${searchField('Buscar evaluaciones', state.search, 'Buscar evaluación o estudiante', 'data-search="assessments" id="exam-search"')}
+    ${chipGroup('Estado del examen', 'exam-status', [{ value: 'all', label: 'Todas', count: counts.all, active: filters.status === 'all' }, ...Object.entries(EXAM_STATUS).map(([value, meta]) => ({ value, label: meta.plural, count: counts[value], active: filters.status === value }))])}
+    ${toolbarSelect('Filtrar por materia o curso', 'data-filter="exam-course" id="exam-course"', courseOptions, filters.course)}
+    ${resultCount(`${visibleGroups.length} ${visibleGroups.length === 1 ? 'evaluación' : 'evaluaciones'} · ${examTotal} ${examTotal === 1 ? 'examen' : 'exámenes'}`, filtered ? 'clear-exam-filters' : '')}
+  </div>`;
+
+  const fold = ({ assessment, exams }) => {
+    const reviewCount = exams.filter(item => examStatus(item) === 'review').length;
+    const courseId = assessment.course ?? assessment.course_id;
+    return `<details class="fold" data-ui-key="assessment-${escapeHtml(assessment.id)}" data-tone="${toneOf(courseId ?? 'none')}" ${filtered && exams.length ? 'open' : ''}>
+      <summary><span class="fold-copy"><strong>${escapeHtml(assessment.title)}</strong><small>${escapeHtml(assessment.course_name || 'Sin curso')} · Actualizada ${escapeHtml(date(assessment.updated_at))}</small></span>${statusPill(assessment.status)}${reviewCount ? `<span class="count-badge" title="${reviewCount} por revisar"><span class="visually-hidden">Por revisar: </span>${reviewCount}</span>` : ''}<span class="fold-count">${exams.length}<span class="visually-hidden"> exámenes</span></span>${icon('chevron')}</summary>
+      <div class="fold-body">${exams.length ? `<div class="work-list">${exams.map(examRow).join('')}</div>` : '<p class="muted">Todavía no hay exámenes cargados para esta evaluación.</p>'}<div class="fold-footer">${btn('Trabajar en el espacio', 'open-in-workspace', `data-id="${escapeHtml(assessment.id)}"`, 'primary')}${btn('Editar', 'edit-assessment', `data-id="${escapeHtml(assessment.id)}"`)}</div></div>
+    </details>`;
+  };
+
+  const list = shown.length
+    ? `<div class="fold-list">${shown.map(fold).join('')}</div>${showMore(shown.length, visibleGroups.length, 'show-more-exams')}`
+    : state.data.assessments.length
+      ? filteredEmpty('evaluaciones', 'clear-exam-filters')
+      : emptyState('Todavía no hay evaluaciones', 'Creá una evaluación para empezar a recibir entregas.', btn('Crear evaluación', 'navigate', 'data-view="assessment-new"', 'primary'));
+
+  return `${heading('Evaluaciones', 'Todas tus evaluaciones y los exámenes de cada estudiante, en un solo lugar.', btn('Crear evaluación', 'navigate', 'data-view="assessment-new"', 'primary'))}${resourceError('assessments', 'las evaluaciones')}${resourceError('submissions', 'las entregas')}${toolbar}${list}`;
+}
 
 
 export function renderNewAssessment() {
@@ -25,13 +100,6 @@ export function renderNewAssessment() {
     </form></div></section>` : emptyState('Primero creá un curso', 'Necesitás un curso para mantener estudiantes y evaluaciones organizados.', btn('Crear curso', 'new-course', '', 'primary'))}`;
 }
 
-export function renderAssessments() {
-  const query = state.search.trim().toLowerCase();
-  const statusFilter = state.assessmentStatusFilter;
-  const items = state.data.assessments.filter(item => (!query || `${item.title} ${item.subject} ${item.course_name}`.toLowerCase().includes(query)) && (statusFilter === 'all' || item.status === statusFilter) && (state.assessmentCourseFilter === 'all' || String(item.course ?? 'unassigned') === state.assessmentCourseFilter));
-  const rows = items.map(item => `<tr><td><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.subject || '')}</small></td><td>${escapeHtml(item.course_name || 'Sin curso')}</td><td>${escapeHtml(item.level || '—')}</td><td>${statusPill(item.status)}</td><td>${date(item.updated_at)}</td><td>${btn('Abrir', 'open-assessment', `data-id="${item.id}"`)} ${btn('Editar', 'edit-assessment', `data-id="${item.id}"`)}</td></tr>`);
-  return `${heading('Evaluaciones', 'Diseñá propuestas, consignas y materiales para tus cursos.', `${btn('Crear evaluación', 'navigate', 'data-view="assessment-new"', 'primary')}`)}${resourceError('assessments', 'las evaluaciones')}<div class="toolbar"><input class="search-input" type="search" placeholder="Buscar evaluación o curso" aria-label="Buscar evaluaciones" value="${escapeHtml(state.search)}" data-search="assessments"><select class="filter-select" data-filter="assessment-course" aria-label="Filtrar por curso"><option value="all" ${state.assessmentCourseFilter === 'all' ? 'selected' : ''}>Todos los cursos</option>${state.data.courses.map(course => `<option value="${course.id}" ${String(course.id) === String(state.assessmentCourseFilter) ? 'selected' : ''}>${escapeHtml(course.name)}</option>`).join('')}<option value="unassigned" ${state.assessmentCourseFilter === 'unassigned' ? 'selected' : ''}>Sin curso</option></select><select class="filter-select" data-filter="assessment-status" aria-label="Filtrar por estado"><option value="all" ${statusFilter === 'all' ? 'selected' : ''}>Todos</option>${['draft', 'ready', 'archived'].map(value => `<option value="${value}" ${value === statusFilter ? 'selected' : ''}>${statusLabel(value)}</option>`).join('')}</select><span class="filter-result-count">${items.length} evaluaciones</span></div>${table(['Evaluación', 'Curso', 'Nivel', 'Estado', 'Actualizada', 'Acciones'], rows, 'No hay evaluaciones que coincidan con los filtros.')}`;
-}
 
 export function renderAssessmentDetail() {
   const base = state.data.assessments.find(item => String(item.id) === String(state.selectedAssessment));

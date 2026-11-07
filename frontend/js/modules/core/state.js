@@ -22,6 +22,11 @@ export const state = {
   rubricProposal: null,
   questionProposal: null,
   search: '',
+  selectedStudent: null,
+  // Filtros de listados: viven en memoria mientras dura la sesión de la vista.
+  courseFilters: { status: 'active', cycle: 'all', sort: 'pending', layout: 'cards' },
+  examFilters: { course: 'all', status: 'all', limit: 50 },
+  dashboardCourseFilter: 'all',
   studentCourseFilter: 'all',
   studentStatusFilter: 'active',
   assessmentStatusFilter: 'all',

@@ -1,6 +1,6 @@
-import { api } from './core/api.js';
+import { api } from './core/api-client.js';
 import { state, content, modal, $, $$ } from './core/state.js';
-import { toast, openModal, closeModal, setSidebarCollapsed, openSidebar, closeSidebar, toggleTheme } from './core/ui.js';
+import { toast, openModal, closeModal, setSidebarCollapsed, openSidebar, closeSidebar, toggleTheme, toggleProfileMenu } from './core/ui.js';
 import { navigate, render } from './core/router.js';
 import { refreshCore, refreshAdmin, loadAssessmentEditor, loadCorrectionForSubmission, afterWrite } from './data/repository.js';
 import { errorText, escapeHtml } from './core/utils.js';
@@ -10,7 +10,52 @@ import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsFo
 import { copyCorrection, openCorrectionShareModal, handleShareAction } from './features/share.js';
 import { saveProfilePreferences } from './features/profile.js';
 import { GUIDE_STEPS, guideStep, setGuideStep, renderQuickStart, openQuickStart, closeQuickStart } from './features/guide.js';
-import { handleWorkspaceAction, handleWorkspaceSubmit, handleWorkspaceInput, handleWorkspaceChange } from './features/workspace.js';
+import { handleWorkspaceAction, handleWorkspaceSubmit, handleWorkspaceInput, handleWorkspaceChange, workspaceChipHandlers, bindWorkspaceEvents, openAssessmentInWorkspace } from './features/workspace-feature.js';
+import { COURSE_FILTER_DEFAULTS } from './features/courses.js';
+
+/* ---------- Chips de filtro ----------
+ * Dos modos:
+ *  1. Filtro en el cliente sobre filas ya pintadas: el grupo tiene un contenedor
+ *     [data-filter-scope="<grupo>"]; se ocultan con [hidden] las filas [data-row]
+ *     cuyo data-<attr> no coincide. No se vuelven a pedir datos.
+ *  2. Filtro de estado de la vista: se actualiza el estado y se re-renderiza
+ *     (el foco vuelve al chip usado gracias a la preservación de app.js). */
+const CHIP_STATE_HANDLERS = Object.freeze({
+  'course-status': value => { state.courseFilters.status = value; },
+  'course-layout': value => { state.courseFilters.layout = value; },
+  'student-status': value => { state.studentStatusFilter = value; },
+  'exam-status': value => { state.examFilters.status = value; state.examFilters.limit = 50; },
+  'dashboard-course': value => { state.dashboardCourseFilter = value; }
+});
+
+function applyRowFilter(group, value) {
+  const scope = content.querySelector(`[data-filter-scope="${CSS.escape(group)}"]`);
+  if (!scope) return false;
+  const attr = scope.dataset.filterAttr || 'course';
+  $$('[data-row]', scope).forEach(row => { row.hidden = value !== 'all' && row.dataset[attr] !== value; });
+  $$(`[data-chip-group="${CSS.escape(group)}"]`, content).forEach(chip => chip.setAttribute('aria-pressed', String(chip.dataset.chipValue === value)));
+  return true;
+}
+
+function handleChip(chip) {
+  const { chipGroup: group, chipValue: value } = chip.dataset;
+  if (workspaceChipHandlers[group]) { workspaceChipHandlers[group](value); return; }
+  const updateState = CHIP_STATE_HANDLERS[group];
+  updateState?.(value);
+  // Las filas ya pintadas se filtran en el lugar; los filtros de vista re-renderizan.
+  if (!updateState || content.querySelector(`[data-filter-scope="${CSS.escape(group)}"]`)) applyRowFilter(group, value);
+  else render();
+}
+
+// Tras cada render se reaplican los filtros de cliente que estén activos (p. ej. el curso elegido en el resumen).
+window.addEventListener('maestria:rendered', () => {
+  $$('[data-filter-scope]', content).forEach(scope => {
+    const pressed = content.querySelector(`[data-chip-group="${CSS.escape(scope.dataset.filterScope)}"][aria-pressed="true"]`);
+    if (pressed) applyRowFilter(scope.dataset.filterScope, pressed.dataset.chipValue);
+  });
+});
+
+bindWorkspaceEvents(content);
 
 async function openSubmission(id) {
   const submission = await api.get(`submissions/${id}/`);
@@ -70,6 +115,12 @@ async function clickAction(button) {
       case 'new-course': courseForm(); break;
       case 'edit-course': courseForm(state.data.courses.find(item => String(item.id) === String(id))); break;
       case 'open-course': state.selectedCourse = id; navigate('course'); break;
+      case 'open-student': state.selectedStudent = id; navigate('student'); break;
+      case 'open-in-workspace': openAssessmentInWorkspace(id); break;
+      case 'clear-course-filters': state.search = ''; state.courseFilters = { ...COURSE_FILTER_DEFAULTS, layout: state.courseFilters.layout }; render(); $('#course-search')?.focus(); break;
+      case 'clear-student-filters': state.search = ''; state.studentCourseFilter = 'all'; state.studentStatusFilter = 'active'; render(); $('#student-search')?.focus(); break;
+      case 'clear-exam-filters': state.search = ''; state.examFilters = { course: 'all', status: 'all', limit: 50 }; render(); $('#exam-search')?.focus(); break;
+      case 'show-more-exams': state.examFilters.limit += 50; render(); break;
       case 'open-course-corrections': state.selectedCourse = id; state.view = 'course'; render(); break;
       case 'toggle-course': {
         const item = state.data.courses.find(row => String(row.id) === String(id));
@@ -190,7 +241,9 @@ async function clickAction(button) {
 
 content?.addEventListener('click', event => {
   const button = event.target.closest('[data-action]');
-  if (button) { event.preventDefault(); clickAction(button); }
+  if (button) { event.preventDefault(); clickAction(button); return; }
+  const chip = event.target.closest('[data-chip-group]');
+  if (chip) { handleChip(chip); return; }
   const submissionStatus = event.target.closest('[data-submission-status]');
   if (submissionStatus) { state.submissionStatusFilter = submissionStatus.dataset.submissionStatus; render(); return; }
   const adminTab = event.target.closest('[data-admin-tab]');
@@ -222,12 +275,12 @@ content?.addEventListener('input', event => {
 content?.addEventListener('change', async event => {
   if (await handleWorkspaceChange(event)) return;
   if (event.target.matches('[data-filter="student-course"]')) { state.studentCourseFilter = event.target.value; render(); return; }
-  if (event.target.matches('[data-filter="student-status"]')) { state.studentStatusFilter = event.target.value; render(); return; }
-  if (event.target.matches('[data-filter="assessment-course"]')) { state.assessmentCourseFilter = event.target.value; render(); return; }
+  if (event.target.matches('[data-filter="course-cycle"]')) { state.courseFilters.cycle = event.target.value; render(); return; }
+  if (event.target.matches('[data-filter="course-sort"]')) { state.courseFilters.sort = event.target.value; render(); return; }
+  if (event.target.matches('[data-filter="exam-course"]')) { state.examFilters.course = event.target.value; state.examFilters.limit = 50; render(); return; }
   if (event.target.matches('[data-filter="submission-course"]')) { state.submissionCourseFilter = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="corrections-course"]')) { state.correctionsCourseFilter = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="corrections-status"]')) { state.correctionsStatusFilter = event.target.value; render(); return; }
-  if (event.target.matches('[data-filter="assessment-status"]')) { state.assessmentStatusFilter = event.target.value; render(); return; }
   if (event.target.matches('[data-admin-status="messages"], [data-admin-filter="messages"]')) {
     try {
       state.adminMessageStatus = $('[data-admin-status="messages"]')?.value || '';
@@ -308,12 +361,13 @@ document.addEventListener('click', event => {
   if (event.target.closest('[data-close-modal]') || event.target.id === 'modal-close') closeModal();
   const shareAction = event.target.closest('[data-share-action]')?.dataset.shareAction;
   if (shareAction) { event.preventDefault(); handleShareAction(shareAction).catch(error => toast(errorText(error), 'error')); return; }
-  const profileButton = event.target.closest('#profile-trigger, #top-profile');
-  if (profileButton) $('#profile-menu').hidden = !$('#profile-menu').hidden;
+  const profileButton = event.target.closest('#profile-trigger, #top-profile, #workspace-trigger');
+  if (profileButton) { toggleProfileMenu(profileButton); return; }
+  if (!$('#profile-menu').hidden && !event.target.closest('#profile-menu')) toggleProfileMenu(null, false);
   const profileAction = event.target.closest('[data-profile-action]');
-  if (profileAction?.dataset.profileAction === 'profile') { $('#profile-menu').hidden = true; navigate('profile'); }
+  if (profileAction?.dataset.profileAction === 'profile') { toggleProfileMenu(null, false); navigate('profile'); }
   if (profileAction?.dataset.profileAction === 'logout') { api.clearSession(); window.location.replace('../acceso.html'); }
-  if (profileAction?.dataset.profileAction === 'guide') { $('#profile-menu').hidden = true; openQuickStart(); }
+  if (profileAction?.dataset.profileAction === 'guide') { toggleProfileMenu(null, false); openQuickStart(); }
   if (event.target.closest('#theme-toggle, #theme-toggle-profile')) toggleTheme();
   const courseShortcut = event.target.closest('[data-open-course]');
   if (courseShortcut) { state.selectedCourse = courseShortcut.dataset.openCourse; navigate('course'); }
@@ -326,7 +380,17 @@ document.addEventListener('click', event => {
   if (event.target.closest('#help-button')) openQuickStart();
 });
 
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeModal(); closeSidebar(); $('#profile-menu').hidden = true; if ($('#quickstart-root')?.innerHTML) closeQuickStart(false); } });
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (!$('#profile-menu').hidden) {
+    const trigger = $('[aria-controls="profile-menu"][aria-expanded="true"]');
+    toggleProfileMenu(null, false);
+    trigger?.focus();
+    return;
+  }
+  closeModal(); closeSidebar();
+  if ($('#quickstart-root')?.innerHTML) closeQuickStart(false);
+});
 window.addEventListener('maestria:session-expired', () => { api.clearSession(); window.location.replace('../acceso.html'); });
 window.addEventListener('online', () => toast('Conexión restablecida. Actualizá la vista para recuperar datos recientes.'));
 window.addEventListener('offline', () => toast('Sin conexión. Las operaciones no se guardarán hasta recuperar la conexión.', 'error'));

@@ -1,13 +1,9 @@
 import { state } from '../core/state.js';
-import { escapeHtml, btn, heading, table, statusPill, statusLabel, date, panel, optionRows, textField, selectField, resourceError, emptyState } from '../core/utils.js';
+import { escapeHtml, btn, heading, table, statusPill, statusLabel, date, panel, optionRows, textField, selectField, resourceError, emptyState, searchField, resultCount } from '../core/utils.js';
+import { examStatus } from './exam-status.js';
 
-export function submissionWorkflowStatus(submission) {
-  const correction = state.data.corrections.find(item => String(item.submission) === String(submission.id));
-  if (correction?.status === 'approved' || submission.status === 'approved') return 'approved';
-  if (correction?.status === 'rejected') return 'rejected';
-  if (correction || ['review', 'processing'].includes(submission.status)) return 'review';
-  return 'pending';
-}
+/** Estado de flujo de una entrega (fuente única: exam-status.js). */
+export const submissionWorkflowStatus = examStatus;
 
 export function renderSubmissions() {
   const query = state.search.trim().toLowerCase();
@@ -37,7 +33,7 @@ export function renderSubmissions() {
     ['review', 'Para revisar', counts.review, 'Propuestas pendientes'],
     ['approved', 'Aprobadas', counts.approved, 'Resultado confirmado']
   ].map(([key, label, value, hint]) => `<button type="button" class="submission-status-card ${state.submissionStatusFilter === key ? 'is-selected' : ''}" data-submission-status="${key}" aria-pressed="${state.submissionStatusFilter === key}"><span>${label}</span><strong>${value}</strong><small>${hint}</small></button>`).join('');
-  return `${heading('Entregas', 'Encontrá cada respuesta y continuá directamente con su revisión.', `${btn('Historial de correcciones', 'navigate', 'data-view="corrections"')}${btn('Ver evaluaciones', 'navigate', 'data-view="assessments"')}${btn('Nueva entrega', 'new-submission', '', 'primary')}`)}${resourceError('submissions', 'las entregas')}${resourceError('corrections', 'las correcciones')}<section class="submission-summary-grid" aria-label="Estados de entrega">${statusCards}</section><div class="toolbar"><input class="search-input" type="search" placeholder="Buscar estudiante, evaluación o respuesta" aria-label="Buscar entregas" value="${escapeHtml(state.search)}" data-search="submissions"><select class="filter-select" data-filter="submission-course" aria-label="Filtrar por curso"><option value="all" ${state.submissionCourseFilter === 'all' ? 'selected' : ''}>Todos los cursos</option>${state.data.courses.map(course => `<option value="${course.id}" ${String(course.id) === String(state.submissionCourseFilter) ? 'selected' : ''}>${escapeHtml(course.name)}</option>`).join('')}<option value="unassigned" ${state.submissionCourseFilter === 'unassigned' ? 'selected' : ''}>Sin curso asignado</option></select><span class="filter-result-count">${filtered.length} de ${all.length} entregas</span></div>${table(['Estudiante', 'Evaluación', 'Respuesta', 'Entrega', 'Corrección', 'Acciones'], rows, 'No hay entregas que coincidan con los filtros.')}`;
+  return `${heading('Entregas', 'Encontrá cada respuesta y continuá directamente con su revisión.', `${btn('Historial de correcciones', 'navigate', 'data-view="corrections"')}${btn('Ver evaluaciones', 'navigate', 'data-view="assessments"')}${btn('Nueva entrega', 'new-submission', '', 'primary')}`)}${resourceError('submissions', 'las entregas')}${resourceError('corrections', 'las correcciones')}<section class="submission-summary-grid" aria-label="Estados de entrega">${statusCards}</section><div class="toolbar" role="search">${searchField('Buscar entregas', state.search, 'Buscar estudiante, evaluación o respuesta', 'data-search="submissions" id="submission-search"')}<select class="toolbar-select" data-filter="submission-course" id="submission-course" aria-label="Filtrar por curso"><option value="all" ${state.submissionCourseFilter === 'all' ? 'selected' : ''}>Todos los cursos</option>${state.data.courses.map(course => `<option value="${course.id}" ${String(course.id) === String(state.submissionCourseFilter) ? 'selected' : ''}>${escapeHtml(course.name)}</option>`).join('')}<option value="unassigned" ${state.submissionCourseFilter === 'unassigned' ? 'selected' : ''}>Sin curso asignado</option></select>${resultCount(`${filtered.length} de ${all.length} entregas`)}</div>${table(['Estudiante', 'Evaluación', 'Respuesta', 'Entrega', 'Corrección', 'Acciones'], rows, 'No hay entregas que coincidan con los filtros.')}`;
 }
 
 export function renderSubmissionDetail() {

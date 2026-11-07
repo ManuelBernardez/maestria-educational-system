@@ -1,4 +1,4 @@
-import { api } from './core/api.js';
+import { api } from './core/api-client.js';
 import { state, content, $$ } from './core/state.js';
 import { loadProfile, refreshCore, refreshAdmin, readOverviewCache } from './data/repository.js';
 import { listFrom } from './core/utils.js';
@@ -9,21 +9,21 @@ import { maybeOpenQuickStart, bindQuickStartEvents } from './features/guide.js';
 // Views
 import { renderDashboard } from './features/dashboard.js';
 import { renderCourses, renderCourseDetail } from './features/courses.js';
-import { renderStudents } from './features/students.js';
+import { renderStudents, renderStudentDetail } from './features/students.js';
 import { renderAssessments, renderAssessmentDetail, renderNewAssessment } from './features/assessments.js';
 import { renderRubrics, renderRubricDetail } from './features/rubrics.js';
 import { renderSubmissions, renderSubmissionDetail } from './features/submissions.js';
 import { renderCorrections, renderCorrection } from './features/corrections.js';
 import { renderAdmin, renderInstitutionScope } from './features/admin.js';
 import { renderProfile } from './features/profile.js';
-import { renderWorkspace, ensureWorkspaceLoaded } from './features/workspace.js';
+import { renderWorkspace, ensureWorkspaceLoaded } from './features/workspace-feature.js';
 import { loadDeliveries } from './features/share.js';
 
 import './events.js'; // initialize delegated event handlers
 
 const VIEW_RENDERERS = Object.freeze({
   dashboard: renderDashboard, courses: renderCourses, course: renderCourseDetail,
-  students: renderStudents, assessments: renderAssessments, 'assessment-new': renderNewAssessment, assessment: renderAssessmentDetail,
+  students: renderStudents, student: renderStudentDetail, assessments: renderAssessments, 'assessment-new': renderNewAssessment, assessment: renderAssessmentDetail,
   rubrics: renderRubrics, rubric: renderRubricDetail, submissions: renderSubmissions,
   submission: renderSubmissionDetail, corrections: renderCorrections, correction: renderCorrection,
   admin: renderAdmin, institution: renderInstitutionScope,
@@ -33,7 +33,7 @@ const VIEW_RENDERERS = Object.freeze({
 const LOADING_VIEW = `<section class="panel" aria-live="polite" aria-busy="true"><div class="panel-body"><div class="skeleton-grid" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton skeleton-wide"></span></div></div></section>`;
 
 // Vista de detalle -> entrada del menú lateral que debe quedar marcada.
-const NAV_PARENT = Object.freeze({ 'assessment-new': 'workspace', course: 'courses', assessments: 'workspace', assessment: 'workspace', rubrics: 'workspace', rubric: 'workspace', 'institution-memberships': 'admin' });
+const NAV_PARENT = Object.freeze({ 'assessment-new': 'workspace', course: 'courses', student: 'students', assessment: 'assessments', rubrics: 'workspace', rubric: 'workspace', submissions: 'assessments', submission: 'assessments', corrections: 'assessments', correction: 'assessments', 'institution-memberships': 'admin' });
 
 function markActiveNav() {
   const active = NAV_PARENT[state.view] || state.view;
@@ -44,24 +44,53 @@ function markActiveNav() {
   });
 }
 
-// Al refrescar datos (alta de estudiante, evaluación, etc.) la vista se vuelve a dibujar;
-// se conservan los bloques desplegados del curso para que el docente vea lo que acaba de crear.
-let lastRendered = { view: null, course: null };
+/* ---------- Preservación de la interfaz entre re-renderizados ----------
+ * Cada render reemplaza el HTML de la vista. Si la "pantalla" es la misma
+ * (misma vista y misma entidad), se restauran los plegables abiertos, el foco,
+ * la posición del cursor y el scroll: filtrar o guardar no debe desorientar.
+ * Sólo al cambiar de pantalla el contenedor recibe el foco (para lectores de pantalla). */
+const screenKey = (view) => `${view}:${{ course: state.selectedCourse, student: state.selectedStudent, correction: state.selectedCorrection, submission: state.selectedSubmission, rubric: state.selectedRubric, assessment: state.selectedAssessment }[view] ?? ''}`;
+let lastScreen = null;
+
+const keyOf = (node) => node.id ? `#${CSS.escape(node.id)}` : node.dataset.fold ? `[data-fold="${CSS.escape(node.dataset.fold)}"]` : node.dataset.uiKey ? `[data-ui-key="${CSS.escape(node.dataset.uiKey)}"]` : '';
+
+function snapshotUi() {
+  const active = document.activeElement;
+  const focus = active && active !== content && content.contains(active) ? keyOf(active) : '';
+  let selection = null;
+  try { if (focus && typeof active.selectionStart === 'number') selection = [active.selectionStart, active.selectionEnd]; } catch { /* inputs sin selección (number, checkbox) */ }
+  return {
+    open: $$('details[open]', content).map(keyOf).filter(Boolean),
+    closed: $$('details:not([open])', content).map(keyOf).filter(Boolean),
+    focus, selection, scrollY: window.scrollY
+  };
+}
+
+function restoreUi(snapshot) {
+  snapshot.open.forEach(key => { const node = content.querySelector(key); if (node) node.open = true; });
+  snapshot.closed.forEach(key => { const node = content.querySelector(key); if (node?.tagName === 'DETAILS') node.open = false; });
+  const target = snapshot.focus && content.querySelector(snapshot.focus);
+  if (target) {
+    target.focus({ preventScroll: true });
+    if (snapshot.selection) { try { target.setSelectionRange(...snapshot.selection); } catch { /* no aplica */ } }
+  }
+  window.scrollTo({ top: snapshot.scrollY, behavior: 'auto' });
+}
 
 window.addEventListener('maestria:render', (e) => {
   const view = e.detail.view;
   if (e.detail.pending) { content.innerHTML = LOADING_VIEW; markActiveNav(); return; }
-  const sameCourse = lastRendered.view === 'course' && view === 'course' && String(lastRendered.course) === String(state.selectedCourse);
-  const openFolds = sameCourse ? $$('details[data-fold][open]', content).map(node => node.dataset.fold) : [];
-  const scrollY = sameCourse ? window.scrollY : null;
+  const key = screenKey(view);
+  const sameScreen = key === lastScreen;
+  const snapshot = sameScreen ? snapshotUi() : null;
   content.innerHTML = (VIEW_RENDERERS[view] || renderDashboard)();
-  lastRendered = { view, course: state.selectedCourse };
-  openFolds.forEach(key => { const fold = content.querySelector(`details[data-fold="${key}"]`); if (fold) fold.open = true; });
-  if (scrollY != null) window.scrollTo({ top: scrollY, behavior: 'auto' });
+  lastScreen = key;
   markActiveNav();
-  content.focus({ preventScroll: true });
+  if (snapshot) restoreUi(snapshot);
+  else content.focus({ preventScroll: true });
   if (view === 'correction') loadDeliveries();
   if (view === 'workspace') void ensureWorkspaceLoaded();
+  window.dispatchEvent(new CustomEvent('maestria:rendered', { detail: { view, sameScreen } }));
 });
 
 let initializationPromise = null;

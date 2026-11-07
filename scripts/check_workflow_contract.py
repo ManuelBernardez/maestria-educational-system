@@ -25,17 +25,20 @@ for label, (path, needle) in checks.items():
         errors.append(f"Frontend missing workflow stage: {label}")
 
 
+# El módulo se renombró (workspace.js -> workspace-feature.js) para no colisionar
+# con el entrypoint frontend/js/workspace.js en /assets/.
+WORKSPACE = FRONT / "features/workspace-feature.js"
 workspace_checks = {
-    "workspace summary endpoint": (FRONT / "features/workspace.js", "correction-workspace/?${params.toString()}"),
-    "save workspace context": (FRONT / "features/workspace.js", "api.patch(`assessments/${assessment.id}/`"),
-    "import reference material": (FRONT / "features/workspace.js", "assessments/${assessment.id}/import-reference/"),
-    "generate question suggestions": (FRONT / "features/workspace.js", "assessments/${assessment.id}/generate-questions/"),
-    "create suggested question": (FRONT / "features/workspace.js", "api.post('questions/'"),
-    "import answer file": (FRONT / "features/workspace.js", "submissions/import-file/"),
-    "create or update text submission": (FRONT / "features/workspace.js", "api.patch(`submissions/${workspace.activeSubmission.id}/`"),
-    "generate workspace correction": (FRONT / "features/workspace.js", "submissions/${submission.id}/generate-correction/"),
-    "approve workspace correction": (FRONT / "features/workspace.js", "corrections/${correction.id}/approve/"),
-    "export workspace correction": (FRONT / "features/workspace.js", "corrections/${workspace.correction.id}/export/"),
+    "workspace summary endpoint": (WORKSPACE, "correction-workspace/?${params.toString()}"),
+    "save workspace context": (WORKSPACE, "api.patch(`assessments/${assessment.id}/`"),
+    "import reference material": (WORKSPACE, "assessments/${assessment.id}/import-reference/"),
+    "generate question suggestions": (WORKSPACE, "assessments/${assessment.id}/generate-questions/"),
+    "create suggested question": (WORKSPACE, "api.post('questions/'"),
+    "import answer file": (WORKSPACE, "submissions/import-file/"),
+    "create or update text submission": (WORKSPACE, "api.patch(`submissions/${workspace.activeSubmission.id}/`"),
+    "generate workspace correction": (WORKSPACE, "submissions/${submission.id}/generate-correction/"),
+    "approve workspace correction": (WORKSPACE, "corrections/${correction.id}/approve/"),
+    "export workspace correction": (WORKSPACE, "corrections/${workspace.correction.id}/export/"),
 }
 for label, (path, needle) in workspace_checks.items():
     if not path.is_file() or needle not in path.read_text(encoding="utf-8"):

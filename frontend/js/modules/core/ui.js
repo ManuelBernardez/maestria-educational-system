@@ -1,15 +1,67 @@
 import { $, $$, state, modal, modalContent, toastRegion } from './state.js';
 import { escapeHtml, initials } from './utils.js';
+import { setCustomProperties } from './dynamic-styles.js';
 
+const TOAST_MS = 5000;
+
+/** Notificación temporal: se cierra sola a los 5 s (pausa con mouse o foco) o con su botón ×. */
 export function toast(message, type = 'success') {
   if (!toastRegion) return;
   const node = document.createElement('div');
   node.className = `toast toast-${type}`;
-  node.textContent = message;
   node.setAttribute('role', type === 'error' ? 'alert' : 'status');
   node.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+  const text = document.createElement('p');
+  text.textContent = message;
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'toast-close';
+  close.setAttribute('aria-label', 'Cerrar aviso');
+  close.textContent = '×';
+  node.append(text, close);
   toastRegion.appendChild(node);
-  window.setTimeout(() => node.remove(), 5200);
+
+  let remaining = TOAST_MS;
+  let startedAt = Date.now();
+  let timer = window.setTimeout(() => node.remove(), remaining);
+  const pause = () => {
+    window.clearTimeout(timer);
+    remaining = Math.max(0, remaining - (Date.now() - startedAt));
+  };
+  const resume = () => {
+    startedAt = Date.now();
+    timer = window.setTimeout(() => node.remove(), Math.max(1200, remaining));
+  };
+  node.addEventListener('mouseenter', pause);
+  node.addEventListener('mouseleave', resume);
+  node.addEventListener('focusin', pause);
+  node.addEventListener('focusout', resume);
+  close.addEventListener('click', () => { window.clearTimeout(timer); node.remove(); });
+}
+
+/**
+ * Abre o cierra el menú de perfil anclado al disparador que lo pidió
+ * (avatar superior, selector de espacio o perfil del menú lateral).
+ * La posición se publica como --menu-left / --menu-top para que el CSS la aplique.
+ */
+export function toggleProfileMenu(trigger, force) {
+  const menu = $('#profile-menu');
+  if (!menu) return;
+  const open = force ?? menu.hidden;
+  $$('[aria-controls="profile-menu"]').forEach(node => node.setAttribute('aria-expanded', String(open && node === trigger)));
+  menu.hidden = !open;
+  if (!open || !trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const width = menu.offsetWidth;
+  const height = menu.offsetHeight;
+  const fromSidebar = Boolean(trigger.closest('.sidebar'));
+  const left = fromSidebar
+    ? Math.min(Math.max(12, rect.left), window.innerWidth - width - 12)
+    : Math.max(12, rect.right - width);
+  const below = rect.bottom + 8;
+  const top = below + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 8) : below;
+  setCustomProperties('#profile-menu', { '--menu-left': `${Math.round(left)}px`, '--menu-top': `${Math.round(top)}px` });
+  menu.querySelector('button:not([hidden])')?.focus();
 }
 
 let modalReturnFocus = null;
@@ -112,7 +164,7 @@ export function updateChrome() {
   const sideNav = $('.side-nav'); if (sideNav) sideNav.setAttribute('aria-label', isAdmin ? 'Navegación de administración' : 'Navegación del espacio docente');
   const today = $('#today-label');
   if (today) today.textContent = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
-  const navName = ({ dashboard: 'Panel docente', workspace: 'Espacio de trabajo', courses: 'Mis materias', course: 'Mis materias', students: 'Estudiantes', assessments: 'Evaluaciones', 'assessment-new': 'Nueva evaluación', assessment: 'Evaluación', rubrics: 'Rúbricas', submissions: 'Entregas', submission: 'Entregas', corrections: 'Correcciones', correction: 'Correcciones', admin: 'Administración', institution: 'Institución', 'institution-memberships': 'Institución', profile: 'Mi perfil' })[state.view] || (isAdmin ? 'Administración' : 'Resumen');
+  const navName = ({ dashboard: 'Panel docente', workspace: 'Espacio de trabajo', courses: 'Mis materias', course: 'Mis materias', students: 'Estudiantes', student: 'Estudiantes', assessments: 'Evaluaciones', 'assessment-new': 'Nueva evaluación', assessment: 'Evaluación', rubrics: 'Rúbricas', submissions: 'Entregas', submission: 'Entregas', corrections: 'Correcciones', correction: 'Correcciones', admin: 'Administración', institution: 'Institución', 'institution-memberships': 'Institución', profile: 'Mi perfil' })[state.view] || (isAdmin ? 'Administración' : 'Resumen');
   if ($('#breadcrumb-current')) $('#breadcrumb-current').textContent = navName;
 }
 

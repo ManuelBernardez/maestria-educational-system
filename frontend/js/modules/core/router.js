@@ -3,7 +3,7 @@ import { closeSidebar, updateChrome, toast } from './ui.js';
 import { loadResources, missingResources } from '../data/resources.js';
 
 const TEACHER_VIEWS = new Set([
-  'dashboard', 'workspace', 'courses', 'course', 'students', 'assessments', 'assessment-new', 'assessment',
+  'dashboard', 'workspace', 'courses', 'course', 'students', 'student', 'assessments', 'assessment-new', 'assessment',
   'rubrics', 'rubric', 'submissions', 'submission', 'corrections', 'correction', 'profile'
 ]);
 const ADMIN_VIEWS = new Set(['admin', 'profile', 'institution-memberships']);

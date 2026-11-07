@@ -1,5 +1,5 @@
 import { state, modal, modalContent } from '../core/state.js';
-import { api } from '../core/api.js';
+import { api } from '../core/api-client.js';
 import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows, formValues, errorText } from '../core/utils.js';
 import { openModal, closeModal, modalForm, setModalError, toast } from '../core/ui.js';
 import { afterWrite, loadAssessmentEditor } from '../data/repository.js';
@@ -13,7 +13,7 @@ export {
 
 export {
   adminUserForm, institutionForm, membershipForm, messageForm, providerForm
-} from './forms/admin.js';
+} from './forms/admin-forms.js';
 
 export async function handleModalSubmit(form, button) {
   if (state.modalBusy || !form.reportValidity()) return;
