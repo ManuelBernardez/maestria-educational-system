@@ -17,6 +17,9 @@ coverage/
 # Local databases, logs, coverage and generated build metadata
 *.sqlite3
 *.log
+# Archivos estáticos recopilados por collectstatic (artefacto de build, no se versiona)
+staticfiles/
+backend/staticfiles/
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*

@@ -98,9 +98,11 @@ INSTALLED_APPS = [
 MIGRATION_MODULES = {"core": None}
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # WhiteNoise debe ir inmediatamente después de SecurityMiddleware (antes de cualquier otro
+    # middleware) para interceptar y servir los archivos estáticos recopilados en STATIC_ROOT.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     # Comprime las respuestas JSON de la API (listas de entregas/cursos): menos bytes sobre la red.
     "django.middleware.gzip.GZipMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "apps.core.middleware.ApiServerTimingMiddleware",
@@ -127,14 +129,23 @@ STORAGES = {
 WHITENOISE_MAX_AGE = 60 * 60 * 24
 
 
-def _whitenoise_headers(headers, path, url):
-    """Los scripts y estilos no llevan hash en el nombre: el navegador debe revalidarlos siempre.
+# Archivos estáticos que cambian con cada despliegue: se revalidan siempre.
+_ARCHIVOS_SIN_CACHE = {"config.js", "api.js", "auth.js", "main.js", "theme-init.js"}
 
-    Con un día de caché, tras publicar una versión nueva algunos usuarios seguían ejecutando
-    el JavaScript anterior (por ejemplo, una guía de inicio con los botones ya corregidos).
+
+def _whitenoise_headers(headers, path, url):
+    """Caché de estáticos: larga para la mayoría, revalidación para los que cambian seguido.
+
+    Los archivos con versión en el HTML (p. ej. workspace.css?v=1.0.9) se tratan como
+    URLs distintas por el navegador, por lo que pueden cachearse largo plazo sin riesgo
+    de servir una versión vieja cuando el HTML apunte a una nueva query string.
     """
     if str(url).endswith((".js", ".css", ".csv")):
-        headers["Cache-Control"] = "no-cache"
+        nombre = str(url).split("/")[-1].split("?")[0]
+        if nombre in _ARCHIVOS_SIN_CACHE:
+            headers["Cache-Control"] = "no-cache"
+        else:
+            headers["Cache-Control"] = "public, max-age=604800"
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = _whitenoise_headers

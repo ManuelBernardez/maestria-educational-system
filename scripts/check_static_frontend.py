@@ -131,6 +131,60 @@ for html_file in html_files:
 if missing:
     fail("\n".join(missing[:80]))
 
+# Verificar que no queden restos de la antigua ubicación frontend/assets/{css,js}/.
+# Tras la reorganización, CSS vive en frontend/css/ y JS en frontend/js/;
+# frontend/assets/ solo debe contener recursos no reubicados (imágenes, etc.).
+old_css_dir = FRONTEND / "assets" / "css"
+old_js_dir = FRONTEND / "assets" / "js"
+old_remnants: list[str] = []
+for old_dir in (old_css_dir, old_js_dir):
+    if old_dir.is_dir():
+        for stale in sorted(old_dir.rglob("*")):
+            if stale.is_file():
+                old_remnants.append(stale.relative_to(ROOT).as_posix())
+if old_remnants:
+    fail(
+        "Quedan archivos estáticos en la ubicación antigua frontend/assets/ "
+        "(deben estar en frontend/css/ o frontend/js/):\n" + "\n".join(old_remnants[:80])
+    )
+
+# Inventario explícito de archivos estáticos obligatorios que Django debe
+# localizar mediante STATICFILES_DIRS y que collectstatic debe publicar.
+mandatory_static = [
+    ("css/styles.css", FRONTEND / "css" / "styles.css"),
+    ("css/auth.css", FRONTEND / "css" / "auth.css"),
+    ("css/public-enhancements.css", FRONTEND / "css" / "public-enhancements.css"),
+    ("css/responsive-refinements.css", FRONTEND / "css" / "responsive-refinements.css"),
+    ("css/workspace.css", FRONTEND / "css" / "workspace.css"),
+    ("js/config.js", FRONTEND / "js" / "config.js"),
+    ("js/api.js", FRONTEND / "js" / "api.js"),
+    ("js/auth.js", FRONTEND / "js" / "auth.js"),
+    ("js/workspace.js", FRONTEND / "js" / "workspace.js"),
+    ("js/theme-init.js", FRONTEND / "js" / "theme-init.js"),
+    ("js/main.js", FRONTEND / "js" / "main.js"),
+    ("images/maestria-mark.svg", FRONTEND / "assets" / "images" / "maestria-mark.svg"),
+]
+missing_static: list[str] = []
+for public_name, physical in mandatory_static:
+    if not physical.is_file():
+        missing_static.append(f"pública /assets/{public_name} -> física {physical.relative_to(ROOT).as_posix()} (no existe)")
+if missing_static:
+    fail("Archivos estáticos obligatorios no encontrados en el origen:\n" + "\n".join(missing_static))
+
+# Detectar nombres duplicados entre carpetas antigua y nueva que podrían
+# generar confusión en collectstatic (mismo nombre publicado bajo /assets/).
+seen_names: dict[str, list[str]] = {}
+for css_file in sorted((FRONTEND / "css").rglob("*.css")):
+    seen_names.setdefault(css_file.name, []).append(css_file.relative_to(ROOT).as_posix())
+for js_file in sorted((FRONTEND / "js").rglob("*.js")):
+    seen_names.setdefault(js_file.name, []).append(js_file.relative_to(ROOT).as_posix())
+duplicates = {name: paths for name, paths in seen_names.items() if len(paths) > 1}
+if duplicates:
+    fail(
+        "Nombres de archivo duplicados detectados (pueden colisionar en /assets/):\n"
+        + "\n".join(f"{name}: {', '.join(paths)}" for name, paths in duplicates.items())
+    )
+
 module_files = [path for path in js_files if "modules" in path.parts or path.name == "workspace.js"]
 missing_imports: list[str] = []
 for js_file in module_files:

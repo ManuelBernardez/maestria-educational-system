@@ -52,21 +52,35 @@ La API queda en `http://127.0.0.1:8000/api`. `GET /api/client-config/` entrega �
 
 ### 2. Frontend HTML5
 
-El frontend nativo no necesita instalar paquetes ni compilarse. En otra terminal, desde la raíz del repositorio:
+El frontend nativo no necesita instalar paquetes ni compilarse. Se recomienda ejecutarlo a través del servidor integrado de Django, que es el único que respeta los alias de `STATICFILES_DIRS` y sirve tanto las páginas HTML (`frontend/html/`) como los recursos estáticos (`/assets/css/`, `/assets/js/`, `/assets/images/`):
 
 ```powershell
-py -m http.server 5500 --directory frontend
+cd backend
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
 ```
 
 Abrí:
 
-- Sitio público: `http://localhost:5500/`
-- Acceso: `http://localhost:5500/acceso.html`
-- Cómo funciona: `http://localhost:5500/como-funciona.html`
-- Nosotros y contacto: `http://localhost:5500/nosotros.html`
-- Espacio docente: `http://localhost:5500/espacio-docente/`
+- Sitio público: `http://127.0.0.1:8000/`
+- Acceso: `http://127.0.0.1:8000/acceso.html`
+- Cómo funciona: `http://127.0.0.1:8000/como-funciona.html`
+- Nosotros y contacto: `http://127.0.0.1:8000/nosotros.html`
+- Espacio docente: `http://127.0.0.1:8000/espacio-docente/`
 
-Para un preview estático en `localhost:5500`, `config.js` apunta al backend local `127.0.0.1:8000`. En producción, detecta el mismo origen y usa `/api`; no hay que configurar una URL interna.
+En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`. `config.js` apunta al backend local `127.0.0.1:8000`. En producción, detecta el mismo origen y usa `/api`; no hay que configurar una URL interna.
+
+> **Nota:** el comando `py -m http.server --directory frontend` del preview estático no funciona con esta estructura: las páginas HTML viven en `frontend/html/` y los recursos estáticos se resuelven mediante los alias de `STATICFILES_DIRS` (por ejemplo, `/assets/css/styles.css` se sirve desde `frontend/css/styles.css`). Usá siempre `manage.py runserver` para el preview local fiel a producción.
+
+Para probar localmente el comportamiento de producción (Gunicorn + WhiteNoise + archivos recopilados), ejecutá `collectstatic` y levantá el sitio con `DEBUG=False`:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe manage.py collectstatic --noinput
+$env:DEBUG="False"
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
+```
+
+Luego verificá que `http://127.0.0.1:8000/assets/css/styles.css` devuelve `200` con `Content-Type: text/css`.
 
 ## Funcionalidades conectadas
 

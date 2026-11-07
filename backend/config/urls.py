@@ -18,12 +18,21 @@ def api_root(request):
 
 
 def frontend_file(request, frontend_path=""):
-    """Serve the HTML5 frontend from the same origin without directory listing."""
+    """Serve the HTML5 frontend from the same origin without directory listing.
+
+    Las rutas de recursos estáticos (/assets/, /css/, /js/) son responsabilidad
+    exclusiva de WhiteNoise en producción y de los finders de
+    django.contrib.staticfiles en desarrollo. Esta vista de fallback solo sirve
+    documentos HTML del sitio público y del espacio docente; nunca intenta resolver
+    archivos estáticos, para evitar devolver 404 con MIME text/html cuando
+    WhiteNoise no encuentra el recurso.
+    """
     relative = (frontend_path or "index.html").lstrip("/")
-    if relative == "index.html" or (relative and not relative.startswith(("css/", "js/", "assets/"))):
-        candidate = (settings.FRONTEND_DIR / "html" / relative).resolve()
-    else:
-        candidate = (settings.FRONTEND_DIR / relative).resolve()
+    if relative.startswith(("assets/", "css/", "js/")):
+        raise Http404
+    if not relative:
+        relative = "index.html"
+    candidate = (settings.FRONTEND_DIR / "html" / relative).resolve()
     root = settings.FRONTEND_DIR.resolve()
     try:
         candidate.relative_to(root)

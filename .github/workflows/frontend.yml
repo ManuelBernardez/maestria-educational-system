@@ -1,9 +1,9 @@
 name: frontend-checks
 on:
   push:
-    paths: ["frontend/**", "scripts/**", ".github/workflows/frontend.yml"]
+    paths: ["frontend/**", "scripts/**", "backend/config/**", ".github/workflows/frontend.yml"]
   pull_request:
-    paths: ["frontend/**", "scripts/**", ".github/workflows/frontend.yml"]
+    paths: ["frontend/**", "scripts/**", "backend/config/**", ".github/workflows/frontend.yml"]
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -15,4 +15,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm run check:frontend
+      - name: Instalar dependencias de backend (chequeos estáticos)
+        run: pip install -r backend/requirements.txt
+      - name: Chequeo de Django (configuración, modelos, URLs)
+        run: python backend/manage.py check
+        working-directory: backend
+      - name: Simular collectstatic y verificar que los estáticos críticos se recopilan
+        run: |
+          python backend/manage.py collectstatic --noinput --clear
+          test -f backend/staticfiles/css/styles.css
+          test -f backend/staticfiles/css/auth.css
+          test -f backend/staticfiles/css/public-enhancements.css
+          test -f backend/staticfiles/css/responsive-refinements.css
+          test -f backend/staticfiles/css/workspace.css
+          test -f backend/staticfiles/js/config.js
+          test -f backend/staticfiles/js/api.js
+          test -f backend/staticfiles/js/auth.js
+          test -f backend/staticfiles/js/workspace.js
+          test -f backend/staticfiles/js/theme-init.js
+          test -f backend/staticfiles/images/maestria-mark.svg
+        working-directory: backend
+      - name: Chequeo estático de frontend (referencias HTML, rutas, imports, sintaxis)
+        run: python scripts/check_static_frontend.py
+      - name: Chequeos adicionales de contrato frontend
+        run: npm run check:frontend
