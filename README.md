@@ -1,4 +1,4 @@
-# MaestrIA v1.0.9
+# MaestrIA v1.1.1
 
 Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
 
@@ -187,6 +187,15 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - `docs/CONFIGURACION-IA-EXTERNA.md`: referencia para configurar proveedores externos y revisar el tratamiento de datos antes de habilitarlos.
 - `docs/PRUEBAS-LOCALES.md`: entorno local con PostgreSQL en Docker, sin tocar Supabase de producción.
 
+## Cambios v1.1.0 – v1.1.1
+
+- **Identidad visual y espacio de trabajo (v1.1.0):** rediseño "Cuaderno de cátedra" del espacio docente y del panel de administración.
+- **Caché de despliegue (v1.1.1):** JS, CSS y CSV se revalidan siempre (`no-cache`) y el primer HTML de cada versión envía `Clear-Site-Data` para que el navegador no mezcle módulos viejos y nuevos. La versión de assets vive en `FRONTEND_ASSETS_VERSION` (`backend/config/settings.py`) y debe coincidir con `package.json`.
+- **Validación integral:** "Guardar contexto" también guarda la consigna en edición; `/api/*` inexistente responde 404 JSON; la importación de estudiantes por CSV acepta encabezados en español; `conftest.py` impide correr las pruebas contra Supabase.
+- **Revisión por consigna:** en entregas con varias consignas, "Revisar y aprobar" muestra cada respuesta por separado, indica a qué consigna pertenece cada criterio y resalta la cita en la respuesta que la IA corrigió.
+- **Mensajes de error:** los errores de validación del backend que llegaban como lista (`["…"]`) o anidados se muestran con su texto en lugar de "HTTP 400".
+- **Base de datos:** `db/maestria_schema_v2_contract_alignment.sql` alinea instalaciones nuevas con lo que espera el backend. En producción ya se aplicó el rango de timeout 5–85 s (2026-11-07).
+
 ## Cambios v1.0.9
 
 - **Espacio de trabajo docente:** se incorpora en JavaScript nativo el flujo de tres etapas Contexto → Entrega → Revisar, incluyendo objetivos, instrucciones, consignas, propuestas de consignas, material de referencia, selección de estudiante y rúbrica, importación de archivos, cola filtrable, revisión de criterios, aprobación, exportación y opciones de compartir.
@@ -247,7 +256,7 @@ Auditoría estática del tramo «generar corrección → editar → aprobar → 
 - **Tiempos de carga:** compresión GZip de la API; el resumen se pide en paralelo con `/me/`; pintado inmediato desde caché de sesión (10 min, se limpia al cerrar sesión) mientras se actualiza; esqueleto de carga.
 - **Registro de devoluciones:** `GET/POST corrections/{id}/deliveries/` deja constancia (canal, destinatario, fecha) en la auditoría, sin cambios de esquema; la pantalla de una devolución aprobada muestra «Envíos registrados». No hay envío automático ni confirmación de recepción.
 
-Pendiente de despliegue: aplicar la migración SQL v1.0.9 de timeout en la base existente, configurar la clave del proveedor y la aprobación operativa correspondiente, y ejecutar `verify_ai --live` más pruebas E2E en el entorno real. Las pruebas de adaptadores usan HTTP simulado y no sustituyen una prueba con credenciales de producción.
+Pendiente de despliegue (v1.0.9): la migración de timeout ya se aplicó en producción el 2026-11-07; queda configurar la clave del proveedor y la aprobación operativa correspondiente, y ejecutar `verify_ai --live` más pruebas E2E en el entorno real. Las pruebas de adaptadores usan HTTP simulado y no sustituyen una prueba con credenciales de producción.
 
 ## Cambios v1.0.4
 - Corregido STATICFILES_DIRS (tuplas prefijo/directorio invertidas): rompía collectstatic y el servido de CSS/JS.

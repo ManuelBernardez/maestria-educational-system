@@ -12,7 +12,7 @@ import {
 import { MAX_FILE_BYTES, serverFieldErrors, stepTitleId } from './workspace/workspace-markup.js';
 import { contextStep, emptyQuestionDraft, questionDraft } from './workspace/context-step.js';
 import { deliveryStep, queueListMarkup } from './workspace/delivery-step.js';
-import { reviewStep, totals, reviewedCount, findFragment, navigationTarget, restoreCriterion } from './workspace/review-step.js';
+import { reviewStep, totals, reviewedCount, findFragment, criterionAnswer, fullAnswerText, navigationTarget, restoreCriterion } from './workspace/review-step.js';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const HIGHLIGHT_MS = 4000;
@@ -720,11 +720,12 @@ function openFirstUnreviewed() {
 
 function showEvidence(index) {
   const item = criteria()[index];
-  const text = workspace.activeSubmission?.answer_text || '';
+  // La cita sale de la respuesta por consigna que se corrigió, no de la respuesta general.
+  const { text, nodeId } = criterionAnswer(workspace.activeSubmission, item);
   const range = findFragment(text, item?.evidence);
-  const node = content.querySelector('#ws-answer-text');
+  const node = content.querySelector(`#${nodeId}`);
   if (!range || !node) return;
-  ['#ws-source', '#ws-source-answer'].forEach(selector => { const details = content.querySelector(selector); if (details) details.open = true; });
+  for (let details = node.closest('details'); details; details = details.parentElement?.closest('details')) details.open = true;
   // Se arma con nodos DOM: el texto del estudiante nunca pasa por innerHTML.
   const mark = document.createElement('mark');
   mark.textContent = text.slice(range[0], range[1]);
@@ -858,7 +859,7 @@ export async function handleWorkspaceAction(button) {
       case 'workspace-feedback-mode': workspace.review.feedbackMode = button.dataset.mode === 'preview' ? 'preview' : 'edit'; pendingFocus = `[data-action="workspace-feedback-mode"][data-mode="${workspace.review.feedbackMode}"]`; render(); break;
       case 'workspace-feedback-restore': workspace.feedback = workspace.correction?.proposal?.feedback || ''; render(); announce('Devolución restablecida a la propuesta.'); break;
       case 'workspace-copy-feedback': await copyText(workspace.feedback || workspace.proposal?.feedback || '', 'Devolución'); break;
-      case 'workspace-copy-answer': await copyText(workspace.activeSubmission?.answer_text || '', 'Respuesta'); break;
+      case 'workspace-copy-answer': await copyText(fullAnswerText(workspace.activeSubmission), 'Respuesta'); break;
       case 'workspace-approve-anyway': workspace.review.approveWarning = false; workspace.review.confirmedApprove = true; content.querySelector('#workspace-approve-form')?.requestSubmit(); break;
       case 'workspace-review-unreviewed': openFirstUnreviewed(); break;
       case 'workspace-more-menu': {

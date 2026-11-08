@@ -98,24 +98,34 @@
     return current;
   }
 
-  function errorMessage(payload, statusCode) {
-    const values = [payload?.detail, payload?.error_description, payload?.msg, payload?.message, payload?.error];
-    for (const candidate of values) {
-      if (typeof candidate === 'string' && candidate.trim()) return candidate.slice(0, 1200);
-      if (candidate && typeof candidate === 'object') {
-        const text = Object.entries(candidate)
-          .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`)
-          .join('; ');
-        if (text) return text.slice(0, 1200);
-      }
+  const MESSAGE_KEYS = ['detail', 'error_description', 'msg', 'message', 'error'];
+  const UNLABELED_KEYS = new Set([...MESSAGE_KEYS, 'non_field_errors']);
+
+  /**
+   * Aplana cualquier forma de error de DRF/Supabase a frases legibles:
+   * `["texto"]` (ValidationError con un mensaje suelto), `{campo: ["texto"]}`,
+   * listas de objetos de serializers anidados y `non_field_errors` sin prefijo.
+   */
+  function flattenErrors(value, key = '') {
+    if (value === null || value === undefined) return [];
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).trim();
+      if (!text) return [];
+      return [key && !UNLABELED_KEYS.has(key) ? `${key}: ${text}` : text];
     }
-    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-      const text = Object.entries(payload)
-        .filter(([key]) => !['detail', 'error_description', 'msg', 'message', 'error'].includes(key))
-        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : typeof value === 'object' && value ? JSON.stringify(value) : String(value)}`)
-        .join('; ');
+    if (Array.isArray(value)) return value.flatMap(item => flattenErrors(item, key));
+    if (typeof value === 'object') return Object.entries(value).flatMap(([child, item]) => flattenErrors(item, /^\d+$/.test(child) ? key : child));
+    return [];
+  }
+
+  function errorMessage(payload, statusCode) {
+    for (const key of MESSAGE_KEYS) {
+      const text = flattenErrors(payload?.[key]).join('; ');
       if (text) return text.slice(0, 1200);
     }
+    const text = [...new Set(flattenErrors(payload))].join('; ');
+    if (text) return text.slice(0, 1200);
+    if (statusCode >= 500) return `El servidor no pudo completar la operación (HTTP ${statusCode}). Intentá de nuevo en unos minutos.`;
     return `No se pudo completar la operación (HTTP ${statusCode}).`;
   }
 

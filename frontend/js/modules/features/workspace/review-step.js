@@ -43,6 +43,37 @@ export function findFragment(text, fragment) {
   return [map[at], map[at + needle.length - 1] + 1];
 }
 
+/** Respuestas por consigna con texto; null si la entrega sólo tiene la respuesta general. */
+export function submissionAnswers(submission) {
+  const answers = Array.isArray(submission?.answers) ? submission.answers.filter(answer => String(answer.answer_text || '').trim()) : [];
+  return answers.length ? answers : null;
+}
+
+const answerNodeId = answer => (answer ? `ws-answer-text-${answer.id}` : 'ws-answer-text');
+
+/**
+ * Texto que la IA corrigió para un criterio. En entregas con varias consignas cada
+ * criterio trae `answer_id`/`question_id`; las citas salen de esa respuesta, no de la general.
+ */
+export function criterionAnswer(submission, item) {
+  const answers = submissionAnswers(submission);
+  if (!answers) return { text: submission?.answer_text || '', nodeId: answerNodeId(null), position: null };
+  const match = answers.find(answer => item?.answer_id != null && String(answer.id) === String(item.answer_id))
+    || answers.find(answer => item?.question_id != null && String(answer.question) === String(item.question_id))
+    || answers.find(answer => findFragment(answer.answer_text, item?.evidence))
+    || answers[0];
+  return { text: match.answer_text, nodeId: answerNodeId(match), position: answers.indexOf(match) + 1 };
+}
+
+/** Texto completo para copiar: todas las respuestas por consigna o la respuesta general. */
+export function fullAnswerText(submission) {
+  const answers = submissionAnswers(submission);
+  if (!answers) return submission?.answer_text || '';
+  return answers.map((answer, position) => `Consigna ${position + 1}${answer.question_prompt ? `: ${answer.question_prompt}` : ''}\n${answer.answer_text}`).join('\n\n');
+}
+
+const wordCount = text => (String(text || '').trim() ? String(text).trim().split(/\s+/).length : 0);
+
 function navigationList() {
   const list = assessmentSubmissions();
   return workspace.review.onlyPending ? list.filter(item => queueStatus(item) === 'review' || String(item.id) === String(workspace.activeSubmission?.id)) : list;
@@ -62,16 +93,16 @@ function criterionMark(index) {
   return '<span class="origin-mark origin-mark--ai">Sugerido por la IA</span>';
 }
 
-function evidenceBlock(item, index, answer) {
+function evidenceBlock(item, index, submission) {
   const evidence = item.evidence || '';
   if (!evidence) return '<p class="muted">No se encontró evidencia literal suficiente. Revisá manualmente.</p>';
-  const found = findFragment(answer, evidence);
+  const found = findFragment(criterionAnswer(submission, item).text, evidence);
   const long = evidence.length > EVIDENCE_CLAMP_CHARS;
   return `<blockquote class="evidence${long ? ' is-clamped' : ''}" id="ws-evidence-${index}">${escapeHtml(evidence)}</blockquote>
     <p class="evidence-links">${long ? `<button type="button" class="text-link" data-action="workspace-evidence-expand" data-index="${index}" aria-controls="ws-evidence-${index}" aria-expanded="false">Ver completa</button>` : ''}${found ? `<button type="button" class="text-link" data-action="workspace-show-evidence" data-index="${index}">Ver en la respuesta</button>` : '<span class="muted">No se encontró en la respuesta</span>'}</p>`;
 }
 
-function criterionCard(item, index, answer) {
+function criterionCard(item, index, submission) {
   const readonly = isApproved() || Boolean(workspace.proposal?.demo);
   const open = workspace.review.open.has(index);
   const reviewed = workspace.review.reviewed.has(index);
@@ -79,15 +110,16 @@ function criterionCard(item, index, answer) {
   const max = Number(item.max_score || 0);
   const weight = weightPercent(item);
   const hidden = workspace.review.onlyUnreviewed && reviewed;
+  const { position } = criterionAnswer(submission, item);
   const editable = readonly
     ? `<dl class="read-values"><div><dt>Puntaje</dt><dd>${escapeHtml(formatNumber(item.score))} / ${escapeHtml(formatNumber(max))}</dd></div><div><dt>Nivel sugerido</dt><dd>${escapeHtml(item.level || 'Sin nivel sugerido')}</dd></div></dl>
-       <p class="read-label">Evidencia literal en la respuesta</p>${evidenceBlock(item, index, answer)}
+       <p class="read-label">Evidencia literal en la respuesta</p>${evidenceBlock(item, index, submission)}
        <dl class="read-values"><div class="full"><dt>Justificación del puntaje</dt><dd>${escapeHtml(item.justification || '—')}</dd></div></dl>`
     : `<div class="form-grid">
         <div class="form-field"><label for="workspace-score-${index}">Puntaje</label>${scoreStepper({ id: `workspace-score-${index}`, value: formatInputNumber(item.score), max, attrs: `data-workspace-criterion="${index}" data-field="score" aria-describedby="workspace-score-${index}-error"`, label: name })}<p class="field-error" id="workspace-score-${index}-error" role="alert" data-score-error="${index}"></p></div>
         <div class="form-field"><span class="read-label">Nivel sugerido</span><p class="read-value" id="workspace-level-${index}">${item.level ? statusPill('review', item.level) : 'Sin nivel sugerido'}</p></div>
       </div>
-      <p class="read-label">Evidencia literal en la respuesta</p>${evidenceBlock(item, index, answer)}
+      <p class="read-label">Evidencia literal en la respuesta</p>${evidenceBlock(item, index, submission)}
       <div class="form-field"><div class="label-row"><label for="workspace-justification-${index}">Justificación del puntaje</label><span class="char-count" data-char-count="workspace-justification-${index}">${String(item.justification || '').length} caracteres</span></div><textarea id="workspace-justification-${index}" class="lined autogrow" rows="3" data-workspace-criterion="${index}" data-field="justification">${escapeHtml(item.justification || '')}</textarea></div>
       <div class="criterion-foot"><label class="check"><input type="checkbox" data-workspace-reviewed="${index}" ${reviewed ? 'checked' : ''}><span>Revisé este criterio</span></label><button type="button" class="text-link" data-action="workspace-restore-criterion" data-index="${index}" ${criterionModified(index) ? '' : 'hidden'}>Restablecer a la sugerencia de la IA</button></div>`;
   return `<article class="criterion" id="ws-criterion-${index}" data-criterion="${index}" ${hidden ? 'hidden' : ''}>
@@ -99,7 +131,7 @@ function criterionCard(item, index, answer) {
       ${icon('chevron')}
     </button></h4>
     <div class="criterion-body" id="ws-criterion-body-${index}" ${open ? '' : 'hidden'}>
-      <p class="mono-meta">${weight != null ? `Ponderación ${escapeHtml(formatNumber(weight))}% · ` : ''}Máximo ${escapeHtml(formatNumber(max))} puntos</p>
+      <p class="mono-meta">${position ? `Consigna ${position} · ` : ''}${weight != null ? `Ponderación ${escapeHtml(formatNumber(weight))}% · ` : ''}Máximo ${escapeHtml(formatNumber(max))} puntos</p>
       ${editable}
     </div>
   </article>`;
@@ -145,13 +177,21 @@ function sourceColumn(submission) {
   const prompt = question?.prompt || assessment?.instructions || 'No hay una consigna específica guardada.';
   const short = (text) => String(text || '').length <= 240;
   const answer = submission.answer_text || '';
-  const words = answer.trim() ? answer.trim().split(/\s+/).length : 0;
+  const answers = submissionAnswers(submission);
   const rubric = selectedRubric();
+  const copyTools = text => `<p class="answer-tools"><span class="mono-meta">${wordCount(text)} palabras</span><button type="button" class="text-link" data-action="workspace-copy-answer">Copiar respuesta</button></p>`;
+  const fileHint = submission.source_filename ? `<p class="field-hint">Archivo de origen: ${escapeHtml(submission.source_filename)}</p>` : '';
+  // Con varias consignas, cada criterio se corrigió contra su propia respuesta: se muestran
+  // por separado para que el docente vea el texto del que salen las citas.
+  const answerBlocks = answers
+    ? answers.map((item, position) => `<details class="source-block" id="ws-source-answer-${escapeHtml(item.id)}" open><summary>Consigna ${position + 1} ${icon('chevron')}</summary>${item.question_prompt ? `<p class="field-hint">${escapeHtml(item.question_prompt)}</p>` : ''}<div class="answer-text" id="ws-answer-text-${escapeHtml(item.id)}">${escapeHtml(item.answer_text)}</div><p class="answer-tools"><span class="mono-meta">${wordCount(item.answer_text)} palabras</span></p></details>`).join('')
+      + `<div class="source-block">${copyTools(answers.map(item => item.answer_text).join(' '))}${fileHint}</div>`
+    : `<details class="source-block" id="ws-source-answer" open><summary>Respuesta del estudiante ${icon('chevron')}</summary><div class="answer-text" id="ws-answer-text">${escapeHtml(answer || 'No hay texto disponible.')}</div>${copyTools(answer)}${fileHint}</details>`;
   return `<details class="review-source" id="ws-source" open><summary>Respuesta del estudiante ${icon('chevron')}</summary><div class="review-source-body">
-    <details class="source-block" id="ws-source-prompt" ${short(prompt) ? 'open' : ''}><summary>Consigna ${icon('chevron')}</summary><p>${escapeHtml(prompt)}</p></details>
+    ${answers ? '' : `<details class="source-block" id="ws-source-prompt" ${short(prompt) ? 'open' : ''}><summary>Consigna ${icon('chevron')}</summary><p>${escapeHtml(prompt)}</p></details>`}
     ${assessment?.objectives ? `<details class="source-block" id="ws-source-objectives" ${short(assessment.objectives) ? 'open' : ''}><summary>Objetivos de aprendizaje ${icon('chevron')}</summary><p>${escapeHtml(assessment.objectives)}</p></details>` : ''}
     ${rubric ? `<details class="source-block" id="ws-source-rubric"><summary>Criterios acordados ${icon('chevron')}</summary><p><strong>${escapeHtml(rubric.title)}</strong></p><ul>${(rubric.criteria || []).map(item => `<li>${escapeHtml(item.name)} <small>${escapeHtml(formatNumber(item.max_score))} pts</small></li>`).join('')}</ul></details>` : ''}
-    <details class="source-block" id="ws-source-answer" open><summary>Respuesta del estudiante ${icon('chevron')}</summary><div class="answer-text" id="ws-answer-text">${escapeHtml(answer || 'No hay texto disponible.')}</div><p class="answer-tools"><span class="mono-meta">${words} palabras</span><button type="button" class="text-link" data-action="workspace-copy-answer">Copiar respuesta</button></p>${submission.source_filename ? `<p class="field-hint">Archivo de origen: ${escapeHtml(submission.source_filename)}</p>` : ''}</details>
+    ${answerBlocks}
   </div></details>`;
 }
 
@@ -192,7 +232,6 @@ export function reviewStep() {
   const submission = workspace.activeSubmission;
   const proposal = workspace.proposal;
   const list = criteria();
-  const answer = submission.answer_text || '';
   const pendingCount = list.length - reviewedCount();
   const showOnlyToggle = list.length > 4;
   const index = `<nav class="review-index" aria-label="Secciones de la revisión">
@@ -209,7 +248,7 @@ export function reviewStep() {
         ${index}
         <form id="workspace-approve-form" novalidate>
           ${section('ws-sec-summary', 'Resumen general', proposal.summary ? 'Síntesis de la propuesta' : 'Sin síntesis adicional', `<p class="reading">${escapeHtml(proposal.summary || 'Sin síntesis adicional.')}</p><div class="insight-grid">${listCard('Lo que logró', proposal.strengths, 'success', 'strengths')}${listCard('Ideas para seguir mejorando', proposal.improvement_suggestions, 'note', 'improvements')}</div>`)}
-          ${section('ws-sec-criteria', 'Criterios', isApproved() ? `${list.length} criterios` : `${pendingCount} de ${list.length} sin revisar`, list.length ? list.map((item, position) => criterionCard(item, position, answer)).join('') : '<p class="muted">La propuesta no incluye criterios.</p>')}
+          ${section('ws-sec-criteria', 'Criterios', isApproved() ? `${list.length} criterios` : `${pendingCount} de ${list.length} sin revisar`, list.length ? list.map((item, position) => criterionCard(item, position, submission)).join('') : '<p class="muted">La propuesta no incluye criterios.</p>')}
           ${section('ws-sec-feedback', 'Devolución al estudiante', isApproved() ? 'Devolución final' : 'Editable antes de aprobar', feedbackSection())}
           ${actionFooter()}
         </form>
