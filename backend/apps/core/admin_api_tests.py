@@ -214,10 +214,11 @@ class GlobalRoleAndInstitutionTests(TestCase):
         dept_client.force_authenticate(user=SupabasePrincipal(id=str(self.dept_id)))
         institutions = dept_client.get("/api/admin/institutions/")
         self.assertEqual(institutions.status_code, 200)
-        self.assertEqual([row["id"] for row in institutions.data], [institution.pk])
+        # Los listados están paginados globalmente (BoundedPageNumberPagination).
+        self.assertEqual([row["id"] for row in institutions.data["results"]], [institution.pk])
         memberships = dept_client.get("/api/admin/institution-memberships/")
         self.assertEqual(memberships.status_code, 200)
-        self.assertEqual([row["id"] for row in memberships.data], [membership.pk])
+        self.assertEqual([row["id"] for row in memberships.data["results"]], [membership.pk])
         self.assertEqual(dept_client.post("/api/admin/ai-providers/", {"provider": "mock"}, format="json").status_code, 403)
 
     def test_regular_teacher_sees_only_own_institution_membership(self):

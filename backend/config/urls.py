@@ -2,6 +2,7 @@ import mimetypes
 from django.http import FileResponse, Http404, JsonResponse
 from django.urls import include, path, re_path
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
 
 from apps.core.views import health
 
@@ -34,8 +35,9 @@ def frontend_file(request, frontend_path=""):
         raise Http404
     if not relative:
         relative = "index.html"
-    candidate = (settings.FRONTEND_DIR / "html" / relative).resolve()
-    root = settings.FRONTEND_DIR.resolve()
+    # Confinar a frontend/html/: JS y CSS se sirven sólo por /assets/ (WhiteNoise).
+    root = (settings.FRONTEND_DIR / "html").resolve()
+    candidate = (root / relative).resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
@@ -84,10 +86,21 @@ def frontend_file(request, frontend_path=""):
     return response
 
 
+@csrf_exempt
+def api_not_found(request, api_path=""):
+    """Rutas /api/ inexistentes: 404 JSON en lugar de la página HTML del frontend.
+
+    Sin esta vista, un POST a una ruta de API mal escrita caía en ``frontend_file`` y
+    devolvía 403 HTML por CSRF, un error engañoso para el cliente JavaScript.
+    """
+    return JsonResponse({"detail": "Recurso de API inexistente."}, status=404)
+
+
 urlpatterns = [
     path("api/health/", health, name="health"),
     path("api/", api_root, name="api-root"),
     path("api/", include("apps.core.urls")),
+    re_path(r"^api/(?P<api_path>.*)$", api_not_found, name="api-not-found"),
     path("", frontend_file, name="frontend-home"),
     re_path(r"^(?P<frontend_path>.*)$", frontend_file, name="frontend-file"),
 ]

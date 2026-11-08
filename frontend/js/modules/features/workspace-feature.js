@@ -245,6 +245,20 @@ async function saveContext() {
   return updated;
 }
 
+/**
+ * Guarda el contexto y, si hay una consigna abierta con cambios, también la consigna.
+ * Devuelve false si la consigna no pudo guardarse (los errores quedan visibles en su
+ * editor) para no anunciar "Contexto guardado" mientras se pierde ese borrador.
+ */
+async function saveContextAndOpenQuestion() {
+  if (workspace.questionEditor?.dirty) {
+    await saveQuestion();
+    if (workspace.questionEditor) return false;
+  }
+  await saveContext();
+  return true;
+}
+
 async function importReference() {
   const assessment = selectedAssessment();
   const file = workspace.materialFile;
@@ -466,7 +480,7 @@ async function approveCorrection() {
  * ========================================================================= */
 
 function discardStep(step) {
-  if (step === 1) { workspace.objectives = workspace.savedContext.objectives; workspace.instructions = workspace.savedContext.instructions; }
+  if (step === 1) { workspace.objectives = workspace.savedContext.objectives; workspace.instructions = workspace.savedContext.instructions; workspace.questionEditor = null; }
   if (step === 2) { workspace.answerText = workspace.activeSubmission?.answer_text || ''; workspace.answerFile = null; }
   if (step === 3 && workspace.correction) applyCorrection(workspace.correction);
 }
@@ -756,9 +770,11 @@ export async function handleWorkspaceAction(button) {
       }
       case 'workspace-guard-save': {
         const guard = workspace.leaveGuard;
-        await withActionLock(async () => { await saveContext(); toast('Contexto guardado.'); });
+        let saved = false;
+        await withActionLock(async () => { saved = await saveContextAndOpenQuestion(); if (saved) toast('Contexto guardado.'); });
         workspace.leaveGuard = null;
-        guard?.proceed();
+        if (saved) guard?.proceed();
+        else render();
         break;
       }
       case 'workspace-guard-discard': { const guard = workspace.leaveGuard; discardStep(guard?.from); workspace.leaveGuard = null; guard?.proceed(); if (guard?.type !== 'step') render(); break; }
@@ -886,7 +902,7 @@ export async function handleWorkspaceSubmit(form) {
   if (id === 'workspace-submission-form') { workspace.submitting = true; render(); }
   await withActionLock(async () => {
     if (id === 'workspace-context-form') {
-      await saveContext();
+      if (!(await saveContextAndOpenQuestion())) return;
       workspace.contextJustSaved = true;
       pendingFocus = '#ws-next-step button';
       toast('Contexto guardado.');
@@ -912,7 +928,7 @@ export function handleWorkspaceInput(event) {
   }
   if (target.matches('[data-qe-field]')) {
     const draft = workspace.questionEditor;
-    if (draft) { draft[target.dataset.qeField] = target.value; draft.dirty = true; }
+    if (draft) { draft[target.dataset.qeField] = target.value; draft.dirty = true; workspace.contextJustSaved = false; refreshSaveStatus(); }
     return true;
   }
   if (target.matches('[data-workspace-search]')) {

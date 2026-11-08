@@ -128,6 +128,8 @@ python manage.py verify_public_schema
 
 La herramienta contrasta tablas, columnas, tipos, identidades, FK compuestas, índices y triggers con el esquema esperado. No cambia la base.
 
+Instalación limpia: ejecutar `db/maestria_schema_v2.sql` y luego `db/maestria_schema_v2_contract_alignment.sql` (idempotente). Sin el segundo script, la verificación falla y el backend devuelve errores en contacto, auditoría y administración. El mismo script alinea `ai_provider_config.timeout_seconds` al rango 5–85 s que acepta el backend; en una base existente, aplicarlo sólo tras revisar `verify_public_schema` y con backup. Para pruebas locales con Docker, ver `docs/PRUEBAS-LOCALES.md`.
+
 ## Pruebas y chequeos
 
 Chequeo frontend estático (no requiere npm ni dependencias de frontend). Valida referencias HTML, rutas de imports, correspondencia entre imports nombrados/exports y sintaxis JavaScript si Node.js está instalado:
@@ -183,10 +185,7 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - `docs/ADAPTACION-DJANGO-POSTGRESQL-SUPABASE-2026-11-04.md`: adaptación del ORM, permisos, migraciones y administración.
 - `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
 - `docs/CONFIGURACION-IA-EXTERNA.md`: referencia para configurar proveedores externos y revisar el tratamiento de datos antes de habilitarlos.
-- `docs/CHANGELOG-v1.0.7.md`: resumen de correcciones, privacidad, visualización numérica y rediseño del espacio docente.
-- `docs/CHANGELOG-v1.0.8.md`: optimizaciones de carga, limpieza del frontend y correcciones de backend.
-- `docs/CHANGELOG-v1.0.9.md`: réplica nativa del panel docente, espacio de trabajo integrado y navegación con deep links.
-- `docs/ADR-001-native-teacher-spa.md`: decisión de mantener el panel como SPA nativa modular y sus guardrails de rendimiento, seguridad y accesibilidad.
+- `docs/PRUEBAS-LOCALES.md`: entorno local con PostgreSQL en Docker, sin tocar Supabase de producción.
 
 ## Cambios v1.0.9
 

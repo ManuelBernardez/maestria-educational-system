@@ -36,7 +36,7 @@ export function dropzone({ id, kind, file, hint, disabled = false, label = 'Eleg
 
 /** Campo numérico con botones −/+ (paso 0.5). */
 export function scoreStepper({ id, value, max, attrs = '', label, disabled = false, min = 0 }) {
-  return `<div class="stepper"><button type="button" class="stepper-btn" data-action="workspace-score-step" data-target="${id}" data-delta="-0.5" aria-label="Restar medio punto a ${escapeHtml(label)}" ${disabled ? 'disabled' : ''}>${icon('minus')}</button><input id="${id}" type="number" inputmode="decimal" min="${min}" ${max != null ? `max="${escapeHtml(max)}"` : ''} step="0.01" value="${escapeHtml(value)}" ${attrs} ${disabled ? 'disabled' : ''}><button type="button" class="stepper-btn" data-action="workspace-score-step" data-target="${id}" data-delta="0.5" aria-label="Sumar medio punto a ${escapeHtml(label)}" ${disabled ? 'disabled' : ''}>${icon('plus')}</button></div>`;
+  return `<div class="stepper"><button type="button" class="stepper-btn" data-action="workspace-score-step" data-target="${id}" data-delta="-0.5" aria-label="Restar medio punto en ${escapeHtml(label)}" ${disabled ? 'disabled' : ''}>${icon('minus')}</button><input id="${id}" type="number" inputmode="decimal" min="${min}" ${max != null ? `max="${escapeHtml(max)}"` : ''} step="0.01" value="${escapeHtml(value)}" ${attrs} ${disabled ? 'disabled' : ''}><button type="button" class="stepper-btn" data-action="workspace-score-step" data-target="${id}" data-delta="0.5" aria-label="Sumar medio punto en ${escapeHtml(label)}" ${disabled ? 'disabled' : ''}>${icon('plus')}</button></div>`;
 }
 
 /** Mensajes de error del servidor ({campo: [mensajes]}) para un campo. */

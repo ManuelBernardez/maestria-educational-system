@@ -32,7 +32,7 @@ export function rubricForm(rubric = null) {
 
 export function importStudentsForm(defaultCourse = '') {
   const courses = optionRows(state.data.courses.filter(item => item.active), item => item.name, false);
-  openModal('Importar estudiantes', modalForm(`${selectField('Curso', 'course', courses, defaultCourse || '', true)}<div class="form-field full"><label for="f-file">Archivo CSV</label><input id="f-file" name="file" type="file" accept=".csv,text/csv" required><small>Hasta 2 MB y 500 filas.</small></div>`, 'Importar', '<p class="muted"><a href="../plantilla-estudiantes.csv" download>Descargar plantilla CSV</a></p>'), 'import-students');
+  openModal('Importar estudiantes', modalForm(`${selectField('Curso', 'course', courses, defaultCourse || '', true)}<div class="form-field full"><label for="f-file">Archivo CSV</label><input id="f-file" name="file" type="file" accept=".csv,text/csv" required><small>Hasta 2 MB y 500 filas. Columnas: nombre (obligatoria), correo, teléfono y legajo; también se acepta la plantilla en inglés.</small></div>`, 'Importar', '<p class="muted"><a href="../plantilla-estudiantes.csv" download>Descargar plantilla CSV</a></p>'), 'import-students');
 }
 
 export function enrollmentForm(courseId) {

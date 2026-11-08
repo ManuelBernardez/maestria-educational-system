@@ -7,6 +7,10 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # settings.py exige estas variables; no se conecta a ninguna base para estos chequeos.
+    env:
+      DEBUG: "True"
+      DJANGO_SECRET_KEY: "ci-only-not-a-production-secret-key-1234567890"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,22 +22,22 @@ jobs:
       - name: Instalar dependencias de backend (chequeos estáticos)
         run: pip install -r backend/requirements.txt
       - name: Chequeo de Django (configuración, modelos, URLs)
-        run: python backend/manage.py check
+        run: python manage.py check
         working-directory: backend
       - name: Simular collectstatic y verificar que los estáticos críticos se recopilan
         run: |
-          python backend/manage.py collectstatic --noinput --clear
-          test -f backend/staticfiles/css/styles.css
-          test -f backend/staticfiles/css/auth.css
-          test -f backend/staticfiles/css/public-enhancements.css
-          test -f backend/staticfiles/css/responsive-refinements.css
-          test -f backend/staticfiles/css/workspace.css
-          test -f backend/staticfiles/js/config.js
-          test -f backend/staticfiles/js/api.js
-          test -f backend/staticfiles/js/auth.js
-          test -f backend/staticfiles/js/workspace.js
-          test -f backend/staticfiles/js/theme-init.js
-          test -f backend/staticfiles/images/maestria-mark.svg
+          python manage.py collectstatic --noinput --clear
+          test -f staticfiles/css/styles.css
+          test -f staticfiles/css/auth.css
+          test -f staticfiles/css/public-enhancements.css
+          test -f staticfiles/css/responsive-refinements.css
+          test -f staticfiles/css/workspace.css
+          test -f staticfiles/js/config.js
+          test -f staticfiles/js/api.js
+          test -f staticfiles/js/auth.js
+          test -f staticfiles/js/workspace.js
+          test -f staticfiles/js/theme-init.js
+          test -f staticfiles/images/maestria-mark.svg
         working-directory: backend
       - name: Chequeo estático de frontend (referencias HTML, rutas, imports, sintaxis)
         run: python scripts/check_static_frontend.py

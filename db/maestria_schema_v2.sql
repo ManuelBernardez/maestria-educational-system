@@ -3,6 +3,8 @@
 -- IMPORTANTE: ejecutar solamente en una base/proyecto Supabase limpio.
 -- Para una base existente con tablas legacy core_*, revisar/aplicar las migraciones Django.
 -- Este archivo NO elimina tablas ni datos preexistentes.
+-- DESPUÉS de este archivo, ejecutar db/maestria_schema_v2_contract_alignment.sql:
+-- este esquema por sí solo no satisface `manage.py verify_public_schema`.
 
 BEGIN;
 

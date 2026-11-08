@@ -130,8 +130,36 @@ class APIRootTests(SimpleTestCase):
         self.assertNotIn("unsafe-inline", csp)
         health = Client().get("/api/health/")
         self.assertEqual(health["Content-Type"], "application/json")
-        # Browser CSP belongs to HTML documents; API JSON does not need style-src/connect-src.
-        self.assertNotIn("Content-Security-Policy", health)
+        # The HTML policy (style-src/connect-src for the browser app) must not leak into
+        # API JSON; the API gets its own deny-all policy from ApiServerTimingMiddleware.
+        api_csp = health["Content-Security-Policy"]
+        self.assertIn("default-src 'none'", api_csp)
+        self.assertIn("frame-ancestors 'none'", api_csp)
+        self.assertNotIn("connect-src", api_csp)
+        self.assertNotIn("style-src", api_csp)
+
+    def test_unknown_api_route_returns_json_404_even_for_post(self):
+        for method in ("get", "post"):
+            response = getattr(Client(enforce_csrf_checks=True), method)("/api/no-existe/")
+            self.assertEqual(response.status_code, 404, method)
+            self.assertEqual(response["Content-Type"], "application/json")
+
+    def test_frontend_file_view_is_confined_to_html_directory(self):
+        # frontend/js/config.js exists, but scripts must only be served under /assets/.
+        response = Client().get("/..%2fjs%2fconfig.js")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(Client().get("/plantilla-estudiantes.csv").status_code, 200)
+
+    def test_static_js_and_css_are_revalidated_but_images_keep_default_cache(self):
+        from config.settings import _whitenoise_headers
+
+        for url in ("/assets/js/workspace.js", "/assets/js/modules/core/state.js", "/assets/css/workspace.css"):
+            headers = {}
+            _whitenoise_headers(headers, "", url)
+            self.assertEqual(headers.get("Cache-Control"), "no-cache", url)
+        headers = {}
+        _whitenoise_headers(headers, "", "/assets/images/maestria-mark.svg")
+        self.assertNotIn("Cache-Control", headers)
 
     def test_health_endpoint_is_public(self):
         response = Client().get("/api/health/")

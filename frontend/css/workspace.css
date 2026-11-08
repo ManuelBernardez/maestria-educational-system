@@ -821,6 +821,12 @@ body.has-open-modal { overflow: hidden; }
 .admin-tab { min-height: 36px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font: 650 .78rem/1.2 var(--display); }
 .admin-tab.active { background: var(--green); border-color: var(--green); color: var(--on-chip); }
 .admin-overview-grid, .admin-service-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 18px; }
+/* Indicadores del panel de administración (se habían perdido al unificar las hojas). */
+.admin-overview-grid > article { display: grid; min-width: 0; gap: 4px; padding: 16px 18px; border: 1px solid var(--line); border-top: 3px solid var(--green); border-radius: var(--page-radius); background: var(--surface); box-shadow: var(--shadow); }
+.admin-overview-grid > article:nth-child(3) { border-top-color: var(--coral); }
+.admin-overview-grid > article > span { color: var(--muted-text); font-size: .74rem; font-weight: 650; }
+.admin-overview-grid > article > strong { color: var(--ink); font: 800 1.7rem/1.12 var(--display); letter-spacing: -.03em; }
+.admin-overview-grid > article > small { color: var(--muted-text); font-size: .72rem; line-height: 1.4; }
 .admin-service-card { display: grid; gap: 6px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--page-radius); background: var(--surface); box-shadow: var(--shadow); }
 .admin-service-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: var(--green-soft); color: var(--green-deep); }
 .admin-section { display: grid; gap: 16px; }

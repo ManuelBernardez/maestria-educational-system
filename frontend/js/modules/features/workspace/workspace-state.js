@@ -127,7 +127,8 @@ export function criterionModified(index) {
 /* ---------- Cambios sin guardar ---------- */
 
 export function stepDirty(step = workspace.step) {
-  if (step === 1) return workspace.objectives !== workspace.savedContext.objectives || workspace.instructions !== workspace.savedContext.instructions;
+  // Una consigna abierta con cambios también es trabajo sin guardar del paso 1.
+  if (step === 1) return workspace.objectives !== workspace.savedContext.objectives || workspace.instructions !== workspace.savedContext.instructions || Boolean(workspace.questionEditor?.dirty);
   if (step === 2) {
     if (workspace.activeSubmission) return workspace.answerText !== (workspace.activeSubmission.answer_text || '');
     return Boolean(workspace.answerText.trim() || workspace.answerFile);

@@ -1,3 +1,6 @@
+import re
+import unicodedata
+
 from .common import (
     AIUserRateThrottle,
     Assessment,
@@ -323,9 +326,9 @@ class StudentViewSet(OwnerViewSet):
             delimiter = max(",;\t", key=header_line.count) if header_line.count(",") + header_line.count(";") + header_line.count("\t") else ","
             reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
             if reader.fieldnames:
-                reader.fieldnames = [str(item or "").strip().lower() for item in reader.fieldnames]
+                reader.fieldnames = [_student_csv_column(item) for item in reader.fieldnames]
             if not reader.fieldnames or "name" not in reader.fieldnames:
-                raise ValidationError({"file": "El CSV debe incluir una columna name."})
+                raise ValidationError({"file": "El CSV debe incluir una columna name o nombre."})
             created, skipped, errors = 0, 0, []
             owner_id = request.user.id
             lock_owner_profile(owner_id)
@@ -354,6 +357,22 @@ class StudentViewSet(OwnerViewSet):
             return Response({"created": created, "skipped": skipped, "errors": errors[:100]}, status=status.HTTP_200_OK)
         except UnicodeDecodeError as exc:
             raise ValidationError({"file": "El archivo debe estar codificado en UTF-8."}) from exc
+
+_STUDENT_CSV_ALIASES = {
+    "nombre": "name", "nombre_completo": "name", "nombre_y_apellido": "name",
+    "apellido_y_nombre": "name", "estudiante": "name", "alumno": "name",
+    "correo": "email", "correo_electronico": "email", "mail": "email", "e_mail": "email",
+    "telefono": "phone", "celular": "phone",
+    "codigo": "external_code", "codigo_externo": "external_code", "legajo": "external_code",
+}
+
+
+def _student_csv_column(header):
+    """Encabezado del CSV → nombre interno (acepta la plantilla en inglés o en español)."""
+    text = unicodedata.normalize("NFKD", str(header or "")).encode("ascii", "ignore").decode()
+    key = re.sub(r"[\s\-]+", "_", text.strip().lower())
+    return _STUDENT_CSV_ALIASES.get(key, key)
+
 
 class RubricViewSet(OwnerViewSet):
     queryset = Rubric.objects.all().prefetch_related("criteria__levels").order_by("-updated_at")

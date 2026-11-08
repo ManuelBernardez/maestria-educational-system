@@ -593,3 +593,38 @@ class CourseNavigationApiTests(TestCase):
         self.assertNotIn("owner_id", rows[0])
         self.assertNotIn("Curso ajeno", str(response.data))
 
+
+
+class StudentCsvImportTests(TestCase):
+    def setUp(self):
+        self.owner_id = uuid4()
+        ensure_auth_users(self.owner_id)
+        self.client = APIClient()
+        self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
+        self.course = Course.objects.create(owner_id=self.owner_id, name="Curso CSV")
+
+    def _upload(self, content):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile("estudiantes.csv", content.encode("utf-8"), content_type="text/csv")
+        return self.client.post("/api/students/import-csv/", {"file": upload, "course": self.course.id}, format="multipart")
+
+    def test_english_template_headers_still_work(self):
+        response = self._upload("name,email,phone,external_code\nAna Pérez,ana@ejemplo.test,1155550001,A-001\n")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["created"], 1)
+
+    def test_spanish_headers_with_accents_and_semicolons_are_accepted(self):
+        response = self._upload("Nombre y apellido;Correo electrónico;Teléfono;Legajo\nBruno Díaz;BRUNO@ejemplo.test;1155550002;B-002\n")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["created"], 1)
+        student = Student.objects.get(owner_id=self.owner_id)
+        self.assertEqual(
+            (student.name, student.email, student.phone, student.external_code),
+            ("Bruno Díaz", "bruno@ejemplo.test", "1155550002", "B-002"),
+        )
+        self.assertTrue(Enrollment.objects.filter(student=student, course=self.course, status="active").exists())
+
+    def test_missing_name_column_is_rejected(self):
+        response = self._upload("correo\nx@ejemplo.test\n")
+        self.assertEqual(response.status_code, 400)
