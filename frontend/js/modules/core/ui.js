@@ -137,10 +137,9 @@ export function updateChrome() {
   const name = state.profile?.full_name || state.profile?.email?.split('@')[0] || (isAdmin ? 'Administrador' : 'Docente');
   const email = state.profile?.email || '';
   const initialsText = initials(name);
-  ['#workspace-avatar', '#profile-avatar', '#top-profile'].forEach(selector => { const node = $(selector); if (node) node.textContent = initialsText; });
+  ['#profile-avatar', '#top-profile'].forEach(selector => { const node = $(selector); if (node) node.textContent = initialsText; });
   if ($('#profile-name')) $('#profile-name').textContent = name;
   if ($('#profile-email')) $('#profile-email').textContent = email;
-  if ($('#workspace-role')) $('#workspace-role').textContent = role === 'superadmin' ? 'Superadministración' : role === 'admin' ? 'Administración global' : 'Docencia · Personal';
   if ($('#course-count')) $('#course-count').textContent = String(state.data.courses.filter(item => item.active).length);
   if ($('#pending-count')) $('#pending-count').textContent = String(state.data.corrections.filter(item => item.status === 'pending_review').length);
   if ($('#submission-count')) $('#submission-count').textContent = String(state.data.submissions.length);
@@ -160,7 +159,6 @@ export function updateChrome() {
   const tip = $('.sidebar-tip'); if (tip) tip.hidden = true;
   const helpButton = $('#help-button'); if (helpButton) helpButton.hidden = isAdmin;
   const guideMenuItem = $('[data-profile-action="guide"]'); if (guideMenuItem) guideMenuItem.hidden = isAdmin;
-  const workspaceTitle = $('.workspace-switch strong'); if (workspaceTitle) workspaceTitle.textContent = isAdmin ? 'Administración' : 'Mi espacio';
   const sideNav = $('.side-nav'); if (sideNav) sideNav.setAttribute('aria-label', isAdmin ? 'Navegación de administración' : 'Navegación del espacio docente');
   const today = $('#today-label');
   if (today) today.textContent = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());

@@ -129,23 +129,20 @@ STORAGES = {
 WHITENOISE_MAX_AGE = 60 * 60 * 24
 
 
-# Archivos estáticos que cambian con cada despliegue: se revalidan siempre.
-_ARCHIVOS_SIN_CACHE = {"config.js", "api.js", "auth.js", "main.js", "theme-init.js"}
+# Versión de los recursos del frontend. Al cambiarla, cada navegador recibe una única vez
+# `Clear-Site-Data: "cache"` en el próximo HTML y descarta copias viejas de JS/CSS.
+FRONTEND_ASSETS_VERSION = "1.1.1"
 
 
 def _whitenoise_headers(headers, path, url):
-    """Caché de estáticos: larga para la mayoría, revalidación para los que cambian seguido.
+    """JS, CSS y CSV se revalidan siempre (ETag/Last-Modified → 304 si no cambiaron).
 
-    Los archivos con versión en el HTML (p. ej. workspace.css?v=1.0.9) se tratan como
-    URLs distintas por el navegador, por lo que pueden cachearse largo plazo sin riesgo
-    de servir una versión vieja cuando el HTML apunte a una nueva query string.
+    Los módulos ES se importan entre sí sin versión en la URL (`./core/utils.js`): si el
+    navegador los guarda con max-age, tras un despliegue mezcla módulos viejos y nuevos
+    (export inexistente, 404 de archivos renombrados). Por eso nunca se cachean sin revalidar.
     """
-    if str(url).endswith((".js", ".css", ".csv")):
-        nombre = str(url).split("/")[-1].split("?")[0]
-        if nombre in _ARCHIVOS_SIN_CACHE:
-            headers["Cache-Control"] = "no-cache"
-        else:
-            headers["Cache-Control"] = "public, max-age=604800"
+    if str(url).endswith((".js", ".mjs", ".css", ".csv")):
+        headers["Cache-Control"] = "no-cache"
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = _whitenoise_headers

@@ -204,16 +204,7 @@ ul, ol { margin: 0; padding-left: 1.2em; }
 .avatar-tone { background: color-mix(in srgb, var(--tone, var(--tone-0)) 30%, var(--surface)); color: #2b3a33; }
 [data-theme="dark"] .avatar-tone { background: color-mix(in srgb, var(--tone, var(--tone-0)) 70%, #fff); }
 
-.workspace-switch {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 12px; text-align: left;
-  border: 1px solid rgba(255, 255, 255, .14); border-radius: 14px; background: rgba(255, 255, 255, .07); color: #f0f5ee;
-  transition: background var(--ease), border-color var(--ease);
-}
-.workspace-switch:hover { background: rgba(255, 255, 255, .11); border-color: rgba(255, 255, 255, .2); }
-.workspace-switch-copy { display: grid; min-width: 0; flex: 1; }
-.workspace-switch-copy strong { font: 700 .9rem/1.25 var(--display); color: #f0f5ee; }
-/* #d9e4db: sobre el velo de la tarjeta "Mi espacio" el #cfdcd1 daba 4.48:1. */
-.workspace-switch-copy small, .sidebar-profile-copy small { color: #d9e4db; font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-profile-copy small { color: #d9e4db; font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .side-nav { display: grid; gap: 4px; }
 .side-link {
@@ -247,11 +238,11 @@ ul, ol { margin: 0; padding-left: 1.2em; }
 
 .sidebar.is-collapsed { padding-inline: 12px; }
 .sidebar.is-collapsed .app-brand-logo, .sidebar.is-collapsed .side-text, .sidebar.is-collapsed .side-count,
-.sidebar.is-collapsed .workspace-switch-copy, .sidebar.is-collapsed .workspace-switch .icon, .sidebar.is-collapsed .sidebar-profile-copy,
+.sidebar.is-collapsed .sidebar-profile-copy,
 .sidebar.is-collapsed .sidebar-course-shortcuts, .sidebar.is-collapsed .sidebar-profile-more { display: none; }
 .sidebar.is-collapsed .app-brand-symbol { display: block; }
 .sidebar.is-collapsed .sidebar-brand { flex-direction: column; }
-.sidebar.is-collapsed .side-link, .sidebar.is-collapsed .workspace-switch, .sidebar.is-collapsed .sidebar-profile { justify-content: center; padding-inline: 6px; }
+.sidebar.is-collapsed .side-link, .sidebar.is-collapsed .sidebar-profile { justify-content: center; padding-inline: 6px; }
 .sidebar.is-collapsed .sidebar-collapse svg { transform: scaleX(-1); }
 .sidebar-scrim { display: none; }
 
@@ -1113,7 +1104,7 @@ body.has-open-modal { overflow: hidden; }
     box-shadow: 0 0 40px rgba(0, 0, 0, .3); transition: transform var(--ease);
   }
   .sidebar.is-open { transform: none; }
-  .sidebar.is-collapsed .side-text, .sidebar.is-collapsed .app-brand-logo, .sidebar.is-collapsed .workspace-switch-copy, .sidebar.is-collapsed .sidebar-profile-copy { display: revert; }
+  .sidebar.is-collapsed .side-text, .sidebar.is-collapsed .app-brand-logo, .sidebar.is-collapsed .sidebar-profile-copy { display: revert; }
   .sidebar-collapse { display: none; }
   .sidebar-close { display: grid; }
   .sidebar-scrim { position: fixed; inset: 0; z-index: 25; display: block; visibility: hidden; opacity: 0; background: var(--scrim); transition: opacity var(--ease); }

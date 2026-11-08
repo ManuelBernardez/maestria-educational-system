@@ -5,6 +5,8 @@ from django.conf import settings
 
 from apps.core.views import health
 
+ASSETS_COOKIE = "maestria_assets"
+
 
 def api_root(request):
     """Small health-oriented API description; no secrets are exposed here."""
@@ -53,6 +55,12 @@ def frontend_file(request, frontend_path=""):
     response["Cross-Origin-Resource-Policy"] = "same-origin"
     if candidate.suffix.lower() in {".html", ".htm"}:
         response["Cache-Control"] = "no-store, max-age=0"
+        # Una sola vez por versión: borra JS/CSS que el navegador guardó con la política
+        # de caché anterior (7 días sin revalidar) y que mezclaría con los módulos nuevos.
+        version = settings.FRONTEND_ASSETS_VERSION
+        if request.COOKIES.get(ASSETS_COOKIE) != version:
+            response["Clear-Site-Data"] = '"cache"'
+            response.set_cookie(ASSETS_COOKIE, version, max_age=60 * 60 * 24 * 365, secure=request.is_secure(), httponly=True, samesite="Lax")
         # CSP belongs on the HTML document: its connect-src directive governs
         # browser fetches to Supabase Auth. All inline scripts/styles were removed.
         response["Content-Security-Policy"] = (

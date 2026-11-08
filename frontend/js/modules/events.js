@@ -361,7 +361,7 @@ document.addEventListener('click', event => {
   if (event.target.closest('[data-close-modal]') || event.target.id === 'modal-close') closeModal();
   const shareAction = event.target.closest('[data-share-action]')?.dataset.shareAction;
   if (shareAction) { event.preventDefault(); handleShareAction(shareAction).catch(error => toast(errorText(error), 'error')); return; }
-  const profileButton = event.target.closest('#profile-trigger, #top-profile, #workspace-trigger');
+  const profileButton = event.target.closest('#profile-trigger, #top-profile');
   if (profileButton) { toggleProfileMenu(profileButton); return; }
   if (!$('#profile-menu').hidden && !event.target.closest('#profile-menu')) toggleProfileMenu(null, false);
   const profileAction = event.target.closest('[data-profile-action]');
