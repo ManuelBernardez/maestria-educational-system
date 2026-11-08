@@ -40,6 +40,13 @@ services:
         value: "60"
       - key: AI_MAX_CONCURRENT_ANSWERS
         value: "3"
+      # Proxies entre el cliente y Gunicorn: la IP para límites de frecuencia y auditoría es la
+      # N-ésima desde el final de X-Forwarded-For. 1 = la que agrega el proxy de Render (no se
+      # puede falsificar). Confirmar con LOG_PROXY_HEADERS=True y ajustar (ver docs/PROXY-Y-LIMITES.md).
+      - key: DRF_NUM_PROXIES
+        value: "1"
+      - key: LOG_PROXY_HEADERS
+        value: "False"
       - key: CORS_ALLOWED_ORIGINS
         value: ""
       - key: CSRF_TRUSTED_ORIGINS

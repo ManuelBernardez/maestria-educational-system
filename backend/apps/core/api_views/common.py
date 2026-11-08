@@ -35,6 +35,7 @@ from ..models import (
     Question, Rubric, RubricCriterion, RubricLevel, Student, Submission,
     SubmissionAnswer, UserProfile,
 )
+from ..network import client_ip
 from ..serializers import (
     AssessmentEditorSerializer, AssessmentListSerializer, AssessmentSerializer, AssessmentWorkspaceSerializer, CorrectionSerializer,
     CourseDashboardSerializer, CourseNavigationSerializer, CourseOptionSerializer, CourseSerializer, EnrollmentSerializer, QuestionSerializer,
@@ -132,7 +133,7 @@ def record_audit(owner_id, event_type, object_type, object_id, detail=None, requ
                 user_id=actor_user_id, status="active",
             ).values_list("role", flat=True).first() or "system"
         request_id = getattr(request, "request_id", None)
-        ip_address = request.META.get("REMOTE_ADDR")
+        ip_address = client_ip(request)
         user_agent = request.META.get("HTTP_USER_AGENT", "")[:1000] or None
     AuditEvent.objects.create(
         owner_id=owner_id, actor_user_id=actor_user_id, actor_role=actor_role,

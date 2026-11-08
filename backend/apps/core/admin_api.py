@@ -16,6 +16,7 @@ from .models import (
     AIProviderConfig, AuditEvent, ContactMessage, Institution,
     InstitutionMembership, UserProfile,
 )
+from .network import client_ip
 from .permissions import IsGlobalAdmin, active_memberships, active_profile, global_role
 
 SUPERADMIN_GUARD_LOCK = (1297303908, 1)
@@ -23,7 +24,7 @@ SUPERADMIN_GUARD_LOCK = (1297303908, 1)
 
 def _audit(request, event_type, object_type, object_id, detail=None):
     role = global_role(request.user) or "teacher"
-    ip = request.META.get("REMOTE_ADDR")
+    ip = client_ip(request)
     AuditEvent.objects.create(
         owner_id=request.user.id,
         actor_user_id=request.user.id,

@@ -411,3 +411,102 @@ class WorkspacePermissionTests(SimpleTestCase):
         profile = SimpleNamespace(role="student", status="active")
         with patch("apps.core.permissions.active_profile", return_value=profile):
             self.assertFalse(self.permission.has_permission(self.request, None))
+
+
+from django.core.cache import cache
+from django.test import RequestFactory, override_settings
+from django.conf import settings as django_settings
+
+from .network import client_ip, proxy_header_shape
+
+
+def _rest_framework_with(num_proxies):
+    return {**django_settings.REST_FRAMEWORK, "NUM_PROXIES": num_proxies}
+
+
+class ContactThrottleProxyTests(TestCase):
+    """F-10: la identidad del throttle no puede depender de la parte de X-Forwarded-For
+    que escribe el cliente. ContactRateThrottle permite 5 mensajes por hora."""
+
+    payload = {
+        "name": "Persona de prueba", "email": "contacto@example.test",
+        "subject": "Consulta de prueba", "message": "Mensaje de prueba para validar el límite de contacto.",
+    }
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _post(self, forwarded=None, remote_addr="10.0.0.5"):
+        extra = {"REMOTE_ADDR": remote_addr}
+        if forwarded is not None:
+            extra["HTTP_X_FORWARDED_FOR"] = forwarded
+        return APIClient().post("/api/contact/", self.payload, format="json", **extra)
+
+    @override_settings(REST_FRAMEWORK=_rest_framework_with(1))
+    def test_same_forwarded_for_is_throttled_on_sixth_post(self):
+        statuses = [self._post("198.51.100.1, 203.0.113.7").status_code for _ in range(6)]
+        self.assertEqual(statuses, [201] * 5 + [429])
+
+    @override_settings(REST_FRAMEWORK=_rest_framework_with(1))
+    def test_spoofed_client_part_with_same_proxy_ip_is_still_throttled(self):
+        # El cliente cambia su parte del header en cada pedido; la IP que agrega el proxy
+        # (la última) es la misma, así que todos los pedidos cuentan contra el mismo límite.
+        statuses = [self._post(f"198.51.100.{n}, 203.0.113.7").status_code for n in range(1, 7)]
+        self.assertEqual(statuses, [201] * 5 + [429])
+
+    @override_settings(REST_FRAMEWORK=_rest_framework_with(2))
+    def test_two_proxies_use_the_ip_added_by_the_first_trusted_proxy(self):
+        # Cliente → Cloudflare (agrega 203.0.113.7) → Render (agrega la IP de Cloudflare).
+        statuses = [self._post(f"198.51.100.{n}, 203.0.113.7, 172.70.{n}.1").status_code for n in range(1, 7)]
+        self.assertEqual(statuses, [201] * 5 + [429])
+
+    @override_settings(REST_FRAMEWORK=_rest_framework_with(0))
+    def test_zero_proxies_uses_remote_addr_and_ignores_forwarded_for(self):
+        statuses = [self._post(f"198.51.100.{n}, 203.0.113.{n}").status_code for n in range(1, 7)]
+        self.assertEqual(statuses, [201] * 5 + [429])
+        # Otra REMOTE_ADDR es otro cliente: tiene su propio cupo.
+        self.assertEqual(self._post("198.51.100.1", remote_addr="10.0.0.6").status_code, 201)
+
+    def test_authenticated_user_keeps_own_quota_regardless_of_ip(self):
+        teacher_id = uuid4()
+        ensure_auth_users(teacher_id)
+        client = APIClient()
+        client.force_authenticate(user=SupabasePrincipal(id=str(teacher_id)))
+        statuses = [
+            client.post("/api/contact/", self.payload, format="json", REMOTE_ADDR=f"10.0.0.{n}").status_code
+            for n in range(1, 7)
+        ]
+        self.assertEqual(statuses, [201] * 5 + [429])
+
+
+class ClientIpTests(SimpleTestCase):
+    """La auditoría identifica al cliente con el mismo criterio que los throttles."""
+
+    def _request(self, forwarded=None, remote_addr="10.0.0.5", **extra):
+        meta = {"REMOTE_ADDR": remote_addr, **extra}
+        if forwarded is not None:
+            meta["HTTP_X_FORWARDED_FOR"] = forwarded
+        return RequestFactory().get("/api/health/", **meta)
+
+    @override_settings(REST_FRAMEWORK=_rest_framework_with(0))
+    def test_zero_proxies_returns_remote_addr(self):
+        self.assertEqual(client_ip(self._request("198.51.100.9, 203.0.113.7")), "10.0.0.5")
+
+    @override_settings(REST_FRAMEWORK=_rest_framework_with(1))
+    def test_one_proxy_returns_last_forwarded_entry(self):
+        self.assertEqual(client_ip(self._request("198.51.100.9, 203.0.113.7")), "203.0.113.7")
+        self.assertEqual(client_ip(self._request()), "10.0.0.5")
+
+    @override_settings(REST_FRAMEWORK=_rest_framework_with(2))
+    def test_invalid_value_is_not_stored(self):
+        self.assertIsNone(client_ip(self._request("no-es-una-ip, 203.0.113.7")))
+
+    def test_probe_reports_shape_without_ips(self):
+        shape = proxy_header_shape(self._request(
+            "198.51.100.9, 203.0.113.7, 172.70.1.1", HTTP_TRUE_CLIENT_IP="203.0.113.7",
+        ))
+        self.assertEqual(shape["xff_entradas"], 3)
+        self.assertEqual(shape["true_client_ip_en_xff"], "-2")
+        self.assertEqual(shape["cf_connecting_ip_en_xff"], "ausente")
+        self.assertNotIn("203.0.113.7", str(shape))

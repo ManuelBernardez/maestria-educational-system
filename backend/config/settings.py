@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -153,6 +154,20 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500").split(",") if x.strip()]
 CSRF_TRUSTED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500").split(",") if x.strip()]
 
+
+def _num_proxies():
+    """DRF_NUM_PROXIES: entero >= 0. Default 0 (REMOTE_ADDR): nunca confía en un header
+    que pueda escribir el cliente. Sin proxy (runserver local) es el valor correcto."""
+    raw = os.getenv("DRF_NUM_PROXIES", "0").strip() or "0"
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ImproperlyConfigured("DRF_NUM_PROXIES debe ser un entero mayor o igual a 0.") from exc
+    if value < 0:
+        raise ImproperlyConfigured("DRF_NUM_PROXIES debe ser un entero mayor o igual a 0.")
+    return value
+
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.authentication.SupabaseJWTAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["apps.core.permissions.IsWorkspaceUser"],
@@ -171,7 +186,16 @@ REST_FRAMEWORK = {
     # Paginar los listados por defecto para evitar respuestas ilimitadas a medida que
     # crecen los cursos, entregas, correcciones y mensajes de administración.
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.BoundedPageNumberPagination",
+    # Cantidad de proxies propios entre el cliente y Gunicorn. Los throttles y la auditoría
+    # toman la IP en esa posición contando desde el final de X-Forwarded-For (la parte que
+    # agregan los proxies). Con 0 se usa REMOTE_ADDR.
+    "NUM_PROXIES": _num_proxies(),
 }
+
+
+# Diagnóstico temporal para medir NUM_PROXIES en producción sin registrar IPs.
+if os.getenv("LOG_PROXY_HEADERS", "False").strip().lower() == "true":
+    MIDDLEWARE.insert(MIDDLEWARE.index("apps.core.middleware.ApiServerTimingMiddleware") + 1, "apps.core.middleware.ProxyHeaderProbeMiddleware")
 
 # Upload/body limits are intentionally conservative; CSV import also checks 2 MB and 500 rows.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
