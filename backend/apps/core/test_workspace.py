@@ -2,7 +2,7 @@
 from uuid import uuid4
 
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from .authentication import SupabasePrincipal
@@ -100,6 +100,9 @@ class CorrectionWorkspaceApiTests(TestCase):
         self.assertEqual(response.data["selected_assessment"]["id"], self.assessment.id)
         self.assertNotIn("Evaluación ajena", titles)
 
+    # Cuenta las consultas de la vista; con CACHE_BACKEND=database el throttle sumaría
+    # las de la tabla de caché (6 por pedido), que se prueban en SharedThrottleCacheTests.
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "workspace-query-count"}})
     def test_workspace_summary_without_assessment_returns_selector_only(self):
         with self.assertNumQueries(3):  # evaluaciones, cursos activos y proveedor de IA
             response = self.client.get("/api/correction-workspace/?summary=1")

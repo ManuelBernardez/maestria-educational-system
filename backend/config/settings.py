@@ -197,6 +197,39 @@ REST_FRAMEWORK = {
 if os.getenv("LOG_PROXY_HEADERS", "False").strip().lower() == "true":
     MIDDLEWARE.insert(MIDDLEWARE.index("apps.core.middleware.ApiServerTimingMiddleware") + 1, "apps.core.middleware.ProxyHeaderProbeMiddleware")
 
+# Caché de Django. Hoy sólo la usan los límites de frecuencia de DRF (throttles).
+# Tiene que ser compartida entre los workers de Gunicorn: con LocMemCache cada proceso
+# cuenta por separado (2 workers = el doble del límite) y los contadores se pierden en
+# cada deploy. CACHE_BACKEND:
+#   database → tabla public.django_cache en el mismo PostgreSQL (producción). La tabla se
+#              crea con backend/database/migrations/20261108180000_shared_throttle_cache.sql.
+#   locmem   → memoria del proceso; sólo con DEBUG=True (desarrollo local y pruebas).
+# Si falta en producción, el arranque falla: un warning dejaría corriendo el sitio con
+# los límites duplicados, que es justamente el problema a evitar.
+_CACHE_BACKENDS = {
+    "database": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+        # Los throttles fijan su propio vencimiento (como máximo 1 hora). MAX_ENTRIES alto
+        # para que la limpieza sólo borre entradas vencidas y no reinicie contadores vigentes.
+        "OPTIONS": {"MAX_ENTRIES": 20000, "CULL_FREQUENCY": 4},
+    },
+    "locmem": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "maestria-local"},
+}
+CACHE_BACKEND = os.getenv("CACHE_BACKEND", "").strip().lower() or ("locmem" if DEBUG else "")
+if CACHE_BACKEND not in _CACHE_BACKENDS:
+    raise ImproperlyConfigured(
+        "CACHE_BACKEND debe ser 'database' (producción, caché compartida entre workers) o "
+        "'locmem' (sólo desarrollo con DEBUG=True). Valor recibido: "
+        f"{CACHE_BACKEND or '(vacío)'}. Ver docs/PRUEBAS-LOCALES.md."
+    )
+if CACHE_BACKEND == "locmem" and not DEBUG:
+    raise ImproperlyConfigured(
+        "CACHE_BACKEND=locmem no se permite con DEBUG=False: cada worker de Gunicorn contaría "
+        "los límites de frecuencia por separado. Usá CACHE_BACKEND=database."
+    )
+CACHES = {"default": _CACHE_BACKENDS[CACHE_BACKEND]}
+
 # Upload/body limits are intentionally conservative; CSV import also checks 2 MB and 500 rows.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024

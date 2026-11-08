@@ -47,6 +47,11 @@ services:
         value: "1"
       - key: LOG_PROXY_HEADERS
         value: "False"
+      # Contadores de límites de frecuencia compartidos entre workers (tabla public.django_cache).
+      # Antes del primer deploy con este valor, correr en Supabase
+      # backend/database/migrations/20261108180000_shared_throttle_cache.sql.
+      - key: CACHE_BACKEND
+        value: database
       - key: CORS_ALLOWED_ORIGINS
         value: ""
       - key: CSRF_TRUSTED_ORIGINS

@@ -194,6 +194,7 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - **Validación integral:** "Guardar contexto" también guarda la consigna en edición; `/api/*` inexistente responde 404 JSON; la importación de estudiantes por CSV acepta encabezados en español; `conftest.py` impide correr las pruebas contra Supabase.
 - **Revisión por consigna:** en entregas con varias consignas, "Revisar y aprobar" muestra cada respuesta por separado, indica a qué consigna pertenece cada criterio y resalta la cita en la respuesta que la IA corrigió.
 - **Mensajes de error:** los errores de validación del backend que llegaban como lista (`["…"]`) o anidados se muestran con su texto en lugar de "HTTP 400".
+- **Límites de frecuencia compartidos (F-10):** los contadores de los throttles se guardan en `public.django_cache` (`CACHE_BACKEND=database`) en lugar de la memoria de cada worker; antes, con 2 workers, cada límite rendía el doble y se reiniciaba en cada deploy. Con `DEBUG=False` el arranque falla si falta `CACHE_BACKEND`. La tabla se crea con `backend/database/migrations/20261108180000_shared_throttle_cache.sql` (también incluida en el script de alineación) y `verify_public_schema` controla que exista con RLS activado.
 - **Base de datos:** `db/maestria_schema_v2_contract_alignment.sql` alinea instalaciones nuevas con lo que espera el backend. En producción ya se aplicó el rango de timeout 5–85 s (2026-11-07).
 
 ## Cambios v1.0.9

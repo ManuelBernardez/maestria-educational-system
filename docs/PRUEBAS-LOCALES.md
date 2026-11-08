@@ -32,6 +32,11 @@ export DATABASE_URL="postgresql://postgres:localtest@127.0.0.1:55432/maestria_lo
 export AI_PROVIDER=mock GEMINI_API_KEY="" OPENAI_API_KEY="" AI_EXTERNAL_PROCESSING_APPROVED=False
 ```
 
+Con `DEBUG=True` el caché de los límites de frecuencia es `locmem` (memoria del
+proceso). Para probar el caché compartido de producción, exportá también
+`CACHE_BACKEND=database`: usa la tabla `public.django_cache`, que el script de
+alineación ya crea. Con `DEBUG=False` el arranque exige `CACHE_BACKEND=database`.
+
 Verificación de sólo lectura del esquema:
 
 ```bash
@@ -48,6 +53,12 @@ cd backend && .venv/bin/pytest -q
 
 `conftest.py` se niega a ejecutar si `DATABASE_URL` apunta a `*.supabase.co` /
 `*.supabase.com`, y fuerza `AI_PROVIDER=mock` con credenciales vacías.
+
+La suite pasa con los dos cachés; para correrla como en producción:
+
+```bash
+cd backend && CACHE_BACKEND=database .venv/bin/pytest -q
+```
 
 ## 4. Servidor y navegador
 

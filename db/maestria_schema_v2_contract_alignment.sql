@@ -16,6 +16,7 @@
 -- Efectos sobre datos: no elimina filas ni columnas. Las únicas escrituras son
 --   (a) acotar `ai_provider_config.timeout_seconds` al rango 5..85 que acepta el
 --       adaptador de IA (valores mayores a 85 pasan a 85; menores a 5 pasan a 5);
+--   (b) crear `django_cache`, la tabla vacía de la caché de límites de frecuencia.
 -- Las FK simples heredadas se eliminan sólo cuando existe la FK compuesta
 -- equivalente, que conserva el mismo comportamiento ON DELETE.
 -- `uq_user_profile_email_ci` fallará si existen perfiles con el mismo correo
@@ -239,6 +240,19 @@ ALTER TABLE public.ai_provider_config
   ALTER COLUMN timeout_seconds SET DEFAULT 60,
   DROP CONSTRAINT IF EXISTS ai_provider_timeout_range,
   ADD CONSTRAINT ai_provider_timeout_range CHECK (timeout_seconds >= 5 AND timeout_seconds <= 85);
+
+-- 7. Caché compartida de límites de frecuencia (CACHE_BACKEND=database) --------
+--    Igual a backend/database/migrations/20261108180000_shared_throttle_cache.sql.
+--    Datos efímeros (contadores de throttles con claves por IP o usuario): sin FK y
+--    cerrada a la API REST de Supabase.
+CREATE TABLE IF NOT EXISTS public.django_cache (
+  cache_key varchar(255) NOT NULL PRIMARY KEY,
+  value text NOT NULL,
+  expires timestamp with time zone NOT NULL
+);
+CREATE INDEX IF NOT EXISTS django_cache_expires ON public.django_cache (expires);
+ALTER TABLE public.django_cache ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.django_cache FROM PUBLIC, anon, authenticated, service_role;
 
 COMMIT;
 

@@ -1,4 +1,5 @@
 """Read-only compatibility audit against the existing Supabase public schema."""
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
@@ -24,6 +25,19 @@ EXPECTED_TABLES = {
     "institution_membership": {"id", "institution_id", "user_id", "role", "status", "invited_by", "created_at", "updated_at", "updated_by"},
     "ai_provider_config": {"id", "provider", "model_name", "enabled", "priority", "timeout_seconds", "input_usd_per_1k_tokens", "output_usd_per_1k_tokens", "updated_by", "updated_at"},
 }
+
+# Tabla de DatabaseCache (contadores de throttles). Se verifica aparte porque sólo es
+# obligatoria cuando CACHE_BACKEND=database.
+CACHE_TABLE_COLUMNS = {"cache_key", "value", "expires"}
+
+
+def _database_cache_table():
+    """Tabla configurada para DatabaseCache en el caché por defecto, o None."""
+    config = settings.CACHES.get("default", {})
+    if config.get("BACKEND") == "django.core.cache.backends.db.DatabaseCache":
+        return config.get("LOCATION")
+    return None
+
 
 # Each tuple: constraint name, child table, child columns, parent table, parent columns.
 COMPOSITE_FKS = [
@@ -269,6 +283,26 @@ class Command(BaseCommand):
             for trigger, expected in REQUIRED_TRIGGERS.items():
                 if triggers.get(trigger) != expected:
                     errors.append(f"Falta el trigger {trigger} en public.{expected[0]} o no ejecuta {expected[1]}.")
+
+            # Caché compartida de límites de frecuencia (DatabaseCache). Obligatoria si el
+            # backend está configurado para usarla; las claves incluyen IPs, así que la
+            # tabla debe quedar cerrada a la API REST de Supabase (RLS activado).
+            cache_table = _database_cache_table()
+            cursor.execute("SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.django_cache')")
+            cache_row = cursor.fetchone()
+            if cache_row is None:
+                message = "No existe public.django_cache (caché compartida de límites de frecuencia); aplicar backend/database/migrations/20261108180000_shared_throttle_cache.sql."
+                (errors if cache_table == "django_cache" else warnings).append(message)
+            else:
+                missing = CACHE_TABLE_COLUMNS - set(columns.get("django_cache", {}))
+                if missing:
+                    errors.append(f"public.django_cache: faltan columnas {', '.join(sorted(missing))}")
+                if "django_cache_expires" not in indexes:
+                    errors.append("Falta índice django_cache_expires en public.django_cache (limpieza de entradas vencidas).")
+                if not cache_row[0]:
+                    errors.append("public.django_cache no tiene RLS activado: las claves de caché incluyen IPs y quedarían expuestas a la API REST.")
+            if cache_table and cache_table != "django_cache":
+                warnings.append(f"CACHES usa la tabla {cache_table}; este verificador sólo controla public.django_cache.")
 
             cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'core_%' ORDER BY tablename")
             legacy = [r[0] for r in cursor.fetchall()]

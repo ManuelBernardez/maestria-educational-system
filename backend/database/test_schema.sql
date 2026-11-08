@@ -295,3 +295,12 @@ CREATE TRIGGER student_touch_updated_at BEFORE UPDATE ON public.student FOR EACH
 CREATE TRIGGER submission_touch_updated_at BEFORE UPDATE ON public.submission FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
 CREATE TRIGGER submission_answer_touch_updated_at BEFORE UPDATE ON public.submission_answer FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
 CREATE TRIGGER user_profile_touch_updated_at BEFORE UPDATE ON public.user_profile FOR EACH ROW EXECUTE FUNCTION public.maestria_touch_updated_at();
+
+-- Caché compartida de límites de frecuencia (CACHE_BACKEND=database). IF NOT EXISTS:
+-- con CACHE_BACKEND=database, Django ya la crea al armar la base de prueba.
+CREATE TABLE IF NOT EXISTS public.django_cache (
+  cache_key varchar(255) NOT NULL PRIMARY KEY,
+  value text NOT NULL,
+  expires timestamp with time zone NOT NULL
+);
+CREATE INDEX IF NOT EXISTS django_cache_expires ON public.django_cache (expires);

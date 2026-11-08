@@ -1,5 +1,5 @@
 import asyncio
-from django.test import SimpleTestCase, Client
+from django.test import SimpleTestCase, Client, override_settings
 from .ai import _mock, _validate_proposal, ai_error_code, default_rubric_for_question, generate_questions
 from .authentication import SupabasePrincipal
 from .api_views.common import ai_error_http_status
@@ -118,6 +118,9 @@ class SupabasePrincipalTests(SimpleTestCase):
         self.assertTrue(principal.is_authenticated)
 
 
+# Estas pruebas no usan la base: con CACHE_BACKEND=database el throttle consultaría la
+# tabla de caché, así que se fija el caché en memoria. El throttle se prueba aparte.
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "api-root-tests"}})
 class APIRootTests(SimpleTestCase):
     def test_root_serves_the_frontend_with_strict_csp_and_api_stays_json(self):
         home = Client().get("/")
@@ -510,3 +513,79 @@ class ClientIpTests(SimpleTestCase):
         self.assertEqual(shape["true_client_ip_en_xff"], "-2")
         self.assertEqual(shape["cf_connecting_ip_en_xff"], "ausente")
         self.assertNotIn("203.0.113.7", str(shape))
+
+from django.core.cache.backends.db import DatabaseCache
+from django.core.cache.backends.locmem import LocMemCache
+from django.test import RequestFactory
+
+from .throttles import ContactRateThrottle
+
+
+class SharedThrottleCacheTests(TestCase):
+    """F-10: con 2 workers de Gunicorn cada proceso tiene su propio objeto de caché.
+    Con DatabaseCache todos leen y escriben la misma tabla, así que el contador es único."""
+
+    def _worker_throttle(self, cache_backend):
+        throttle = ContactRateThrottle()  # 5/hour
+        throttle.cache = cache_backend
+        return throttle
+
+    def _allowed(self, throttle):
+        request = RequestFactory().post("/api/contact/", REMOTE_ADDR="10.0.0.5")
+        request.user = None  # pedido anónimo
+        return throttle.allow_request(request, view=None)
+
+    def test_two_workers_with_database_cache_share_one_counter(self):
+        # Dos instancias independientes del backend, como en dos procesos distintos.
+        worker_a = DatabaseCache("django_cache", {})
+        worker_b = DatabaseCache("django_cache", {})
+        worker_a.clear()
+        self.addCleanup(worker_a.clear)
+        results = [self._allowed(self._worker_throttle(worker_a)) for _ in range(3)]
+        results += [self._allowed(self._worker_throttle(worker_b)) for _ in range(3)]
+        self.assertEqual(results, [True] * 5 + [False])
+
+    def test_two_workers_with_process_memory_count_separately(self):
+        # Lo que pasaba antes: cada proceso con su LocMemCache permite 5 por su cuenta.
+        worker_a = LocMemCache("worker-a", {})
+        worker_b = LocMemCache("worker-b", {})
+        self.addCleanup(worker_a.clear)
+        self.addCleanup(worker_b.clear)
+        results = [self._allowed(self._worker_throttle(worker_a)) for _ in range(3)]
+        results += [self._allowed(self._worker_throttle(worker_b)) for _ in range(3)]
+        self.assertEqual(results, [True] * 6)
+
+    def test_database_cache_entries_expire(self):
+        backend = DatabaseCache("django_cache", {})
+        self.addCleanup(backend.clear)
+        backend.set("throttle_contact_10.0.0.9", [1.0], timeout=0)
+        self.assertIsNone(backend.get("throttle_contact_10.0.0.9"))
+
+
+class CacheSettingsTests(SimpleTestCase):
+    """El arranque falla con un mensaje claro si producción no tiene caché compartida."""
+
+    def _load_settings(self, **env):
+        import os, subprocess, sys
+        from pathlib import Path
+        base = {k: v for k, v in os.environ.items() if k not in {"CACHE_BACKEND", "DEBUG"}}
+        base.update({"DJANGO_SECRET_KEY": "x" * 60, **env})
+        return subprocess.run(
+            [sys.executable, "-c", "import config.settings as s; print(s.CACHES['default']['BACKEND'])"],
+            cwd=Path(__file__).resolve().parents[2], env=base, capture_output=True, text=True, timeout=60,
+        )
+
+    def test_production_without_cache_backend_fails_at_startup(self):
+        result = self._load_settings(DEBUG="False")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CACHE_BACKEND debe ser 'database'", result.stderr)
+
+    def test_production_rejects_process_memory_cache(self):
+        result = self._load_settings(DEBUG="False", CACHE_BACKEND="locmem")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CACHE_BACKEND=locmem no se permite con DEBUG=False", result.stderr)
+
+    def test_production_with_database_cache_loads(self):
+        result = self._load_settings(DEBUG="False", CACHE_BACKEND="database")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("DatabaseCache", result.stdout)
