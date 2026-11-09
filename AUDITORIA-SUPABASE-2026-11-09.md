@@ -275,7 +275,7 @@ Quedó afuera a propósito: el cambio del usuario en `.gitignore` (`.mcp.json`).
    - advisors de seguridad: sin cambios (3 INFO intencionales y la protección contra contraseñas filtradas).
 2. ~~Configurar la política de contraseñas en el dashboard~~ ✅ La configuró el usuario. No se pudo verificar desde acá: el MCP no expone la configuración de Auth, y probar un registro en producción podría crear un usuario real.
 3. **Protección contra contraseñas filtradas:** requiere plan Pro ([documentación](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)). Se compensa en parte con la política de §10. El aviso del advisor se mantiene.
-4. `backend/database/test_schema.sql` (el esquema de la suite) también tiene `varchar` sin límite en las 4 columnas de §7.3. No afecta los tests, pero conviene alinearlo.
+4. ~~Alinear `backend/database/test_schema.sql`~~ ✅ `actor_role varchar(24)`, `request_id varchar(128)`, `category varchar(80)` y `source varchar(80)`. `pytest`: 108 pasaron.
 5. Mergear `chore/db-hardening` a `main`.
 
 ---
