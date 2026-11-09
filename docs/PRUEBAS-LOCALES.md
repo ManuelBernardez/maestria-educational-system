@@ -3,16 +3,32 @@
 Guía para levantar MaestrIA contra un PostgreSQL local y ejecutar la suite sin
 riesgo de escribir en la base real ni de enviar datos a un proveedor de IA.
 
-## 1. PostgreSQL local (Docker)
+## 1. Base de datos local
+
+### Opción A (recomendada): Supabase local, igual a producción
+
+Requiere Docker Desktop. La CLI ya es devDependency del repo.
+
+```bash
+npx supabase start -x realtime,storage-api,imgproxy,edge-runtime,logflare,vector,supavisor
+docker exec -i supabase_db_maestria-starter psql -v ON_ERROR_STOP=1 -U postgres -d postgres < db/maestria_schema.sql
+# Luego, en orden, las migraciones de backend/database/migrations/ posteriores a
+# la versión que indica el encabezado de db/maestria_schema.sql:
+docker exec -i supabase_db_maestria-starter psql -v ON_ERROR_STOP=1 -U postgres -d postgres < backend/database/migrations/20261109160000_maestria_align_prod_with_contract.sql
+```
+
+URL de la base: `postgresql://postgres:postgres@127.0.0.1:54322/postgres`. Para
+empezar de cero: `npx supabase db reset`. Para apagar: `npx supabase stop`.
+
+### Opción B: PostgreSQL plano (esquema histórico)
+
+Más liviana, pero instala el esquema histórico v2: sirve para la suite y el
+verificador, aunque **no** es idéntico a producción (ver
+`AUDITORIA-SUPABASE-2026-11-09.md` §7).
 
 ```bash
 docker run -d --name maestria-pg-local -e POSTGRES_PASSWORD=localtest \
   -e POSTGRES_DB=maestria_local -p 127.0.0.1:55432:5432 postgres:16-alpine
-```
-
-Instalar el esquema (orden obligatorio):
-
-```bash
 docker exec -i maestria-pg-local psql -v ON_ERROR_STOP=1 -U postgres -d maestria_local < db/local_supabase_stub.sql
 docker exec -i maestria-pg-local psql -v ON_ERROR_STOP=1 -U postgres -d maestria_local < db/maestria_schema_v2.sql
 docker exec -i maestria-pg-local psql -v ON_ERROR_STOP=1 -U postgres -d maestria_local < db/maestria_schema_v2_contract_alignment.sql
