@@ -16,7 +16,7 @@ Registro de lo que se revisó, cambió y probó en la base de datos de MaestrIA 
 | Migración de limpieza `20261109140000_maestria_db_cleanup.sql` | ✅ Escrita y commiteada |
 | Entorno Supabase local en F: | ✅ Creado y funcionando |
 | Prueba de la migración en local | ✅ Aprobada |
-| Aplicación en producción | ⏳ **Pendiente.** El MCP es de solo lectura y rechazó el DDL. No se aplicó nada (ver §6) |
+| Aplicación en producción | ✅ La aplicó el usuario a mano desde el SQL Editor (el MCP es de solo lectura). Se verificó después (ver §6) |
 
 ---
 
@@ -48,7 +48,7 @@ Casi todas las FK son **compuestas con el dueño**: `(x_id, owner_id) → tabla(
 | Rendimiento | 8 FK sin índice (columnas `*_by` y `contact_message.user_id`) | INFO | Migración de limpieza |
 | Rendimiento | 61 índices "sin uso" | INFO | Ninguna: con tablas tan chicas Postgres hace seq scan y la estadística no dice nada |
 | Seguridad | 3 tablas con RLS y sin políticas | INFO | Ninguna: es intencional, son solo para el backend |
-| Seguridad | Protección contra contraseñas filtradas desactivada | WARN | **Pendiente:** Dashboard → Authentication → Passwords |
+| Seguridad | Protección contra contraseñas filtradas desactivada | WARN | **Pendiente** (§9): requiere plan Pro |
 
 ### Origen de los índices duplicados
 - `maestria_schema_v2.sql` crea las constraints `uniq_*_id_owner`, y las FK compuestas dependen de su índice.
@@ -162,18 +162,37 @@ Las pruebas de comportamiento corrieron en una transacción con `ROLLBACK` y no 
 
 ---
 
-## 6. Intento de aplicar en producción
+## 6. Aplicación en producción
 
 1. **Verificación previa (solo lectura):** los 12 índices a borrar y las 9 constraints a renombrar existían. Ninguno de los 8 índices nuevos existía. No había clientes activos ni locks en espera.
 2. **Línea base:** `verify_public_schema` contra producción dio **compatible**.
 3. **Aplicación:** la conexión MCP no ofrece `apply_migration` y su `execute_sql` corre en modo solo lectura. Postgres respondió `25006: cannot execute DROP INDEX in a read-only transaction`.
 4. **Confirmación:** después del error, producción sigue igual. Se mantienen los 9 índices `uq_*` sueltos, las 9 constraints `uniq_*`, la política `audit_event_owner_isolation` y una sola migración en el historial.
 
-**Para completarla** hace falta una vía con escritura. Las opciones son:
-- habilitar escritura en el MCP (sacar `read_only=true` de `.mcp.json`), aplicar y volver a ponerlo; o
-- aplicar con `psql` usando la `DATABASE_URL` de `backend/.env` y registrar la versión `20261109140000 maestria_db_cleanup` en `supabase_migrations.schema_migrations` dentro de la misma transacción.
+5. **Aplicación manual:** para no darle escritura al MCP, el usuario ejecutó la migración desde el SQL Editor del dashboard y registró la versión `20261109140000 maestria_db_cleanup` en `supabase_migrations.schema_migrations`. Respuesta: `Success. No rows returned`.
 
-Después de aplicarla hay que correr de nuevo los advisors y `verify_public_schema` contra producción.
+### Verificación posterior (solo lectura)
+| Comprobación | Resultado |
+|---|---|
+| Constraints `uq_*` (id, owner_id) e (institution_id, user_id) | ✅ 9 de 9 |
+| Constraints `uniq_*` que quedaron | ✅ 0 |
+| Duplicados comunes (`*_idx`) que quedaron | ✅ 0 |
+| Grupos de índices duplicados en `public` | ✅ 0 |
+| Índices nuevos para FK | ✅ 8 de 8 |
+| Índices inválidos | ✅ 0 |
+| FK compuestas respaldadas por `uq_*` | ✅ 19 de 19 |
+| Política de `audit_event` | ✅ `audit_event_owner_read` (SELECT) |
+| Historial de migraciones | ✅ `20261105202119 maestria_v1_0_2_hardening`, `20261109140000 maestria_db_cleanup` |
+| `manage.py verify_public_schema` | ✅ "Esquema compatible: 20 tablas, 19 FK compuestas, 13 índices únicos, 32 índices operativos y 2 triggers verificados" |
+
+### Advisors: antes y después
+| Lint | Antes | Después |
+|---|---|---|
+| `duplicate_index` (WARN) | 12 | ✅ **0** |
+| `unindexed_foreign_keys` (INFO) | 8 | ✅ **0** |
+| `unused_index` (INFO) | 61 | 69. Esperado: los 8 índices nuevos todavía no se usaron. Con este volumen la estadística no dice nada |
+| `rls_enabled_no_policy` (INFO) | 3 | 3. Es intencional (§2) |
+| `auth_leaked_password_protection` (WARN) | 1 | 1. Depende del plan (§9) |
 
 ---
 
@@ -201,12 +220,12 @@ Aparecieron al comparar las dos bases. **No afectan la migración de limpieza**,
 |---|---|
 | `69c95e2` | Migración de limpieza |
 | `602d3db` | Supabase CLI como devDependency y `supabase/config.toml` |
-| (este archivo) | Auditoría |
+| `6caa958` | Auditoría |
+| (siguiente) | Auditoría actualizada con la aplicación en producción |
 
 Quedó afuera a propósito: el cambio del usuario en `.gitignore` (`.mcp.json`).
 
 ## 9. Pendientes
-1. Aplicar la migración en producción (§6) y actualizar este documento.
-2. Activar la protección contra contraseñas filtradas en Supabase Auth.
-3. Resolver las diferencias entre los scripts y producción (§7).
-4. Mergear `chore/db-hardening` a `main` después de aplicar en producción.
+1. **Protección contra contraseñas filtradas.** Está en **Authentication → Sign In / Providers → Email → "Prevent use of leaked passwords"** (`/dashboard/project/_/auth/providers?provider=Email`), no en Passkeys. Según la [documentación](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection), **requiere plan Pro o superior**. En el plan gratuito, en el mismo panel se puede subir el largo mínimo de la contraseña (8 o más) y exigir dígitos, mayúsculas, minúsculas y símbolos.
+2. Resolver las diferencias entre los scripts y producción (§7).
+3. Mergear `chore/db-hardening` a `main`.
