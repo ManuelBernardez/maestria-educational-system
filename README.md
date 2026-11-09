@@ -1,4 +1,4 @@
-# MaestrIA v1.1.2
+# MaestrIA v1.1.3
 
 Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
 
@@ -186,6 +186,12 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
 - `docs/CONFIGURACION-IA-EXTERNA.md`: referencia para configurar proveedores externos y revisar el tratamiento de datos antes de habilitarlos.
 - `docs/PRUEBAS-LOCALES.md`: entorno local con PostgreSQL en Docker, sin tocar Supabase de producción.
+
+## Cambios v1.1.3
+
+- **Estáticos en desarrollo:** `runserver` servía `/assets/` sin `Cache-Control`; el navegador cacheaba los módulos por heurística y, tras cada cambio, mezclaba JavaScript viejo con CSS nuevo (la interfaz quedaba a medio actualizar: filtros que no respondían, tarjetas con la respuesta completa, botones faltantes). Ahora los sirve WhiteNoise (`whitenoise.runserver_nostatic`) con el mismo `no-cache` que producción. `config/static_files.py` corrige además la búsqueda en Windows: con los prefijos `css/` y `js/` de `STATICFILES_DIRS`, WhiteNoise no encontraba el código fuente y servía la copia de `backend/staticfiles/`, que puede estar desactualizada. En producción no cambia nada (sin finders ni autorefresh).
+- **Versión de assets 1.1.3:** los navegadores que ya habían cargado la 1.1.2 reciben `Clear-Site-Data` una vez y descartan los módulos guardados.
+- **Nueva entrega:** el botón también está en la barra de revisión del paso 3 (elegir una entrega con propuesta abre ese paso).
 
 ## Cambios v1.1.2
 

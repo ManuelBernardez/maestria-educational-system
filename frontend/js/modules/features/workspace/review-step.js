@@ -169,7 +169,7 @@ function summaryBar(submission) {
   // Quién, cuánto y en qué estado. La evaluación ya está en la portada; para saltar a
   // otra entrega están las flechas y la lista del paso 2.
   return `<div class="review-bar">
-    <div class="review-bar-who"><span class="avatar avatar-tone" aria-hidden="true">${escapeHtml(initials(name))}</span><div><strong>${escapeHtml(name)}</strong></div></div>
+    <div class="review-bar-who"><span class="avatar avatar-tone" aria-hidden="true">${escapeHtml(initials(name))}</span><div><strong>${escapeHtml(name)}</strong></div><button type="button" class="btn btn-secondary btn-small" data-action="workspace-new-submission">${icon('plus')} Nueva entrega</button></div>
     <div class="review-bar-nav">
       <button type="button" class="icon-button" data-action="workspace-nav" data-id="${escapeHtml(previous?.id || '')}" aria-label="Entrega anterior" ${previous ? '' : 'disabled'}>${icon('arrowLeft')}</button>
       <span class="mono-meta">${position || 1} de ${list.length || 1}</span>

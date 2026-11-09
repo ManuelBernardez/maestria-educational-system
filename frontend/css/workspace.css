@@ -1019,6 +1019,7 @@ details.criterion-review { padding: 0; }
 }
 .review-bar-who { grid-area: who; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .review-bar-who > div { min-width: 0; }
+.review-bar-who > .btn { flex: none; margin-left: 4px; }
 .review-bar-who strong { display: block; font: 750 .95rem/1.25 var(--display); }
 .review-bar-who small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-text); font-size: .72rem; }
 .review-bar-nav { grid-area: nav; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--line); }

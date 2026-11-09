@@ -1,6 +1,6 @@
 {
   "name": "maestria-native-frontend",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "private": true,
   "description": "Frontend nativo HTML5, CSS y JavaScript ES modules. No requiere build de Node.",
   "scripts": {

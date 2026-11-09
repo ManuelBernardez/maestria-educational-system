@@ -87,6 +87,9 @@ else:
 # Supabase Auth is the only identity provider. Django's built-in auth/session apps
 # are intentionally not installed because the API authenticates bearer JWTs directly.
 INSTALLED_APPS = [
+    # `runserver` delega /assets/ en WhiteNoise: mismo `no-cache` que producción, para que
+    # el navegador no mezcle módulos ES viejos y nuevos (ver config/static_files.py).
+    "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
@@ -100,7 +103,8 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     # WhiteNoise debe ir inmediatamente después de SecurityMiddleware (antes de cualquier otro
     # middleware) para interceptar y servir los archivos estáticos recopilados en STATIC_ROOT.
-    "whitenoise.middleware.WhiteNoiseMiddleware",
+    # WhiteNoise con búsqueda de estáticos corregida para Windows (ver config/static_files.py).
+    "config.static_files.MaestriaWhiteNoiseMiddleware",
     # Comprime las respuestas JSON de la API (listas de entregas/cursos): menos bytes sobre la red.
     "django.middleware.gzip.GZipMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -131,7 +135,7 @@ WHITENOISE_MAX_AGE = 60 * 60 * 24
 
 # Versión de los recursos del frontend. Al cambiarla, cada navegador recibe una única vez
 # `Clear-Site-Data: "cache"` en el próximo HTML y descarta copias viejas de JS/CSS.
-FRONTEND_ASSETS_VERSION = "1.1.2"
+FRONTEND_ASSETS_VERSION = "1.1.3"
 
 
 def _whitenoise_headers(headers, path, url):
