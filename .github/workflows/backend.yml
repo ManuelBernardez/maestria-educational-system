@@ -1,9 +1,10 @@
 name: backend-checks
 on:
   push:
-    paths: ["backend/**", "scripts/**", "docs/**", ".github/workflows/backend.yml"]
+    # db/ incluye el snapshot de producción que conftest.py instala en la base de pruebas.
+    paths: ["backend/**", "db/**", "scripts/**", "docs/**", "render.yaml", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["backend/**", "scripts/**", "docs/**", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "db/**", "scripts/**", "docs/**", "render.yaml", ".github/workflows/backend.yml"]
 jobs:
   test:
     runs-on: ubuntu-latest

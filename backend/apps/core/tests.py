@@ -222,11 +222,12 @@ class TenantIsolationTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("name", response.data)
 
-    def test_reference_schema_does_not_claim_a_database_unique_course_name_index(self):
-        # The canonical SQL has no case-insensitive unique index for course.name.
-        # The API enforces this for application writes under an owner-row lock.
-        duplicate = Course.objects.create(owner_id=self.owner_a, name="curso a")
-        self.assertTrue(Course.objects.filter(owner_id=self.owner_a, pk=duplicate.pk).exists())
+    def test_database_enforces_case_insensitive_course_name_per_owner(self):
+        # Producción tiene uniq_course_owner_name_ci; la API lo valida antes,
+        # pero la base es la última barrera ante escrituras fuera de la API.
+        from django.db import IntegrityError, transaction
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Course.objects.create(owner_id=self.owner_a, name="CURSO A")
 
     def test_active_enrollment_rejects_archived_course(self):
         from .authentication import SupabasePrincipal

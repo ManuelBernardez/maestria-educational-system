@@ -1,6 +1,11 @@
 import re
 import unicodedata
 
+from django.db.models import F
+from rest_framework.exceptions import APIException
+
+from ..ai_guard import ai_slot, run_with_deadline
+
 from .common import (
     AIUserRateThrottle,
     Assessment,
@@ -129,10 +134,17 @@ class EnrollmentViewSet(OwnerViewSet):
                 raise ValidationError({"course": "No se puede activar una matrícula en un curso archivado."})
             if next_status == "active" and not student.active:
                 raise ValidationError({"student": "No se puede activar una matrícula para un estudiante inactivo."})
-            if next_status == "active" and Enrollment.objects.filter(
-                owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk, status="active",
-            ).exists():
+            # uniq_enrollment_course_student no tiene predicado: hay a lo sumo una fila
+            # por curso y estudiante. Rematricular reactiva la existente (AUD-003).
+            existing = Enrollment.objects.select_for_update().filter(
+                owner_id=self.request.user.id, course_id=course.pk, student_id=student.pk,
+            ).first()
+            if existing and existing.status == "active":
                 raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
+            if existing:
+                serializer.instance = existing
+                serializer.save()
+                return
             serializer.save(owner_id=self.request.user.id, course=course, student=student)
 
     def perform_update(self, serializer):
@@ -157,7 +169,13 @@ class EnrollmentViewSet(OwnerViewSet):
         queryset = super().get_queryset().filter(course__owner_id=self.request.user.id, student__owner_id=self.request.user.id)
         course_id = self.request.query_params.get("course")
         if course_id:
-            queryset = queryset.filter(course_id=course_id)
+            try:
+                parsed_course_id = int(course_id)
+                if parsed_course_id < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ValidationError({"course": "El filtro de curso debe ser un identificador válido."})
+            queryset = queryset.filter(course_id=parsed_course_id)
         return queryset
 
 class AssessmentViewSet(OwnerViewSet):
@@ -211,6 +229,45 @@ class AssessmentViewSet(OwnerViewSet):
             "courses": courses,
         })
 
+    @action(detail=True, methods=["post"], url_path="reorder-questions")
+    def reorder_questions(self, request, pk=None):
+        """Reordena todas las consignas en una transacción (AUD-002).
+
+        `uniq_question_position_per_assessment` no es diferible: actualizar las
+        posiciones fila por fila (como hacía el cliente con un PATCH por consigna)
+        choca con la posición que todavía ocupa la otra fila. Aquí se desplazan todas
+        fuera de rango con un solo UPDATE y luego se asignan las definitivas.
+        """
+        assessment = self.get_object()
+        raw_order = request.data.get("order")
+        if not isinstance(raw_order, list) or not raw_order:
+            raise ValidationError({"order": "Enviá la lista completa de consignas en el nuevo orden."})
+        try:
+            order = [int(item) for item in raw_order]
+        except (TypeError, ValueError):
+            raise ValidationError({"order": "La lista de consignas contiene identificadores inválidos."})
+        if len(set(order)) != len(order):
+            raise ValidationError({"order": "La lista de consignas tiene elementos repetidos."})
+        with transaction.atomic():
+            assessment = Assessment.objects.select_for_update().get(pk=assessment.pk, owner_id=request.user.id)
+            if has_fresh_processing_submission(assessment, request.user.id):
+                raise ValidationError({"order": "No se pueden reordenar las consignas mientras se procesa una corrección."})
+            questions = {
+                question.pk: question
+                for question in Question.objects.select_for_update().filter(assessment=assessment, owner_id=request.user.id)
+            }
+            if set(questions) != set(order):
+                raise ValidationError({"order": "La lista no coincide con las consignas actuales. Recargá la evaluación e intentá nuevamente."})
+            offset = max(question.position for question in questions.values()) + len(order) + 1
+            Question.objects.filter(pk__in=order).update(position=F("position") + offset)
+            for position, question_id in enumerate(order, start=1):
+                Question.objects.filter(pk=question_id).update(position=position)
+            # Cambiar el orden altera el contexto de corrección: invalida snapshots en curso.
+            assessment.save(update_fields=["updated_at"])
+            record_audit(request.user.id, "questions.reordered", "assessment", assessment.id, {"count": len(order)}, request=request)
+        ordered = Question.objects.filter(assessment=assessment, owner_id=request.user.id).order_by("position", "id")
+        return Response({"questions": QuestionSerializer(ordered, many=True, context={"request": request}).data})
+
     @action(detail=True, methods=["post"], url_path="import-reference", parser_classes=[MultiPartParser, FormParser])
     def import_reference(self, request, pk=None):
         """Extract a teacher reference file in memory and save only its text."""
@@ -256,14 +313,17 @@ class AssessmentViewSet(OwnerViewSet):
             if not 1 <= count <= 5:
                 raise ValidationError({"count": "Solicitá entre 1 y 5 preguntas por vez."})
             provider_config = active_ai_provider_config()
-            result = async_to_sync(generate_questions)(
-                title=assessment.title, subject=assessment.subject, level=assessment.level,
-                objectives=assessment.objectives, instructions=assessment.instructions,
-                reference_material=assessment.reference_material, count=count, provider_config=provider_config,
-            )
+            with ai_slot(request.user.id):
+                result = run_with_deadline(
+                    generate_questions,
+                    title=assessment.title, subject=assessment.subject, level=assessment.level,
+                    objectives=assessment.objectives, instructions=assessment.instructions,
+                    reference_material=assessment.reference_material, count=count, provider_config=provider_config,
+                )
             record_ai_generation(request.user.id, "generate_questions", started, True, fingerprint(context), assessment=assessment, provider_config=provider_config)
             record_audit(request.user.id, "questions.proposed", "assessment", assessment.id, {"count": len(result.get("questions", [])), "demo": bool(result.get("demo"))}, request=request)
-        except ValidationError:
+        except APIException:
+            # Validación, cuota diaria o falta de cupo: no es una falla del proveedor.
             raise
         except Exception as exc:
             record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), ai_error_code(exc), assessment=assessment, provider_config=locals().get("provider_config"))
@@ -460,8 +520,11 @@ class RubricViewSet(OwnerViewSet):
         provider_config = active_ai_provider_config()
         try:
             reference_material = str(request.data.get("reference_material", ""))[:12000]
-            result = async_to_sync(generate_rubric)(title=title, subject=subject, level=level, objectives=objectives, instructions=instructions, question_prompts=question_prompts, reference_material=reference_material, count=count, provider_config=provider_config)
+            with ai_slot(request.user.id):
+                result = run_with_deadline(generate_rubric, title=title, subject=subject, level=level, objectives=objectives, instructions=instructions, question_prompts=question_prompts, reference_material=reference_material, count=count, provider_config=provider_config)
             record_ai_generation(request.user.id, "generate_rubric", started, True, fingerprint(context), provider_config=provider_config)
+        except APIException:
+            raise
         except Exception as exc:
             record_ai_generation(request.user.id, "generate_rubric", started, False, fingerprint(context), ai_error_code(exc), provider_config=provider_config)
             logger.warning("AI rubric generation failed (%s)", type(exc).__name__)

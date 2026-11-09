@@ -242,7 +242,7 @@ class CorrectionRevision(PublicTable):
 class AIGeneration(PublicTable):
     STATUS_CHOICES = [("succeeded", "Exitosa"), ("failed", "Fallida")]
     owner_id = models.UUIDField(editable=False)
-    task = models.CharField(max_length=80)
+    task = models.CharField(max_length=40)
     provider = models.CharField(max_length=32)
     model_name = models.CharField(max_length=120, blank=True, default="")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES)
@@ -264,10 +264,13 @@ class AIGeneration(PublicTable):
 
 class AuditEvent(PublicTable):
     ACTOR_ROLE_CHOICES = [(role, role) for role in ("teacher", "student", "admin", "superadmin", "system")]
-    owner_id = models.UUIDField(editable=False)
-    event_type = models.CharField(max_length=120)
-    object_type = models.CharField(max_length=120)
-    object_id = models.CharField(max_length=160)
+    # NULL cuando la identidad dueña fue eliminada de Supabase Auth: la traza se conserva
+    # (migración 20261109174649, AUD-008).
+    owner_id = models.UUIDField(editable=False, null=True)
+    # Largos iguales a las columnas reales de producción (AUD-015).
+    event_type = models.CharField(max_length=80)
+    object_type = models.CharField(max_length=80)
+    object_id = models.CharField(max_length=80)
     detail = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     actor_user_id = models.UUIDField(null=True, blank=True)

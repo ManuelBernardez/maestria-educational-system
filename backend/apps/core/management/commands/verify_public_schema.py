@@ -62,6 +62,19 @@ REQUIRED_UNIQUE_INDEXES = {
     "user_profile_user_id_key": ("user_profile", "(user_id)"),
     "institution_slug_key": ("institution", "(slug)"),
     "ai_provider_config_provider_key": ("ai_provider_config", "(provider)"),
+    # Reglas de negocio que la API traduce a 409 (apps/core/exceptions.py, AUD-003/AUD-004).
+    "uniq_course_owner_name_ci": ("course", "owner_id"),
+    "uniq_enrollment_course_student": ("enrollment", "(course_id,student_id)"),
+    "uniq_student_external_code_per_owner": ("student", "(owner_id,external_code)"),
+    "uniq_question_position_per_assessment": ("question", "(assessment_id,\"position\")"),
+    "uniq_criterion_position_per_rubric": ("rubric_criterion", "(rubric_id,\"position\")"),
+    "uniq_rubric_level_position": ("rubric_level", "(criterion_id,\"position\")"),
+    "uniq_submission_question_answer": ("submission_answer", "(submission_id,question_id)"),
+    "uniq_approved_correction_per_submission": ("correction", "approved"),
+    "uniq_pending_correction_per_submission": ("correction", "pending_review"),
+    "uniq_criterion_result_position": ("correction_criterion_result", "(correction_id,\"position\")"),
+    "uniq_correction_revision_number": ("correction_revision", "(correction_id,revision_number)"),
+    "uniq_enabled_ai_provider": ("ai_provider_config", "(enabled)"),
 }
 
 REQUIRED_INDEXES = {

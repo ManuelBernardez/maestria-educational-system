@@ -2,7 +2,7 @@
 --   snapshot de producción. Este script, con contract_alignment, NO reproduce
 --   producción: crea las FK con ON DELETE CASCADE/SET NULL (producción y Django
 --   usan bloqueo/PROTECT), las constraints con otros nombres, sin comentarios y con
---   índices duplicados. Ver AUDITORIA-SUPABASE-2026-11-09.md §7.
+--   índices duplicados. Ver docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md §7.
 --
 -- MaestrIA — esquema PostgreSQL/Supabase de instalación limpia
 -- Versión alineada con backend/apps/core/models.py y las migraciones.
