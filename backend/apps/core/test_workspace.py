@@ -628,3 +628,94 @@ class StudentCsvImportTests(TestCase):
     def test_missing_name_column_is_rejected(self):
         response = self._upload("correo\nx@ejemplo.test\n")
         self.assertEqual(response.status_code, 400)
+
+
+class AllQuestionsCorrectionTests(TestCase):
+    """«Todas las consignas»: una respuesta sin consigna puntual se corrige contra cada una.
+
+    Antes se corregía sólo contra la primera consigna de la evaluación, aunque la
+    respuesta abarcara todas.
+    """
+
+    def setUp(self):
+        from .models import Question
+        self.owner_id = uuid4()
+        ensure_auth_users(self.owner_id)
+        self.client = APIClient()
+        self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
+        course = Course.objects.create(owner_id=self.owner_id, name="Biología")
+        self.assessment = Assessment.objects.create(owner_id=self.owner_id, course=course, title="Fotosíntesis")
+        self.q1 = Question.objects.create(owner_id=self.owner_id, assessment=self.assessment, prompt="Explicá la fotosíntesis.", max_score=4, position=1)
+        self.q2 = Question.objects.create(owner_id=self.owner_id, assessment=self.assessment, prompt="Compará con la respiración.", max_score=6, position=2)
+
+    def _generate(self, **submission_fields):
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment, student_name="Estudiante",
+            answer_text="La fotosíntesis produce glucosa. La respiración la consume.", **submission_fields,
+        )
+        response = self.client.post(f"/api/submissions/{submission.id}/generate-correction/", {}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        return response.data["proposal"]["criteria"]
+
+    def test_submission_without_question_is_corrected_against_every_question(self):
+        criteria = self._generate()
+        self.assertEqual([item["criterion"] for item in criteria], ["Consigna 1", "Consigna 2"])
+        self.assertEqual([item["question_id"] for item in criteria], [self.q1.pk, self.q2.pk])
+        self.assertEqual([item["max_score"] for item in criteria], [4.0, 6.0])
+
+    def test_question_rubrics_are_prefixed_with_their_question(self):
+        rubric = Rubric.objects.create(owner_id=self.owner_id, title="Rúbrica conceptual")
+        RubricCriterion.objects.create(owner_id=self.owner_id, rubric=rubric, name="Precisión", max_score=4, weight=1, position=1)
+        self.q1.rubric = rubric
+        self.q1.save(update_fields=["rubric"])
+        criteria = self._generate()
+        self.assertEqual([item["criterion"] for item in criteria], ["Consigna 1 · Precisión", "Consigna 2"])
+        self.assertEqual([item["question_id"] for item in criteria], [self.q1.pk, self.q2.pk])
+
+    def test_specific_question_keeps_single_question_correction(self):
+        criteria = self._generate(question=self.q2)
+        self.assertEqual(len(criteria), 1)
+        self.assertEqual(criteria[0]["question_id"], self.q2.pk)
+        self.assertEqual(criteria[0]["max_score"], 6.0)
+
+    def test_minimum_final_grade_is_one(self):
+        from .models import Correction
+        submission = Submission.objects.create(
+            owner_id=self.owner_id, assessment=self.assessment, student_name="Estudiante",
+            answer_text="Respuesta.", question=self.q1,
+        )
+        correction = Correction.objects.create(
+            owner_id=self.owner_id, submission=submission, provider="gemini",
+            proposal={"criteria": [{"criterion": "Consigna 1", "score": 3, "max_score": 4, "evidence": "", "question_id": self.q1.pk}]},
+        )
+        response = self.client.post(f"/api/corrections/{correction.id}/approve/", {
+            "final_result": {"criteria": [{"criterion": "Consigna 1", "score": 0, "max_score": 4, "evidence": ""}]},
+            "change_reason": "La respuesta no aborda la consigna.",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        correction.refresh_from_db()
+        self.assertEqual(float(correction.total_score), 1.0)
+
+    def test_approve_query_count_does_not_grow_with_criteria(self):
+        """Cada consulta cuesta ~180 ms entre Render y Supabase: aprobar no puede hacer una por criterio."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from .models import Correction
+
+        def approve_with(count):
+            submission = Submission.objects.create(
+                owner_id=self.owner_id, assessment=self.assessment, student_name=f"Estudiante {count}",
+                answer_text="Respuesta.", status="review",
+            )
+            criteria = [{"criterion": f"Criterio {i}", "score": 2, "max_score": 4, "evidence": "",
+                         "question_id": (self.q1 if i % 2 else self.q2).pk} for i in range(count)]
+            correction = Correction.objects.create(
+                owner_id=self.owner_id, submission=submission, provider="gemini", proposal={"criteria": criteria},
+            )
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.post(f"/api/corrections/{correction.id}/approve/", {}, format="json")
+            self.assertEqual(response.status_code, 200, response.data)
+            self.assertEqual(correction.criterion_results.count(), count)
+            return len(queries.captured_queries)
+
+        self.assertEqual(approve_with(3), approve_with(12))

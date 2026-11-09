@@ -6,12 +6,11 @@
 
 **Asistente inteligente para la corrección docente:** organiza cursos, evaluaciones y rúbricas, y usa inteligencia artificial para proponer correcciones con evidencia citada y devoluciones pedagógicas que el docente revisa y aprueba.
 
-[![Versión](https://img.shields.io/badge/versión-1.1.3-1F4D3A)](docs/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-5.x-092E20?logo=django&logoColor=white)](https://www.djangoproject.com/)
 [![DRF](https://img.shields.io/badge/Django_REST_Framework-3.15+-A30000)](https://www.django-rest-framework.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
-[![Frontend](https://img.shields.io/badge/HTML5_·_CSS_·_JS-sin_build-E34F26?logo=html5&logoColor=white)](frontend/)
+[![Frontend](https://img.shields.io/badge/HTML5_·_CSS_·_JS-Vanilla-E34F26?logo=html5&logoColor=white)](frontend/)
 [![Render](https://img.shields.io/badge/deploy-Render-46E3B7?logo=render&logoColor=white)](https://maestria-amcn.onrender.com/)
 
 **[🌐 Ver el sitio en producción](https://maestria-amcn.onrender.com/)** · [Arquitectura](#-arquitectura) · [Ejecutar localmente](#-ejecución-local) · [API](docs/API.md) · [Historial de cambios](docs/CHANGELOG.md)
@@ -22,21 +21,42 @@
 
 ## 📑 Contenido
 
+<table>
+<tr>
+<th align="left">El proyecto</th>
+<th align="left">Cómo está construido</th>
+<th align="left">Cómo usarlo</th>
+</tr>
+<tr>
+<td valign="top">
+
 - [El problema](#-el-problema)
 - [La solución](#-la-solución)
 - [Funcionalidades](#-funcionalidades)
 - [Niveles de usuario](#-niveles-de-usuario)
+- [Equipo](#-equipo)
+
+</td>
+<td valign="top">
+
 - [Tecnologías](#-tecnologías)
 - [Arquitectura](#-arquitectura)
 - [Base de datos](#-base-de-datos)
 - [Seguridad y privacidad](#-seguridad-y-privacidad)
 - [Estructura del repositorio](#-estructura-del-repositorio)
+
+</td>
+<td valign="top">
+
 - [Ejecución local](#-ejecución-local)
 - [Pruebas y calidad](#-pruebas-y-calidad)
 - [Despliegue](#-despliegue)
 - [Límites conocidos](#-límites-conocidos)
 - [Documentación](#-documentación)
-- [Equipo](#-equipo)
+
+</td>
+</tr>
+</table>
 
 ---
 
@@ -204,36 +224,36 @@ Más detalle en [`docs/BACKEND-ARCHITECTURE.md`](docs/BACKEND-ARCHITECTURE.md) y
 Veinte tablas en el esquema `public` de PostgreSQL (Supabase):
 
 ```mermaid
-%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 30, "rankSpacing": 50}}}%%
+%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 28, "rankSpacing": 55}}}%%
 flowchart LR
-    rubric["rubric<br/><small>rúbricas</small>"]
-    course["course<br/><small>cursos</small>"]
-    student["student<br/><small>estudiantes</small>"]
-    rubric_criterion["rubric_criterion<br/><small>criterios</small>"]
-    assessment["assessment<br/><small>evaluaciones</small>"]
-    enrollment["enrollment<br/><small>matrículas</small>"]
-    rubric_level["rubric_level<br/><small>niveles</small>"]
-    question["question<br/><small>consignas</small>"]
-    submission["submission<br/><small>entregas</small>"]
-    submission_answer["submission_answer<br/><small>respuestas</small>"]
-    correction["correction<br/><small>correcciones</small>"]
-    correction_criterion_result["correction_criterion_result<br/><small>puntaje por criterio</small>"]
-    correction_revision["correction_revision<br/><small>historial de ajustes</small>"]
+    rubric["<b>rubric</b><br/><i>rúbricas</i><br/><small>title<br/>scale_type</small>"]
+    course["<b>course</b><br/><i>cursos</i><br/><small>name · subject<br/>academic_year · active</small>"]
+    student["<b>student</b><br/><i>estudiantes</i><br/><small>name · email<br/>external_code · active</small>"]
+    rubric_criterion["<b>rubric_criterion</b><br/><i>criterios</i><br/><small>name · max_score<br/>weight · position</small>"]
+    assessment["<b>assessment</b><br/><i>evaluaciones</i><br/><small>title · objectives<br/>reference_material · status</small>"]
+    enrollment["<b>enrollment</b><br/><i>matrículas</i><br/><small>status<br/>enrolled_at</small>"]
+    rubric_level["<b>rubric_level</b><br/><i>niveles de desempeño</i><br/><small>name · score<br/>position</small>"]
+    question["<b>question</b><br/><i>consignas</i><br/><small>prompt · max_score<br/>expected_answer</small>"]
+    submission["<b>submission</b><br/><i>entregas</i><br/><small>answer_text · source_type<br/>status</small>"]
+    submission_answer["<b>submission_answer</b><br/><i>respuestas por consigna</i><br/><small>answer_text<br/>source_filename</small>"]
+    correction["<b>correction</b><br/><i>correcciones</i><br/><small>proposal · total_score<br/>status · approved_at</small>"]
+    correction_criterion_result["<b>correction_criterion_result</b><br/><i>puntaje por criterio</i><br/><small>score · max_score<br/>evidence · feedback</small>"]
+    correction_revision["<b>correction_revision</b><br/><i>historial de ajustes</i><br/><small>revision_number · reason<br/>previous_result · new_result</small>"]
 
-    rubric --> rubric_criterion
-    rubric --> question
-    course --> assessment
-    course --> enrollment
-    student --> enrollment
-    student ---> submission
-    rubric_criterion --> rubric_level
-    assessment --> question
-    assessment --> submission
-    question --> submission_answer
-    submission --> submission_answer
-    submission --> correction
-    correction --> correction_criterion_result
-    correction --> correction_revision
+    rubric -->|rubric_id| rubric_criterion
+    rubric -->|rubric_id| question
+    course -->|course_id| assessment
+    course -->|course_id| enrollment
+    student -->|student_id| enrollment
+    student --->|student_id| submission
+    rubric_criterion -->|criterion_id| rubric_level
+    assessment -->|assessment_id| question
+    assessment -->|assessment_id| submission
+    question -->|question_id| submission_answer
+    submission -->|submission_id| submission_answer
+    submission -->|submission_id| correction
+    correction -->|correction_id| correction_criterion_result
+    correction -->|correction_id| correction_revision
 
     classDef people fill:#dce6da,stroke:#244b3d,color:#202d28
     classDef eval fill:#fbefc9,stroke:#b8902b,color:#202d28
@@ -245,7 +265,7 @@ flowchart LR
     class correction,correction_criterion_result,correction_revision corr
 ```
 
-<sub>Cada flecha es una relación uno a muchos (1 → N). Las tablas de usuarios, instituciones y plataforma se listan abajo.</sub>
+<sub>Cada flecha es una relación uno a muchos (1 → N) y su etiqueta es la clave foránea que la implementa. Cada caja muestra los campos principales; además, todas tienen <code>id</code>, <code>owner_id</code> (docente dueño) y <code>created_at</code>, y las editables también <code>updated_at</code> (<code>correction_revision</code> es de sólo inserción). Verde: cursos y estudiantes · amarillo: evaluación · celeste: entregas · rosa: correcciones. Las tablas de usuarios, instituciones y plataforma se listan abajo.</sub>
 
 | Grupo | Tablas |
 |---|---|
@@ -289,7 +309,7 @@ cd backend
 | IA responsable | Evidencia citada validada literalmente; aprobación humana obligatoria; bloqueo *fail-closed* de proveedores externos sin autorización. |
 | Archivos | Se procesan en memoria y sólo se guarda el texto extraído. |
 | Navegador | Contrato de Content Security Policy verificado en CI, sesión por pestaña y `Clear-Site-Data` entre versiones. |
-| Auditoría | Eventos de negocio y administración en `audit_event`, con retención configurada. |
+| Auditoría | Eventos de negocio y administración en `audit_event`; se conservan aunque se elimine la cuenta del usuario, y con el rol `maestria_app` la aplicación sólo puede agregarlos, no modificarlos. |
 
 Antes de procesar datos reales con un proveedor externo, revisar [`docs/CONFIGURACION-IA-EXTERNA.md`](docs/CONFIGURACION-IA-EXTERNA.md) y [`docs/SECURITY-AND-PRIVACY.md`](docs/SECURITY-AND-PRIVACY.md).
 

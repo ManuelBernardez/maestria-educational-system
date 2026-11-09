@@ -87,6 +87,31 @@ def test_correction_context_puts_prompt_first_and_includes_expected_answer():
     assert len(full) <= ai.MAX_CORRECTION_QUESTION_CHARS
 
 
+def test_correction_context_without_question_lists_every_question():
+    """«Todas las consignas»: la IA recibe cada consigna (antes sólo llegaba la primera)."""
+    from types import SimpleNamespace
+
+    from .api_views.submissions import correction_context
+
+    assessment = SimpleNamespace(instructions="Indicaciones generales", objectives="Objetivo", reference_material="")
+    questions = [
+        SimpleNamespace(prompt="Explicá la fotosíntesis", expected_answer="Luz y agua", max_score=4),
+        SimpleNamespace(prompt="Compará respiración y fotosíntesis", expected_answer="", max_score=6),
+    ]
+    context = correction_context(assessment, None, questions)
+    assert context.startswith("LA RESPUESTA ABARCA LAS 2 CONSIGNAS")
+    assert "CONSIGNA 1 (puntaje máximo 4):\nExplicá la fotosíntesis" in context
+    assert "CONSIGNA 2 (puntaje máximo 6):\nCompará respiración y fotosíntesis" in context
+    assert "Luz y agua" in context and "Indicaciones generales" in context
+
+    # Peor caso con muchas consignas largas: sigue dentro del tope del proveedor.
+    many = [SimpleNamespace(prompt="P" * 3000, expected_answer="E" * 3000, max_score=10) for _ in range(20)]
+    full = correction_context(
+        SimpleNamespace(instructions="I" * 8000, objectives="O" * 5000, reference_material="M" * 50_000), None, many,
+    )
+    assert len(full) <= ai.MAX_CORRECTION_QUESTION_CHARS
+
+
 def test_gemini_correction_receives_full_composed_context(monkeypatch):
     captured = {}
 

@@ -57,9 +57,15 @@ if DATABASE_URL:
     if parsed_db_url.scheme in {"postgres", "postgresql"} and (not parsed_db_url.hostname or not parsed_db_url.path.strip("/") or not parsed_db_url.username or parsed_db_url.password is None):
         raise RuntimeError("DATABASE_URL no tiene usuario, contraseña, host o nombre de base de datos válido. Copiá la URI completa desde Supabase y codificá los caracteres reservados de la contraseña.")
     use_ssl = not DEBUG or bool(parsed_db_url.hostname and (parsed_db_url.hostname.endswith(".supabase.co") or parsed_db_url.hostname.endswith(".pooler.supabase.com")))
+    # Vida máxima de una conexión persistente. Render (Oregón) y Supabase (São Paulo) están a
+    # ~180 ms: abrir una conexión (TCP + TLS + SCRAM) cuesta cerca de 1 s. Con 60 s, cada
+    # conexión en uso se reabría cada minuto. No cambia cuántas conexiones hay abiertas: Django
+    # no cierra conexiones ociosas, sólo las renueva al empezar/terminar un pedido de ese hilo,
+    # así que el máximo sigue siendo workers × threads (2 × 6 = 12) por instancia.
+    # Después de migraciones que cambien tipos de columnas, reiniciar el servicio.
     db_config = dj_database_url.parse(
         DATABASE_URL,
-        conn_max_age=60,
+        conn_max_age=min(max(int(os.getenv("DB_CONN_MAX_AGE", "600")), 0), 3600),
         conn_health_checks=True,
         ssl_require=use_ssl,
         engine="django.db.backends.postgresql" if parsed_db_url.scheme in {"postgres", "postgresql"} else "django.db.backends.sqlite3",

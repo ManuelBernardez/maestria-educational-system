@@ -289,22 +289,26 @@ def correction_workspace(request):
     """Return selected-evaluation data; summary=1 defers answer and correction details."""
     owner_id = request.user.id
     summary_mode = request.query_params.get("summary") == "1"
-    assessment_qs = Assessment.objects.filter(owner_id=owner_id).select_related("course").order_by("-updated_at")
+    # Una sola consulta para el selector y la evaluación elegida (antes eran dos).
+    assessment_list = list(
+        Assessment.objects.filter(owner_id=owner_id).select_related("course").order_by("-updated_at")
+    )
     requested_id = request.query_params.get("assessment")
     selected = None
     if requested_id:
         try:
-            selected = assessment_qs.filter(pk=int(requested_id)).first()
+            requested_pk = int(requested_id)
         except (TypeError, ValueError):
-            selected = None
+            requested_pk = None
+        selected = next((item for item in assessment_list if item.pk == requested_pk), None)
         if selected is None:
             raise NotFound("Evaluación no disponible.")
     elif not summary_mode:
         # Preserve the legacy full-workspace behavior for internal callers that
         # explicitly request the non-summary representation.
-        selected = assessment_qs.exclude(status="archived").first() or assessment_qs.first()
+        selected = next((item for item in assessment_list if item.status != "archived"), None) or (assessment_list[0] if assessment_list else None)
 
-    assessments = AssessmentListSerializer(assessment_qs, many=True).data
+    assessments = AssessmentListSerializer(assessment_list, many=True).data
     if summary_mode and selected is None:
         # The first visit only needs the selector data. Do not query rosters,
         # rubrics, questions, submissions, corrections or enrollments until a

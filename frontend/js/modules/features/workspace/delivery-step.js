@@ -8,13 +8,25 @@ const QUEUE_PILL = Object.freeze({ pending: 'inactive', review: 'pending_review'
 
 const studentLabel = (item) => item.student_display_name || item.student_name || 'Estudiante sin identificar';
 
+/**
+ * Opciones del selector de consigna. Con varias consignas, la primera opción (valor vacío)
+ * es «Todas las consignas»: la respuesta se corrige contra cada una. Con una sola, es esa.
+ * Sin consignas, la IA usa las indicaciones generales de la evaluación.
+ */
+function questionOptions(questions) {
+  const options = questions.map((item, index) => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.questionId) ? 'selected' : ''}>${escapeHtml(`${index + 1}. ${item.prompt}`)}</option>`).join('');
+  if (questions.length === 1) return options;
+  const allLabel = questions.length ? `Todas las consignas (${questions.length})` : 'Indicaciones generales de la evaluación';
+  return `<option value="" ${workspace.questionId ? '' : 'selected'}>${allLabel}</option>${options}`;
+}
+
 function queueCard(item) {
   const status = queueStatus(item);
   const active = String(workspace.activeSubmission?.id) === String(item.id);
   const code = studentCode(item);
   // Nombre y legajo identifican la entrega; el estado va en la píldora y en el borde de color.
   return `<button type="button" class="queue-card${active ? ' is-active' : ''}" data-status="${status}" data-action="workspace-select-submission" data-id="${escapeHtml(item.id)}" aria-pressed="${active}">
-    <span class="queue-card-copy"><strong>${escapeHtml(studentLabel(item))}</strong><small class="queue-card-meta">${code ? `Legajo ${escapeHtml(code)}` : 'Sin legajo'}</small></span>
+    <span class="queue-card-copy"><strong>${escapeHtml(studentLabel(item))}</strong>${code ? `<small class="queue-card-meta">Legajo ${escapeHtml(code)}</small>` : ''}</span>
     ${statusPill(QUEUE_PILL[status], QUEUE_LABELS[status])}
   </button>`;
 }
@@ -75,7 +87,7 @@ export function deliveryStep() {
         <div class="form-field form-field--lead"><label for="workspace-answer-text">Respuesta del estudiante</label><textarea id="workspace-answer-text" class="lined lined--answer" maxlength="50000" data-workspace-field="answerText" placeholder="${fromFile ? 'Se va a usar el texto del archivo adjunto.' : 'Pegá acá la respuesta.'}" ${fromFile ? 'disabled' : ''}>${escapeHtml(workspace.answerText)}</textarea></div>
         ${editing ? '' : dropzone({ id: 'workspace-answer-file', kind: 'answer', file: workspace.answerFile, label: 'O adjuntá un archivo', hint: 'PDF con texto seleccionable, DOCX, TXT o MD · máx. 5 MB' })}
         <details class="disclosure" id="ws-delivery-options"><summary>Consigna y tono de la devolución ${icon('chevron')}</summary><div class="disclosure-body form-grid">
-          <div class="form-field"><label for="workspace-question-select">Consigna específica</label><select id="workspace-question-select" data-workspace-question-select ${editing ? 'disabled' : ''}><option value="">Usar consigna general</option>${questions.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.questionId) ? 'selected' : ''}>${escapeHtml(item.prompt)}</option>`).join('')}</select></div>
+          <div class="form-field"><label for="workspace-question-select">Consigna a evaluar</label><select id="workspace-question-select" data-workspace-question-select ${editing ? 'disabled' : ''}>${questionOptions(questions)}</select></div>
           <div class="form-field"><label for="workspace-feedback-style">Tono de la devolución</label><select id="workspace-feedback-style" data-workspace-feedback-style><option value="formal" ${workspace.feedbackStyle === 'formal' ? 'selected' : ''}>Formal / académico</option><option value="constructivo" ${workspace.feedbackStyle === 'constructivo' ? 'selected' : ''}>Constructivo / orientador</option><option value="motivador" ${workspace.feedbackStyle === 'motivador' ? 'selected' : ''}>Motivador / empático</option></select></div>
         </div></details>
         <div class="cta-row">${saveStatus(2, stepDirty(2), editing ? 'Sin cambios' : 'Nada para guardar')}<button class="btn btn-primary btn-large" type="submit" id="ws-submit-delivery" ${busy ? 'disabled aria-busy="true"' : ''}>${ctaLabel}</button></div>

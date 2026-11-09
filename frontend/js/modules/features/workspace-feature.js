@@ -71,6 +71,15 @@ function resetReview() {
   workspace.review = { reviewed: new Set(), open: new Set(), expandedLists: new Set(), onlyUnreviewed: false, onlyPending: workspace.review?.onlyPending || false, approveWarning: false, menuOpen: false };
 }
 
+/**
+ * Consigna por defecto de una entrega nueva: con varias, ninguna en particular (valor vacío
+ * = «Todas las consignas», la respuesta se corrige contra cada una); con una sola, esa.
+ */
+function defaultQuestionId() {
+  const questions = assessmentQuestions();
+  return questions.length === 1 ? String(questions[0].id) : '';
+}
+
 function resetForAssessment(assessment) {
   workspace.assessmentId = assessment ? String(assessment.id) : '';
   workspace.questions = Array.isArray(assessment?.questions) ? assessment.questions : [];
@@ -78,7 +87,7 @@ function resetForAssessment(assessment) {
   workspace.instructions = assessment?.instructions || '';
   workspace.referenceMaterial = assessment?.reference_material || '';
   workspace.savedContext = { objectives: workspace.objectives, instructions: workspace.instructions };
-  workspace.questionId = String(assessmentQuestions()[0]?.id || '');
+  workspace.questionId = defaultQuestionId();
   Object.assign(workspace, {
     studentId: '', studentName: '', rubricId: '', answerText: '', answerFile: null, materialFile: null,
     materialConfirmRemove: false, questionEditor: null, questionDeleteId: '', questionDeleteError: '', questionSuggestions: [],
@@ -178,7 +187,8 @@ async function loadWorkspaceSubmission(id, { signal, sequence, requestId: suppli
   workspace.answerText = submission.answer_text || '';
   workspace.studentId = submission.student ? String(submission.student) : '';
   workspace.studentName = submission.student_name || submission.student_display_name || '';
-  workspace.questionId = submission.question ? String(submission.question) : workspace.questionId;
+  // Una entrega sin consigna puntual abarca todas: el selector tiene que mostrarlo así.
+  workspace.questionId = submission.question ? String(submission.question) : '';
   workspace.answerFile = null;
   workspace.proposalReady = false;
   if (correction) {
@@ -513,7 +523,8 @@ function startNewSubmission() {
   selectionController?.abort();
   Object.assign(workspace, {
     activeSubmission: null, correction: null, proposal: null, feedback: '', changeReason: '', baseline: '',
-    studentId: '', studentName: '', answerText: '', answerFile: null, proposalReady: false, leaveGuard: null, error: ''
+    studentId: '', studentName: '', answerText: '', answerFile: null, proposalReady: false, leaveGuard: null, error: '',
+    questionId: defaultQuestionId()
   });
   resetReview();
   workspace.step = 2;
