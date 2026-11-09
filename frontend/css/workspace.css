@@ -839,7 +839,11 @@ details.criterion-review { padding: 0; }
 .correction-history-score { display: grid; justify-items: end; }
 .correction-history-score strong { font: 800 1.1rem/1 var(--display); font-variant-numeric: tabular-nums; }
 .correction-share-content { display: grid; gap: 12px; }
-.correction-share-score { font: 800 1.4rem/1 var(--display); }
+/* Etiqueta arriba y nota abajo: antes ambos eran texto en línea sin separación
+   y se leía «Puntaje final0 / 10 puntos». */
+.correction-share-score { display: grid; gap: 4px; }
+.correction-share-score > span { color: var(--muted-text); font: 600 .78rem/1.2 var(--display); letter-spacing: .02em; }
+.correction-share-score > strong { font: 800 1.4rem/1 var(--display); font-variant-numeric: tabular-nums; }
 
 .profile-settings-panel { max-width: 860px; }
 .profile-summary { display: flex; align-items: center; gap: 14px; }
@@ -1038,6 +1042,7 @@ details.criterion-review { padding: 0; }
 .source-block > summary { min-height: 40px; font: 500 .69rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted-text); }
 .source-block > summary .icon:last-child { margin-left: auto; width: 16px; }
 .source-block > p, .source-block > ul { padding-bottom: 10px; font-size: .86rem; }
+.source-block > ol.source-prompts { display: grid; gap: 6px; margin: 0; padding: 0 0 10px 1.3em; font-size: .86rem; }
 .answer-text { max-width: 70ch; padding: 12px 14px; border-left: 3px solid var(--tone-0); border-radius: 0 12px 12px 0; background: color-mix(in srgb, var(--tone-0) 8%, var(--surface)); font-size: .9rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer-text mark { padding: 0 2px; border-radius: 3px; background: color-mix(in srgb, var(--yellow) 55%, transparent); color: inherit; }
 .answer-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }

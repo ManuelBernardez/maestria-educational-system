@@ -7,9 +7,42 @@ const EVIDENCE_CLAMP_CHARS = 220;
 
 /* ---------- Utilidades de datos ---------- */
 
+/** Nota final mínima: la misma regla que `MIN_FINAL_GRADE` en backend/apps/core/ai.py. */
+const MIN_FINAL_GRADE = 1;
+
+const finiteOr = (value, fallback) => (value == null || !Number.isFinite(Number(value)) ? fallback : Number(value));
+
+/** Espejo de `weighted_total` (backend): logro relativo × peso/Σpesos, en la escala Σmáximos. */
+function weightedTotal(items) {
+  if (!items.length) return 0;
+  let weights = items.map(item => Math.max(0, finiteOr(item.weight, 1)));
+  const weightSum = weights.reduce((sum, value) => sum + value, 0);
+  if (weightSum <= 0) weights = items.map(() => 1);
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+  const totalMax = items.reduce((sum, item) => sum + Math.max(0, finiteOr(item.max_score, 0)), 0);
+  const share = items.reduce((sum, item, index) => {
+    const maximum = Math.max(0, finiteOr(item.max_score, 0));
+    return maximum > 0 ? sum + weights[index] * Math.min(1, Math.max(0, finiteOr(item.score, 0) / maximum)) : sum;
+  }, 0);
+  return share / totalWeight * totalMax;
+}
+
+/**
+ * Nota que se va a guardar: suma por consigna de la nota ponderada (`final_grade` en el
+ * backend), con piso MIN_FINAL_GRADE. Antes se sumaban los puntajes sin ponderar y la nota
+ * de esta pantalla podía no coincidir con la que quedaba guardada al aprobar.
+ */
 export const totals = () => {
   const list = criteria();
-  return { score: list.reduce((sum, item) => sum + (Number(item.score) || 0), 0), max: list.reduce((sum, item) => sum + (Number(item.max_score) || 0), 0) };
+  const max = list.reduce((sum, item) => sum + Math.max(0, finiteOr(item.max_score, 0)), 0);
+  const groups = new Map();
+  list.forEach(item => {
+    const key = item.question_id == null ? '' : String(item.question_id);
+    groups.set(key, [...(groups.get(key) || []), item]);
+  });
+  let score = Math.round([...groups.values()].reduce((sum, group) => sum + weightedTotal(group), 0) * 100) / 100;
+  if (max >= MIN_FINAL_GRADE) score = Math.max(MIN_FINAL_GRADE, score);
+  return { score, max };
 };
 
 export const reviewedCount = () => criteria().filter((_, index) => workspace.review.reviewed.has(index)).length;
@@ -188,8 +221,16 @@ function summaryBar(submission) {
  */
 function sourceColumn(submission) {
   const assessment = selectedAssessment();
-  const question = assessmentQuestions().find(item => String(item.id) === String(submission.question || workspace.questionId));
-  const prompt = question?.prompt || assessment?.instructions || 'No hay una consigna específica guardada.';
+  const questions = assessmentQuestions();
+  // Sin consigna puntual, la entrega abarca todas las consignas de la evaluación.
+  const question = submission.question
+    ? questions.find(item => String(item.id) === String(submission.question))
+    : (questions.length === 1 ? questions[0] : null);
+  const allQuestions = !question && questions.length > 1;
+  const promptLabel = allQuestions ? 'Ver consignas' : 'Ver consigna';
+  const promptBody = allQuestions
+    ? `<ol class="source-prompts">${questions.map(item => `<li>${escapeHtml(item.prompt)}</li>`).join('')}</ol>`
+    : `<p>${escapeHtml(question?.prompt || assessment?.instructions || 'No hay una consigna específica guardada.')}</p>`;
   const answer = submission.answer_text || '';
   const answers = submissionAnswers(submission);
   const fullText = answers ? answers.map(item => item.answer_text).join(' ') : answer;
@@ -199,7 +240,7 @@ function sourceColumn(submission) {
   // por separado (acordeón) para que el docente vea el texto del que salen las citas.
   const body = answers
     ? `${answers.map((item, position) => `<details class="source-block" id="ws-source-answer-${escapeHtml(item.id)}" ${position === 0 ? 'open' : ''}><summary>Consigna ${position + 1} ${icon('chevron')}</summary>${item.question_prompt ? `<p class="field-hint">${escapeHtml(item.question_prompt)}</p>` : ''}<div class="answer-text" id="ws-answer-text-${escapeHtml(item.id)}">${escapeHtml(item.answer_text)}</div></details>`).join('')}${tools}`
-    : `<div class="answer-text" id="ws-answer-text">${escapeHtml(answer || 'No hay texto disponible.')}</div>${tools}<details class="source-block" id="ws-source-prompt"><summary>Ver consigna ${icon('chevron')}</summary><p>${escapeHtml(prompt)}</p></details>`;
+    : `<div class="answer-text" id="ws-answer-text">${escapeHtml(answer || 'No hay texto disponible.')}</div>${tools}<details class="source-block" id="ws-source-prompt"><summary>${promptLabel} ${icon('chevron')}</summary>${promptBody}</details>`;
   // En escritorio la columna no se pliega (el summary se oculta): el título va en el cuerpo.
   return `<details class="review-source" id="ws-source" open><summary>Respuesta del estudiante ${icon('chevron')}</summary><div class="review-source-body"><p class="source-title">Respuesta del estudiante</p>${body}</div></details>`;
 }

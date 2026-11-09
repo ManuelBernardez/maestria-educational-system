@@ -40,7 +40,8 @@ class AIAdapterTests(SimpleTestCase):
         self.assertEqual(result["criteria"][0]["level"], "Logrado")
         self.assertEqual(result["strengths"], ["Identifica los insumos principales."])
         self.assertEqual(result["improvement_suggestions"], ["Explicar el rol del dióxido de carbono."])
-        self.assertEqual(result["criteria"][0]["evidence"], "La fotosíntesis usa luz y agua")
+        # La cita se completa hasta el final de su oración (sigue siendo texto literal).
+        self.assertEqual(result["criteria"][0]["evidence"], "La fotosíntesis usa luz y agua para producir glucosa.")
 
 
     def test_no_rubric_fallback_preserves_small_question_maximum(self):
