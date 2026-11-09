@@ -61,7 +61,8 @@
     const confirm = $('#register-confirm').value;
     if (!first || !last) return showMessage('#register-message', 'Completá tu nombre y apellido.');
     if (!validEmail(email)) return showMessage('#register-message', 'Ingresá un correo electrónico válido.');
-    if (password.length < 8) return showMessage('#register-message', 'Usá al menos 8 caracteres.');
+    const passwordError = api.passwordPolicyError(password);
+    if (passwordError) return showMessage('#register-message', passwordError);
     if (password !== confirm) return showMessage('#register-message', 'Las contraseñas no coinciden.');
     busy(registerForm, true);
     try {

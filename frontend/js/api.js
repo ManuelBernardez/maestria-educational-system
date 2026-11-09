@@ -231,6 +231,38 @@
     }
     throw new Error(`El listado supera el límite de ${maxPages} páginas por consulta. Aplicá filtros para acotar los resultados.`);
   }
+  // Política de contraseñas: debe coincidir con Supabase Auth
+  // (Authentication → Sign In / Providers → Email): mínimo 8 caracteres y al menos
+  // una minúscula, una mayúscula, un dígito y un símbolo. Supabase sólo cuenta
+  // como letras las ASCII y estos símbolos.
+  const PASSWORD_MIN_LENGTH = 8;
+  const PASSWORD_SYMBOLS = "!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~";
+  const PASSWORD_RULES = 'Al menos 8 caracteres, con una mayúscula, una minúscula, un número y un símbolo (por ejemplo ! ? # $ % & *).';
+
+  function passwordPolicyError(password) {
+    const value = String(password || '');
+    if (value.length < PASSWORD_MIN_LENGTH) return `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`;
+    const missing = [];
+    if (!/[a-z]/.test(value)) missing.push('una minúscula sin tilde (a-z)');
+    if (!/[A-Z]/.test(value)) missing.push('una mayúscula sin tilde (A-Z)');
+    if (!/[0-9]/.test(value)) missing.push('un número');
+    if (![...value].some(char => PASSWORD_SYMBOLS.includes(char))) missing.push('un símbolo (por ejemplo ! ? # $ % & *)');
+    if (!missing.length) return '';
+    const list = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(', ')} y ${missing[missing.length - 1]}`;
+    return `A la contraseña le falta ${list}.`;
+  }
+
+  // Supabase Auth responde en inglés; los rechazos de contraseña se traducen.
+  function authErrorMessage(payload, statusCode) {
+    if (payload?.error_code === 'weak_password') {
+      const reasons = payload?.weak_password?.reasons || [];
+      if (reasons.includes('pwned')) return 'Esa contraseña apareció en filtraciones conocidas. Elegí otra.';
+      return `La contraseña no cumple los requisitos. ${PASSWORD_RULES}`;
+    }
+    if (payload?.error_code === 'same_password') return 'La nueva contraseña debe ser distinta de la actual.';
+    return errorMessage(payload, statusCode);
+  }
+
   async function authRequest(path, method, body) {
     const auth = await loadClientConfig();
     const response = await fetchWithTimeout(`${auth.supabaseUrl}/auth/v1/${path}`, {
@@ -238,7 +270,7 @@
       body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer'
     }, 20000, `Supabase (${auth.supabaseUrl})`);
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(errorMessage(payload, response.status));
+    if (!response.ok) throw new Error(authErrorMessage(payload, response.status));
     return payload;
   }
 
@@ -249,7 +281,7 @@
       body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer'
     }, 20000, `Supabase (${auth.supabaseUrl})`);
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(errorMessage(payload, response.status));
+    if (!response.ok) throw new Error(authErrorMessage(payload, response.status));
     return payload;
   }
 
@@ -273,6 +305,7 @@
     put: (path, body, opts = {}) => request(path, { ...opts, method: 'PUT', body }),
     delete: (path, opts = {}) => request(path, { ...opts, method: 'DELETE' }),
     upload: (path, formData, opts = {}) => request(path, { ...opts, method: 'POST', body: formData }),
-    getSession, setSession, clearSession, validSession, refreshSession, loadClientConfig, authRequest, authUserRequest
+    getSession, setSession, clearSession, validSession, refreshSession, loadClientConfig, authRequest, authUserRequest,
+    passwordPolicyError, PASSWORD_RULES
   });
 })();

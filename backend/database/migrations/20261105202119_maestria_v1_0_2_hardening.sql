@@ -1,6 +1,11 @@
 -- Applied to the connected Supabase project as migration
 -- 20261105202119 / maestria_v1_0_2_hardening.
 -- No table data is deleted or rewritten by this migration.
+--
+-- NOTA (2026-11-09): el rango de timeout 5..18 / default 18 de abajo quedó
+-- reemplazado el 2026-11-07 por 5..85 / default 60 (contract_alignment §6,
+-- igual a MAX_PROVIDER_TIMEOUT en apps/core/ai.py). Producción tiene 5..85.
+-- No volver a ejecutar este archivo; usar db/maestria_schema.sql.
 
 ALTER TABLE public.ai_provider_config
   ALTER COLUMN timeout_seconds SET DEFAULT 18;

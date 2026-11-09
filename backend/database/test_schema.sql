@@ -119,8 +119,8 @@ CREATE TABLE public.audit_event (
  event_type varchar NOT NULL, object_type varchar NOT NULL, object_id varchar NOT NULL,
  detail jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(),
  actor_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
- actor_role varchar CHECK (actor_role IS NULL OR actor_role IN ('teacher','student','admin','superadmin','system')),
- request_id varchar, ip_address inet, user_agent text
+ actor_role varchar(24) CHECK (actor_role IS NULL OR actor_role IN ('teacher','student','admin','superadmin','system')),
+ request_id varchar(128), ip_address inet, user_agent text
 );
 CREATE TABLE public.contact_message (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name varchar NOT NULL, email varchar NOT NULL,
@@ -129,7 +129,7 @@ CREATE TABLE public.contact_message (
  internal_notes text NOT NULL DEFAULT '', assigned_to uuid REFERENCES auth.users(id) ON DELETE SET NULL,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
  user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
- category varchar NOT NULL DEFAULT 'general', source varchar NOT NULL DEFAULT 'public_web',
+ category varchar(80) NOT NULL DEFAULT 'general', source varchar(80) NOT NULL DEFAULT 'public_web',
  assigned_at timestamptz, handled_at timestamptz, metadata jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE TABLE public.user_profile (

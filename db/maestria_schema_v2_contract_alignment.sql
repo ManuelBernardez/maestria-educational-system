@@ -1,3 +1,7 @@
+-- ⚠ HISTÓRICO (2026-11-09): para instalaciones nuevas usar db/maestria_schema.sql.
+--   Se conserva porque documenta cómo se llegó al esquema actual y porque es la
+--   instalación sobre Postgres plano de docs/PRUEBAS-LOCALES.md (opción B).
+--
 -- MaestrIA — alineación del esquema con el contrato que verifica el backend.
 --
 -- Qué resuelve: `db/maestria_schema_v2.sql` quedó desactualizado respecto de

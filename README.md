@@ -128,7 +128,7 @@ python manage.py verify_public_schema
 
 La herramienta contrasta tablas, columnas, tipos, identidades, FK compuestas, índices y triggers con el esquema esperado. No cambia la base.
 
-Instalación limpia: ejecutar `db/maestria_schema_v2.sql` y luego `db/maestria_schema_v2_contract_alignment.sql` (idempotente). Sin el segundo script, la verificación falla y el backend devuelve errores en contacto, auditoría y administración. El mismo script alinea `ai_provider_config.timeout_seconds` al rango 5–85 s que acepta el backend; en una base existente, aplicarlo sólo tras revisar `verify_public_schema` y con backup. Para pruebas locales con Docker, ver `docs/PRUEBAS-LOCALES.md`.
+Instalación limpia (proyecto Supabase nuevo o Supabase local): ejecutar `db/maestria_schema.sql`, snapshot del esquema de producción, y después, en orden, las migraciones de `backend/database/migrations/` con versión posterior a la indicada en su encabezado. Los scripts `db/maestria_schema_v2*.sql` quedan como historial y no reproducen producción (ver `AUDITORIA-SUPABASE-2026-11-09.md`). Para pruebas locales con Docker, ver `docs/PRUEBAS-LOCALES.md`.
 
 ## Pruebas y chequeos
 
@@ -215,7 +215,7 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - **Validación integral:** "Guardar contexto" también guarda la consigna en edición; `/api/*` inexistente responde 404 JSON; la importación de estudiantes por CSV acepta encabezados en español; `conftest.py` impide correr las pruebas contra Supabase.
 - **Revisión por consigna:** en entregas con varias consignas, "Revisar y aprobar" muestra cada respuesta por separado, indica a qué consigna pertenece cada criterio y resalta la cita en la respuesta que la IA corrigió.
 - **Mensajes de error:** los errores de validación del backend que llegaban como lista (`["…"]`) o anidados se muestran con su texto en lugar de "HTTP 400".
-- **Base de datos:** `db/maestria_schema_v2_contract_alignment.sql` alinea instalaciones nuevas con lo que espera el backend. En producción ya se aplicó el rango de timeout 5–85 s (2026-11-07).
+- **Base de datos:** `db/maestria_schema_v2_contract_alignment.sql` alinea instalaciones nuevas con lo que espera el backend. En producción ya se aplicó el rango de timeout 5–85 s (2026-11-07). *(Desde 2026-11-09 la instalación limpia usa `db/maestria_schema.sql`.)*
 
 ## Cambios v1.0.9
 
