@@ -86,7 +86,7 @@ export function renderDashboard() {
   return `${heading(title, '', btn('Ir a cursos', 'navigate', 'data-view="courses"', 'primary'), { tone: 2, leadHtml: intro })}
     ${state.errors.overview ? `<div class="notice notice-error" role="alert"><strong>No se pudo cargar el resumen.</strong> ${escapeHtml(state.errors.overview)} ${btn('Reintentar', 'refresh-resource', 'data-resource="overview"')}</div>` : ''}
     <section class="stat-grid" aria-label="Resumen de actividad">
-      ${stats.map(stat => `<button type="button" class="stat stat-link${stat.note ? ' stat--note' : ''}" data-tone="${stat.tone}" data-action="open-corrections" data-status="${stat.status}"><strong>${state.data.overview ? escapeHtml(stat.value) : '—'}</strong><span>${escapeHtml(stat.label)}</span><small>${escapeHtml(stat.detail)}</small><span class="stat-cta">${escapeHtml(stat.cta)} <span aria-hidden="true">→</span></span></button>`).join('')}
+      ${stats.map(stat => `<button type="button" class="stat stat-link${stat.note ? ' stat--note' : ''}" data-tone="${stat.tone}" data-action="open-corrections" data-status="${stat.status}" title="${escapeHtml(stat.cta)}"><strong>${state.data.overview ? escapeHtml(stat.value) : '—'}</strong><span>${escapeHtml(stat.label)}</span><small>${escapeHtml(stat.detail)}</small></button>`).join('')}
     </section>
     ${body}`;
 }

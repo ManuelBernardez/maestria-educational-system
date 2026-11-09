@@ -192,6 +192,7 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - **Estáticos en desarrollo:** `runserver` servía `/assets/` sin `Cache-Control`; el navegador cacheaba los módulos por heurística y, tras cada cambio, mezclaba JavaScript viejo con CSS nuevo (la interfaz quedaba a medio actualizar: filtros que no respondían, tarjetas con la respuesta completa, botones faltantes). Ahora los sirve WhiteNoise (`whitenoise.runserver_nostatic`) con el mismo `no-cache` que producción. `config/static_files.py` corrige además la búsqueda en Windows: con los prefijos `css/` y `js/` de `STATICFILES_DIRS`, WhiteNoise no encontraba el código fuente y servía la copia de `backend/staticfiles/`, que puede estar desactualizada. En producción no cambia nada (sin finders ni autorefresh).
 - **Versión de assets 1.1.3:** los navegadores que ya habían cargado la 1.1.2 reciben `Clear-Site-Data` una vez y descartan los módulos guardados.
 - **Nueva entrega:** el botón también está en la barra de revisión del paso 3 (elegir una entrega con propuesta abre ese paso).
+- **Avisos y textos:** el aviso «Cargá una entrega para poder revisar» se cierra con una ×; los indicadores del panel docente ya no muestran «Ver pendientes / aprobadas / devoluciones» (queda como tooltip); la guía de uso no muestra «Paso N de M» ni la línea «La guía está disponible desde el botón de ayuda».
 
 ## Cambios v1.1.2
 

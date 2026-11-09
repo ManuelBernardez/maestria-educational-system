@@ -541,10 +541,6 @@ textarea.autogrow { field-sizing: content; min-height: 96px; max-height: 236px; 
 }
 .stat-link:hover, .stat-link:focus-visible { transform: translateY(-2px); border-color: color-mix(in srgb, var(--tone) 55%, var(--line)); box-shadow: 0 16px 34px rgba(32, 45, 40, .1); }
 .stat-link.stat--note:hover, .stat-link.stat--note:focus-visible { transform: rotate(-.7deg) translateY(-2px); }
-.stat .stat-cta { margin-top: 6px; color: var(--ink); font: 700 .74rem/1.2 var(--display); letter-spacing: 0; text-transform: none; }
-.stat .stat-cta span { color: inherit; font: inherit; letter-spacing: inherit; text-transform: none; display: inline-block; transition: transform var(--ease); }
-.stat-link:hover .stat-cta span, .stat-link:focus-visible .stat-cta span { transform: translateX(3px); }
-.stat--note .stat-cta, .stat--note .stat-cta span { color: var(--note-ink); }
 
 /* Tarjetas de entidad con lomo de color (curso, materia, grupo). */
 .entity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 430px), 1fr)); gap: 18px; }
@@ -721,6 +717,13 @@ details[open] > summary > .icon:last-child, .criterion-toggle[aria-expanded="tru
   border: 1px solid var(--info-line); border-radius: 14px; background: var(--info-bg); color: var(--info-ink); font-size: .84rem;
 }
 .notice::before { content: "i"; position: absolute; left: 14px; top: 12px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 999px; background: currentColor; color: var(--info-bg); font: 800 .7rem/1 var(--display); }
+/* Aviso que se puede cerrar: la × queda en la esquina derecha, alineada con la primera línea. */
+.notice-dismissible { padding-right: 52px; }
+.notice-close {
+  position: absolute; top: 6px; right: 8px; display: grid; place-items: center; width: 32px; height: 32px;
+  border: 0; border-radius: 999px; background: transparent; color: inherit; font-size: 1.15rem; line-height: 1; cursor: pointer;
+}
+.notice-close:hover, .notice-close:focus-visible { background: color-mix(in srgb, currentColor 12%, transparent); }
 .notice-success { border-color: var(--ok-line); background: var(--ok-bg); color: var(--ok-ink); }
 .notice-success::before { content: "✓"; color: var(--ok-bg); }
 .notice-warning { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); }
@@ -791,13 +794,11 @@ details.criterion-review { padding: 0; }
 .quickstart-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .quickstart-progress span { height: 5px; border-radius: 999px; background: var(--line); }
 .quickstart-progress .is-current { background: var(--green); }
-.quickstart-step-label { font: 500 .69rem/1 var(--mono); letter-spacing: .1em; color: var(--muted-text); }
 .quickstart-dialog h2 { font-size: 1.3rem; font-weight: 800; }
 .quickstart-dialog p { color: var(--muted-text); }
 .quickstart-tip { padding: 10px 14px; border: 1px dashed color-mix(in srgb, var(--note-ink) 35%, transparent); border-radius: 14px; background: var(--note); color: var(--note-ink); font-size: .8rem; }
 .quickstart-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-top: 6px; }
 .quickstart-footer > div { display: flex; gap: 8px; }
-.quickstart-link-row { font-size: .72rem; }
 
 /* 8. Vistas ================================================================== */
 .today-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 22px; align-items: start; }
@@ -1220,8 +1221,7 @@ details.criterion-review { padding: 0; }
   .skeleton { animation: none; }
   .stat--note, .sticky-note, .stamp, .queue-score, .entity-card:hover, .queue-card:hover, .btn-primary:active,
   .view-header::before, .step-panel::before, .modal-dialog::before, .quickstart-dialog::before,
-  .stat-link:hover, .stat-link:focus-visible, .stat-link.stat--note:hover, .stat-link.stat--note:focus-visible,
-  .stat-link:hover .stat-cta span, .stat-link:focus-visible .stat-cta span { transform: none; }
+  .stat-link:hover, .stat-link:focus-visible, .stat-link.stat--note:hover, .stat-link.stat--note:focus-visible { transform: none; }
 }
 
 /* Impresión: sólo el contenido. */
@@ -1229,7 +1229,7 @@ details.criterion-review { padding: 0; }
   .sidebar, .app-topbar, .sidebar-scrim, .modal-layer, .toast-region, .profile-menu, #quickstart-root,
   .view-actions, .notebook-tabs, .step-actions, .next-step, .ws-selectors, .review-tools, .review-bar-nav, .toolbar,
   .row-tools, .fold-footer, .entity-actions, .shortcut-hint, .btn, .stepper-btn, .ws-cover, .text-link, .evidence-links,
-  .criterion-foot, .chip, .segmented, details > summary > .icon, .criterion-toggle > .icon, .notice-warning, .margin-note, .stat-cta { display: none !important; }
+  .criterion-foot, .chip, .segmented, details > summary > .icon, .criterion-toggle > .icon, .notice-warning, .margin-note { display: none !important; }
   * { background: transparent !important; box-shadow: none !important; text-shadow: none !important; }
   /* Se imprime todo el contenido de la revisión, también lo plegado. */
   .criterion-body[hidden] { display: grid !important; }

@@ -592,7 +592,7 @@ function tabs() {
 
 function inlineNotices() {
   const notices = [];
-  if (workspace.lockedNotice) notices.push(`<div class="notice notice-info" role="status">Cargá una entrega para poder revisar. <button type="button" class="text-link" data-action="workspace-step" data-step="2">Ir a la entrega del estudiante</button></div>`);
+  if (workspace.lockedNotice) notices.push(`<div class="notice notice-info notice-dismissible" role="status"><p>Cargá una entrega para poder revisar. <button type="button" class="text-link" data-action="workspace-step" data-step="2">Ir a la entrega del estudiante</button></p><button type="button" class="notice-close" data-action="workspace-dismiss-locked" aria-label="Cerrar aviso" title="Cerrar">×</button></div>`);
   if (workspace.leaveGuard) {
     const canSave = workspace.leaveGuard.from === 1;
     notices.push(`<div class="inline-confirm" id="ws-leave-guard" role="alert"><p>Tenés cambios sin guardar en «${STEP_TITLES[workspace.leaveGuard.from]}».</p>${canSave ? '<button type="button" class="btn btn-primary btn-small" data-action="workspace-guard-save">Guardar y seguir</button>' : ''}<button type="button" class="btn btn-secondary btn-small" data-action="workspace-guard-discard">Descartar</button><button type="button" class="text-link" data-action="workspace-guard-stay">Quedarme</button></div>`);
@@ -796,6 +796,8 @@ export async function handleWorkspaceAction(button) {
         break;
       }
       case 'workspace-guard-discard': { const guard = workspace.leaveGuard; discardStep(guard?.from); workspace.leaveGuard = null; guard?.proceed(); if (guard?.type !== 'step') render(); break; }
+      // Al cerrar el aviso el foco vuelve a la pestaña activa (el botón × deja de existir).
+      case 'workspace-dismiss-locked': workspace.lockedNotice = false; pendingFocus = `#workspace-tab-${workspace.step}`; render(); break;
       case 'workspace-new-submission': guarded({ type: 'submission', value: '' }, startNewSubmission); break;
       case 'workspace-guard-stay': workspace.leaveGuard = null; pendingFocus = `#${stepTitleId(workspace.step)}`; render(); break;
       case 'workspace-open-evaluations': navigate('assessments'); break;
