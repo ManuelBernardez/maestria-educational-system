@@ -210,7 +210,46 @@ Aparecieron al comparar las dos bases. **No afectan la migración de limpieza**,
 | 6 | Constraints hacia `auth.users` | Con nombre explícito (`fk_*`) | Con nombre automático (`*_fkey`) |
 | 7 | `django_cache` y `django_migrations` | Solo existe `django_cache` | Solo existe `django_migrations` |
 
-**Recomendación:** generar una migración base desde producción (`supabase db dump --schema public`) y usarla como única fuente para instalaciones nuevas. Además, renombrar las constraints `uniq_*` en `maestria_schema_v2.sql`, porque si no, `contract_alignment` vuelve a crear los duplicados.
+### Resolución (2026-11-09)
+
+En cada diferencia se decidió qué lado es el correcto según el código del backend:
+
+| # | Lado correcto | Por qué | Acción |
+|---|---|---|---|
+| 1 | Producción | `ai.py` `MAX_PROVIDER_TIMEOUT = 85`, el validador de `admin_api.py` acepta 5–85 y el modelo usa `default=60` | Nota en la migración `hardening`: su timeout quedó reemplazado |
+| 2 | Producción | Todas las FK de `models.py` usan `on_delete=PROTECT` | El snapshot nuevo toma el comportamiento de producción |
+| 3 | **Repo / modelos** | `models.py`: `max_length` 24, 128, 80 y 80. Producción no lo impone | **Migración `20261109160000`** |
+| 4 | **Repo** | `admin_api_tests.py:200` espera `IntegrityError`. Eso requiere `ERRCODE '23514'`, y producción usa el código por defecto (`P0001`, que Django convierte en `InternalError`). La otra función tiene la misma lógica y solo cambia el formato | **Migración `20261109160000`**: reemplaza las dos funciones con el código del repo y revoca `EXECUTE` a `PUBLIC` |
+| 5, 6 | Producción | — | Snapshot |
+| 7 | — | `django_cache` lo usa Django (`DatabaseCache`); `django_migrations` es un resto del script v2 | El snapshot incluye `django_cache` |
+
+**Snapshot de producción: `db/maestria_schema.sql`.** Es la nueva fuente única para instalaciones nuevas:
+- `supabase db dump --schema public` de producción (de solo lectura), que incluye hasta `20261109140000`;
+- agregados a mano, porque `pg_dump` del esquema `public` no los incluye: los 2 triggers sobre `auth.users` y la revocación de permisos a `anon`, `authenticated` y `service_role`.
+
+`db/maestria_schema_v2*.sql` quedan marcados como **históricos**. Se actualizaron `README.md` y `docs/PRUEBAS-LOCALES.md`, que ahora tiene una opción A con Supabase local y el snapshot.
+
+**Verificación del snapshot** (base local vacía + snapshot, comparada con producción):
+
+| Objeto | Resultado |
+|---|---|
+| Columnas (219), comentarios (8), funciones (9), índices (141), políticas (18), RLS (21), triggers (26) | ✅ Huella idéntica |
+| Constraints (123) | ✅ Mismos nombres y reglas. 16 CHECK con `IN (...)` se ven distintos solo por dónde va el cast (`ARRAY['a'::varchar]::text[]` contra `ARRAY[('a'::varchar)::text]`). Es un efecto conocido de pasar por `pg_dump` y los valores son los mismos |
+| Permisos sobre tablas, secuencias y la función de sync | ✅ 0 para `anon`, `authenticated` y `service_role`, igual que en producción |
+| `USAGE` sobre el esquema `public` | ⚠ Producción: no. Supabase nuevo: sí, porque lo otorga `pg_database_owner` y `postgres` no lo puede revocar. Sin efecto práctico: esos roles no tienen permisos sobre ningún objeto |
+
+**Prueba de `20261109160000` sobre el snapshot local:**
+
+| Comprobación | Resultado |
+|---|---|
+| Ejecución | ✅ Sin errores |
+| Columnas | ✅ `varchar(24)`, `varchar(128)`, `varchar(80)`, `varchar(80)` |
+| Degradar al único superadmin | ✅ `SQLSTATE 23514` |
+| Insertar un `actor_role` de 25 caracteres | ✅ Rechazado con `SQLSTATE 22001` |
+| Asignar un mensaje a un admin | ✅ Completa `assigned_at` |
+| `EXECUTE` en las funciones de trigger | ✅ Solo `postgres` |
+| `verify_public_schema` | ✅ Compatible |
+| `pytest` (108 tests) | ✅ 108 pasaron |
 
 ---
 
@@ -221,11 +260,34 @@ Aparecieron al comparar las dos bases. **No afectan la migración de limpieza**,
 | `69c95e2` | Migración de limpieza |
 | `602d3db` | Supabase CLI como devDependency y `supabase/config.toml` |
 | `6caa958` | Auditoría |
-| (siguiente) | Auditoría actualizada con la aplicación en producción |
+| `0a4b1ca` | Auditoría actualizada con la aplicación en producción |
+| (siguientes) | Snapshot, migración `20261109160000`, scripts marcados como históricos y política de contraseñas |
 
 Quedó afuera a propósito: el cambio del usuario en `.gitignore` (`.mcp.json`).
 
 ## 9. Pendientes
-1. **Protección contra contraseñas filtradas.** Está en **Authentication → Sign In / Providers → Email → "Prevent use of leaked passwords"** (`/dashboard/project/_/auth/providers?provider=Email`), no en Passkeys. Según la [documentación](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection), **requiere plan Pro o superior**. En el plan gratuito, en el mismo panel se puede subir el largo mínimo de la contraseña (8 o más) y exigir dígitos, mayúsculas, minúsculas y símbolos.
-2. Resolver las diferencias entre los scripts y producción (§7).
-3. Mergear `chore/db-hardening` a `main`.
+1. **Aplicar `20261109160000_maestria_align_prod_with_contract.sql` en producción** desde el SQL Editor, registrar la versión en el historial y verificar.
+2. **Configurar la política de contraseñas en el dashboard** (§10).
+3. **Protección contra contraseñas filtradas:** requiere plan Pro ([documentación](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)). Se compensa en parte con la política de §10. El aviso del advisor se mantiene.
+4. `backend/database/test_schema.sql` (el esquema de la suite) también tiene `varchar` sin límite en las 4 columnas de §7.3. No afecta los tests, pero conviene alinearlo.
+5. Mergear `chore/db-hardening` a `main`.
+
+---
+
+## 10. Política de contraseñas (plan gratuito)
+
+**Regla:** al menos 8 caracteres, con al menos una minúscula (a-z), una mayúscula (A-Z), un dígito y un símbolo de ``!@#$%^&*()_+-=[]{};'\:"|<>?,./`~``. Supabase solo cuenta como letras las ASCII: `Ñ` o `á` no cumplen como mayúscula o minúscula.
+
+| Dónde | Cambio |
+|---|---|
+| Dashboard de producción | **Lo hace el usuario:** Authentication → Sign In / Providers → Email → *Minimum password length* = 8 y *Password Requirements* = "Lowercase, uppercase letters, digits and symbols" |
+| `supabase/config.toml` (local) | `minimum_password_length = 8`, `password_requirements = "lower_upper_letters_digits_symbols"` |
+| `frontend/js/api.js` | `passwordPolicyError()`, misma regla que Supabase. El error `weak_password` de Supabase se traduce al español. También `same_password` |
+| `frontend/js/auth.js` (registro) y `auth-reset.js` (nueva contraseña) | Validan con `passwordPolicyError()` antes de enviar |
+| `acceso.html` y `restablecer-clave.html` | Texto de ayuda con los requisitos |
+
+**Verificación contra el Auth real**, con Supabase local y la misma configuración: se comparó la respuesta de `/auth/v1/signup` con `passwordPolicyError()` en 12 casos (corta, sin símbolo, sin minúscula, sin mayúscula, sin número, válida, con Ñ o tildes, con espacio, con `€`, con `_` y con espacios alrededor). **0 diferencias.** `npm run check:frontend` pasa los 4 chequeos.
+
+**Efecto sobre usuarios existentes (verificado en local):** se simuló un usuario con la contraseña `debil1234`, cambiando el hash en `auth.users`. `/auth/v1/token?grant_type=password` devuelve `access_token` y agrega un aviso `weak_password`; el login del frontend usa el token e ignora el aviso. **Los usuarios actuales no quedan bloqueados.** La regla se aplica al registrarse y al cambiar la contraseña. La API de administración también la aplica.
+
+**Nota del entorno:** en esta máquina Windows, `npm run check:frontend` falla con `UnicodeEncodeError` (cp1252) **también en `main`**, porque varios JS contienen `→`. Pasa con `PYTHONUTF8=1`. En CI (Linux, UTF-8) no ocurre.
