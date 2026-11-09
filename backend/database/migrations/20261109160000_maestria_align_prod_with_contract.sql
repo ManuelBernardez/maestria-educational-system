@@ -1,6 +1,6 @@
 -- Migration 20261109160000 / maestria_align_prod_with_contract
 -- Alinea producción con el contrato del backend en los dos puntos donde el
--- código tiene razón y la base no (ver AUDITORIA-SUPABASE-2026-11-09.md §7).
+-- código tiene razón y la base no (ver docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md §7).
 -- No borra filas. Todo corre en una sola transacción.
 --
 -- Datos verificados en producción antes de escribirla (2026-11-09):

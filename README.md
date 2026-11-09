@@ -1,31 +1,340 @@
-# MaestrIA v1.1.3
+<div align="center">
 
-Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
+<img src="frontend/assets/images/maestria-logo.png" alt="MaestrIA" width="260">
 
-## Configuración de IA
+### Corregir menos. Enseñar más.
 
-Consultar [`docs/CONFIGURACION-IA-EXTERNA.md`](docs/CONFIGURACION-IA-EXTERNA.md) para configurar OpenAI, Gemini u Ollama. La configuración externa puede enviar contenido de entregas a un tercero: revisar el informe de estabilización y las condiciones institucionales antes de habilitarla.
+**Asistente inteligente para la corrección docente:** organiza cursos, evaluaciones y rúbricas, y usa inteligencia artificial para proponer correcciones con evidencia citada y devoluciones pedagógicas que el docente revisa y aprueba.
 
-## Arquitectura
+[![Versión](https://img.shields.io/badge/versión-1.1.3-1F4D3A)](docs/CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Django](https://img.shields.io/badge/Django-5.x-092E20?logo=django&logoColor=white)](https://www.djangoproject.com/)
+[![DRF](https://img.shields.io/badge/Django_REST_Framework-3.15+-A30000)](https://www.django-rest-framework.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
+[![Frontend](https://img.shields.io/badge/HTML5_·_CSS_·_JS-sin_build-E34F26?logo=html5&logoColor=white)](frontend/)
+[![Render](https://img.shields.io/badge/deploy-Render-46E3B7?logo=render&logoColor=white)](https://maestria-amcn.onrender.com/)
 
-- `frontend/`: sitio público y espacio docente HTML5 estáticos. Django los sirve en producción; no utiliza Next.js, React, Node ni un proceso de compilación.
-- `frontend/js/api.js`: cliente HTTP/Auth, sesión Supabase por pestaña, renovación controlada, cancelación y llamadas autenticadas a Django.
-- `frontend/js/workspace.js`: punto de entrada ES module del espacio docente; `modules/core/api.js` inicializa y expone el cliente como dependencia modular. El espacio docente usa `assets/css/workspace.css`, un bundle CSS nativo que conserva el orden de cascada de sus seis hojas originales y se sirve comprimido por WhiteNoise.
-- `frontend/js/modules/`: capas `core`, `data`, `features` y `events`; cada dominio mantiene sus vistas y operaciones. El shell docente sigue siendo una SPA nativa con módulos por dominio, navegación enlazable mediante `?view=...` y soporte de Atrás/Adelante; no requiere React, Next.js ni un bundler.
-- `backend/`: Django REST Framework, autenticación JWT Supabase, permisos, reglas de negocio, integración IA y servicio del frontend con WhiteNoise. Las vistas API están agrupadas en `apps/core/api_views/` por dashboard, catálogo y entregas/correcciones; `apps/core/views.py` conserva el punto de importación compatible.
-- `docs/`: contratos y decisiones técnicas.
+**[🌐 Ver el sitio en producción](https://maestria-amcn.onrender.com/)** · [Arquitectura](#-arquitectura) · [Ejecutar localmente](#-ejecución-local) · [API](docs/API.md) · [Historial de cambios](docs/CHANGELOG.md)
 
-## Requisitos
+</div>
 
-- Python 3.12 (backend).
-- PostgreSQL/Supabase con el esquema `public` existente.
-- Cuenta/proyecto Supabase Auth.
-- Proveedor IA configurado en servidor para generación real. Por defecto, `mock` es sólo demostrativo.
-- Para producción, un único Render Web Service sirve frontend y backend. Para preview local separado, Python 3 puede servir el frontend estático.
+---
 
-No se necesita `npm install`, `npm run build` ni `node_modules` para ejecutar el frontend.
+## 📑 Contenido
 
-## Ejecución local
+- [El problema](#-el-problema)
+- [La solución](#-la-solución)
+- [Funcionalidades](#-funcionalidades)
+- [Niveles de usuario](#-niveles-de-usuario)
+- [Tecnologías](#-tecnologías)
+- [Arquitectura](#-arquitectura)
+- [Base de datos](#-base-de-datos)
+- [Seguridad y privacidad](#-seguridad-y-privacidad)
+- [Estructura del repositorio](#-estructura-del-repositorio)
+- [Ejecución local](#-ejecución-local)
+- [Pruebas y calidad](#-pruebas-y-calidad)
+- [Despliegue](#-despliegue)
+- [Límites conocidos](#-límites-conocidos)
+- [Documentación](#-documentación)
+- [Equipo](#-equipo)
+
+---
+
+## 🎯 El problema
+
+Corregir consume una enorme cantidad de horas docentes. Un profesor con varios cursos puede acumular cientos de entregas por cuatrimestre y, además de poner una nota, tiene que escribir una devolución que le sirva al estudiante. El resultado es conocido:
+
+- **Correcciones tardías**, que llegan cuando el estudiante ya pasó al tema siguiente.
+- **Criterios desparejos** entre la primera y la última entrega corregida.
+- **Devoluciones pobres**: la retroalimentación es lo primero que se recorta cuando falta tiempo.
+
+## 💡 La solución
+
+MaestrIA es una plataforma web que acompaña al docente en todo el ciclo de evaluación: preparar la evaluación y su rúbrica, recibir las entregas, obtener una **propuesta de corrección generada por IA** y revisarla antes de aprobarla.
+
+> **La IA propone. El docente decide.**
+> Ninguna propuesta se convierte en calificación sin revisión y aprobación humana. Cada criterio cita textualmente la parte de la respuesta en la que se basa; si la IA inventa una cita, la propuesta se descarta. Cada ajuste del docente queda registrado con su motivo.
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**1 · Contexto**
+Curso, evaluación, objetivos, consignas con respuesta esperada, material de referencia y rúbrica ponderada.
+
+</td>
+<td width="33%" valign="top">
+
+**2 · Entrega**
+Respuesta del estudiante en texto o archivo (PDF, DOCX, TXT). La IA genera una propuesta por criterio.
+
+</td>
+<td width="33%" valign="top">
+
+**3 · Revisión**
+Puntajes con evidencia resaltada, ajustes con motivo, aprobación con trazabilidad y devolución lista para compartir.
+
+</td>
+</tr>
+</table>
+
+---
+
+## ✨ Funcionalidades
+
+### Sitio público
+
+| Página | Contenido |
+|---|---|
+| **Inicio** (`/`) | Propuesta de valor, problemas que resuelve, beneficios, principio de revisión humana y preguntas frecuentes. |
+| **Cómo funciona** | Recorrido en tres etapas y demostración visual de una evaluación. |
+| **Nosotros** | Origen del proyecto, equipo y **formulario de contacto** (se guarda en `contact_message`). |
+| **Acceso** | Ingreso, registro con confirmación de correo y recuperación/restablecimiento de contraseña (Supabase Auth). |
+| **Accesibilidad · Privacidad · Términos** | Páginas informativas del MVP. |
+
+Diseño responsive, HTML semántico, navegación por teclado, foco visible y desplegables accesibles.
+
+### Espacio docente
+
+| Módulo | Operaciones |
+|---|---|
+| **Panel docente** | Indicadores (por revisar, revisadas, tiempo ahorrado) que abren el historial filtrado; guía de uso; tema claro/oscuro. |
+| **Mis materias** | Alta, edición, archivado/reactivación y detalle por curso (estudiantes, evaluaciones, entregas y correcciones). |
+| **Estudiantes** | Alta, edición, activación/desactivación, **importación CSV** con plantilla y matrículas por curso. |
+| **Evaluaciones** | Alta y edición, objetivos, instrucciones, material de referencia importado desde PDF/DOCX/TXT y estados. |
+| **Consignas** | Alta, edición, duplicado, reordenamiento y baja; **sugerencias generadas por IA**. |
+| **Rúbricas** | Criterios con peso y puntaje máximo, niveles de desempeño, normalización de pesos al 100 % y **generación asistida por IA**. |
+| **Espacio de trabajo** | Flujo Contexto → Entrega → Revisión, cola de entregas filtrable y edición de entregas. |
+| **Correcciones** | Propuesta IA por criterio con evidencia citada, ajuste de puntajes con motivo, aprobación, historial de revisiones. |
+| **Devoluciones** | Copiar, exportar (Markdown), imprimir/PDF, enviar por correo o WhatsApp, con registro de envíos. |
+| **Mi perfil** | Datos de la cuenta, actividad reciente y cierre de sesión. |
+
+### Administración
+
+| Sección | Operaciones |
+|---|---|
+| **Usuarios** | Perfiles vinculados a identidades de Supabase: edición, roles y suspensión/reactivación. |
+| **Instituciones** | Alta y edición de instituciones y gestión de **membresías** (docente, administrador de departamento, administrador institucional). |
+| **Contacto** | Bandeja de mensajes del sitio público con estados (nuevo, en gestión, atendido, spam) y notas internas. |
+| **Servicios e IA** | Configuración de proveedores (mock, Gemini, OpenAI, Ollama), modelo, prioridad, tiempos y costos. |
+| **Auditoría** | Registro de eventos con búsqueda: quién hizo qué, sobre qué objeto y cuándo. |
+
+---
+
+## 👥 Niveles de usuario
+
+| Acción | Visitante | Docente | Administrador | Superadministrador |
+|---|:---:|:---:|:---:|:---:|
+| Navegar el sitio público y enviar contacto | ✅ | ✅ | ✅ | ✅ |
+| Registrarse y recuperar contraseña | ✅ | — | — | — |
+| Espacio docente (sólo sus propios datos) | ❌ | ✅ | ❌ | ❌ |
+| Correcciones con IA y aprobación | ❌ | ✅ | ❌ | ❌ |
+| Panel de administración | ❌ | ❌ | ✅ | ✅ |
+| Gestionar usuarios docentes, instituciones, contacto y auditoría | ❌ | ❌ | ✅ | ✅ |
+| Asignar roles administrativos | ❌ | ❌ | ❌ | ✅ |
+| Habilitar un proveedor de IA externo | ❌ | ❌ | ❌ | ✅ |
+
+- Toda cuenta nueva es **docente**: un trigger de la base crea su perfil al registrarse. Los roles administrativos sólo los asigna un superadministrador, y la base impide degradar o suspender al último superadministrador activo.
+- Sin sesión, el espacio docente redirige a la página de acceso y la API responde `401`. Un docente que intenta usar la API administrativa recibe `403`.
+- El esquema contempla además el rol `student` y los roles institucionales; no tienen interfaz propia en esta versión (ver [Límites conocidos](#-límites-conocidos)).
+
+---
+
+## 🛠 Tecnologías
+
+| Capa | Tecnología | Uso |
+|---|---|---|
+| **Frontend** | HTML5, CSS3, JavaScript (módulos ES) | Sitio público y SPA del espacio docente con vistas enlazables (`?view=…`). Sin frameworks, sin `npm install` ni build. |
+| **Backend** | Python 3.12, Django 5, Django REST Framework | API REST, reglas de negocio, permisos, integración con IA y servicio del frontend. |
+| **Base de datos** | PostgreSQL en Supabase (psycopg 3) | Esquema `public` con integridad referencial, triggers, restricciones y RLS. |
+| **Autenticación** | Supabase Auth + JWT (PyJWT, JWKS) | Registro, confirmación de correo, sesión y recuperación de contraseña. |
+| **Inteligencia artificial** | Adaptador propio: Gemini, OpenAI, Ollama, mock | Propuestas de corrección, consignas y rúbricas, con cuota, concurrencia y tiempo máximo controlados. |
+| **Documentos** | pypdf, python-docx | Extracción de texto de entregas y materiales (en memoria; no se guardan los archivos). |
+| **Infraestructura** | Render, Gunicorn, WhiteNoise, Cloudflare | Un único servicio web sirve frontend y API desde el mismo dominio. |
+| **Calidad** | pytest, GitHub Actions, scripts de verificación | Pruebas de backend, chequeos estáticos del frontend y contrato de CSP. |
+
+---
+
+## 🏗 Arquitectura
+
+```mermaid
+%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 40, "rankSpacing": 50}}}%%
+flowchart TB
+    NAV["<b>Navegador</b><br/>HTML5 · CSS · JavaScript"]
+    CF["<b>Cloudflare</b><br/>HTTPS · proxy"]
+    WEB["<b>Frontend estático</b><br/>WhiteNoise"]
+    API["<b>API REST · Django + DRF</b><br/>JWT · permisos · auditoría<br/>documentos: pypdf · python-docx"]
+    IA["<b>Adaptador de IA</b><br/>cuota · concurrencia · timeout"]
+    DB[("<b>PostgreSQL</b><br/>Supabase · 20 tablas")]
+    AUTH["<b>Supabase Auth</b><br/>registro · login · JWT"]
+    EXT["<b>Proveedores de IA</b><br/>Gemini · OpenAI · Ollama"]
+
+    NAV --> CF
+    CF -->|páginas| WEB
+    CF -->|/api| API
+    API --> IA
+    API -->|SQL| DB
+    API -->|verifica JWT| AUTH
+    IA -.->|sólo al generar| EXT
+    NAV -.->|registro · login| AUTH
+
+    classDef client fill:#244b3d,stroke:#17362e,color:#ffffff
+    classDef render fill:#dce6da,stroke:#244b3d,color:#202d28
+    classDef supa fill:#e3ecec,stroke:#5d7f7d,color:#202d28
+    classDef ext fill:#f6ddd5,stroke:#b5604b,color:#202d28
+    class NAV client
+    class CF,WEB,API,IA render
+    class DB,AUTH supa
+    class EXT ext
+```
+
+<sub>Verde claro: servicio web en Render · celeste: Supabase · rosa: servicios externos bajo demanda. Versión detallada: [`docs/architecture-maestria.png`](docs/architecture-maestria.png).</sub>
+
+- **Un solo origen:** Django sirve las páginas de `frontend/html/` y publica CSS, JS e imágenes bajo `/assets/` con WhiteNoise. En producción el frontend detecta el mismo origen y usa `/api`.
+- **Sesión:** el navegador obtiene el JWT de Supabase Auth; cada petición a la API lo envía y Django verifica su firma con las claves públicas (JWKS) antes de comprobar el perfil y el rol.
+- **IA del lado del servidor:** las claves de los proveedores viven sólo en el backend. `GET /api/client-config/` entrega únicamente la URL de Supabase y la clave pública anon.
+- **El esquema es la fuente de verdad:** los modelos de Django usan `db_table` y `managed = False`; los cambios de base se hacen con migraciones SQL versionadas.
+
+Más detalle en [`docs/BACKEND-ARCHITECTURE.md`](docs/BACKEND-ARCHITECTURE.md) y [`docs/FRONTEND-ARCHITECTURE.md`](docs/FRONTEND-ARCHITECTURE.md).
+
+---
+
+## 🗄 Base de datos
+
+Veinte tablas en el esquema `public` de PostgreSQL (Supabase):
+
+```mermaid
+%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 30, "rankSpacing": 50}}}%%
+flowchart LR
+    rubric["rubric<br/><small>rúbricas</small>"]
+    course["course<br/><small>cursos</small>"]
+    student["student<br/><small>estudiantes</small>"]
+    rubric_criterion["rubric_criterion<br/><small>criterios</small>"]
+    assessment["assessment<br/><small>evaluaciones</small>"]
+    enrollment["enrollment<br/><small>matrículas</small>"]
+    rubric_level["rubric_level<br/><small>niveles</small>"]
+    question["question<br/><small>consignas</small>"]
+    submission["submission<br/><small>entregas</small>"]
+    submission_answer["submission_answer<br/><small>respuestas</small>"]
+    correction["correction<br/><small>correcciones</small>"]
+    correction_criterion_result["correction_criterion_result<br/><small>puntaje por criterio</small>"]
+    correction_revision["correction_revision<br/><small>historial de ajustes</small>"]
+
+    rubric --> rubric_criterion
+    rubric --> question
+    course --> assessment
+    course --> enrollment
+    student --> enrollment
+    student ---> submission
+    rubric_criterion --> rubric_level
+    assessment --> question
+    assessment --> submission
+    question --> submission_answer
+    submission --> submission_answer
+    submission --> correction
+    correction --> correction_criterion_result
+    correction --> correction_revision
+
+    classDef people fill:#dce6da,stroke:#244b3d,color:#202d28
+    classDef eval fill:#fbefc9,stroke:#b8902b,color:#202d28
+    classDef work fill:#e3ecec,stroke:#5d7f7d,color:#202d28
+    classDef corr fill:#f6ddd5,stroke:#b5604b,color:#202d28
+    class student,course,enrollment people
+    class assessment,question,rubric,rubric_criterion,rubric_level eval
+    class submission,submission_answer work
+    class correction,correction_criterion_result,correction_revision corr
+```
+
+<sub>Cada flecha es una relación uno a muchos (1 → N). Las tablas de usuarios, instituciones y plataforma se listan abajo.</sub>
+
+| Grupo | Tablas |
+|---|---|
+| Cursos y estudiantes | `course`, `student`, `enrollment` |
+| Evaluaciones | `assessment`, `question` |
+| Rúbricas | `rubric`, `rubric_criterion`, `rubric_level` |
+| Entregas | `submission`, `submission_answer` |
+| Correcciones | `correction`, `correction_criterion_result`, `correction_revision`, `ai_generation` |
+| Usuarios e instituciones | `user_profile`, `institution`, `institution_membership` |
+| Plataforma | `contact_message`, `audit_event`, `ai_provider_config`, `django_cache` |
+
+**Integridad en la propia base:**
+
+- Claves foráneas compuestas con `owner_id`: un docente no puede vincular datos de otro, ni siquiera por error del código.
+- Triggers de validación (puntajes de niveles y criterios, consignas de una misma evaluación), `updated_at` automático y alta del perfil al registrarse (`maestria_sync_auth_user_profile`).
+- Protección del último superadministrador (`maestria_guard_last_superadmin`).
+- Seguridad a nivel de fila (RLS) y un rol de aplicación con privilegios mínimos.
+
+**Instalación limpia** (proyecto Supabase nuevo o Supabase local): ejecutar `db/maestria_schema.sql` —snapshot del esquema de producción— y luego, en orden, las migraciones de `backend/database/migrations/` posteriores a la versión indicada en su encabezado. Los scripts `db/maestria_schema_v2*.sql` son históricos (ver [`docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md`](docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md)).
+
+> ⚠️ **No ejecutar** `migrate`, `makemigrations` ni `--fake` para crear tablas de negocio: el dominio `core` no se gestiona con migraciones de Django.
+
+Verificación de sólo lectura del esquema contra lo que espera el backend:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe manage.py verify_public_schema
+```
+
+---
+
+## 🔒 Seguridad y privacidad
+
+| Medida | Detalle |
+|---|---|
+| Autenticación | JWT de Supabase verificado en el servidor con JWKS; un perfil faltante o inactivo nunca obtiene acceso. |
+| Autorización | Permisos por rol en cada endpoint y filtrado por propietario en cada consulta. |
+| Mínimo privilegio | Los administradores no ven datos pedagógicos; sólo el superadministrador asigna roles o habilita IA externa. |
+| Límites de uso | 60 peticiones/min anónimas, 900/min por usuario y 120/hora para IA; cuota diaria de IA por docente y tope de generaciones simultáneas. |
+| Contacto | Validación en cliente y servidor, campo trampa antispam; el backend fija estado y origen del mensaje. |
+| IA responsable | Evidencia citada validada literalmente; aprobación humana obligatoria; bloqueo *fail-closed* de proveedores externos sin autorización. |
+| Archivos | Se procesan en memoria y sólo se guarda el texto extraído. |
+| Navegador | Contrato de Content Security Policy verificado en CI, sesión por pestaña y `Clear-Site-Data` entre versiones. |
+| Auditoría | Eventos de negocio y administración en `audit_event`, con retención configurada. |
+
+Antes de procesar datos reales con un proveedor externo, revisar [`docs/CONFIGURACION-IA-EXTERNA.md`](docs/CONFIGURACION-IA-EXTERNA.md) y [`docs/SECURITY-AND-PRIVACY.md`](docs/SECURITY-AND-PRIVACY.md).
+
+---
+
+## 📁 Estructura del repositorio
+
+```text
+maestria-starter/
+├── frontend/
+│   ├── html/                 # Páginas públicas, acceso y espacio-docente/
+│   ├── css/                  # Estilos del sitio y del espacio de trabajo
+│   ├── js/
+│   │   ├── api.js            # Cliente HTTP/Auth y sesión Supabase
+│   │   ├── auth.js           # Login, registro y recuperación
+│   │   ├── workspace.js      # Entrada del espacio docente
+│   │   └── modules/          # core · data · features · events
+│   └── assets/images/
+├── backend/
+│   ├── config/               # settings, urls, wsgi, estáticos
+│   ├── apps/core/
+│   │   ├── api_views/        # dashboard, catálogo, entregas y correcciones
+│   │   ├── admin_api.py      # API de administración
+│   │   ├── ai.py · ai_guard.py   # Adaptadores y límites de IA
+│   │   ├── authentication.py · permissions.py
+│   │   ├── models.py · serializers.py · urls.py
+│   │   └── test_*.py · tests.py
+│   └── database/migrations/  # Migraciones SQL versionadas
+├── db/                       # Snapshot del esquema y stub local
+├── docs/                     # Arquitectura, API, auditorías, changelog
+├── scripts/                  # Verificaciones estáticas usadas en CI
+├── supabase/                 # Configuración de Supabase local
+├── .github/workflows/        # CI de backend y frontend
+└── render.yaml               # Despliegue en Render
+```
+
+---
+
+## 🚀 Ejecución local
+
+### Requisitos
+
+- Python 3.12
+- Un proyecto de Supabase (o Supabase local con Docker, ver [`docs/PRUEBAS-LOCALES.md`](docs/PRUEBAS-LOCALES.md))
+- Node.js opcional, sólo para un chequeo de sintaxis del frontend
 
 ### 1. Backend
 
@@ -37,41 +346,31 @@ py -3.12 -m venv .venv
 Copy-Item .env.example .env
 ```
 
-Usá siempre `backend\.venv\Scripts\python.exe` para instalar dependencias, ejecutar chequeos y levantar Django. Así evitás mezclar el Django instalado globalmente con paquetes de otro intérprete (por ejemplo, `corsheaders` o `rest_framework`). Si el proyecto se ejecuta con Python 3.13, creá el entorno con `py -3.13 -m venv .venv`; el archivo `requirements.txt` instala las dependencias runtime y de desarrollo en ese mismo entorno.
+Completá `backend/.env` con `DJANGO_SECRET_KEY`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (si corresponde) y la configuración del proveedor de IA. El archivo está excluido de Git.
 
-Completá `backend/.env` con `DJANGO_SECRET_KEY`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` si corresponde y la configuración del proveedor IA (ver `docs/CONFIGURACION-IA-EXTERNA.md`). `backend/.env` está excluido de Git. En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`.
+> Usá siempre `backend\.venv\Scripts\python.exe` para instalar, chequear y levantar Django; así no se mezclan paquetes de otros intérpretes.
 
-Validá e iniciá la aplicación integrada con el mismo intérprete del entorno virtual:
+### 2. Levantar el sitio
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py check
 .\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
 ```
 
-La API queda en `http://127.0.0.1:8000/api`. `GET /api/client-config/` entrega únicamente `SUPABASE_URL` y la clave pública anon. Las claves de Gemini/OpenAI y todos los secretos permanecen en el backend.
+| Recurso | URL |
+|---|---|
+| Sitio público | http://127.0.0.1:8000/ |
+| Acceso | http://127.0.0.1:8000/acceso.html |
+| Espacio docente | http://127.0.0.1:8000/espacio-docente/ |
+| API | http://127.0.0.1:8000/api/ |
+| Salud | http://127.0.0.1:8000/api/health/ |
 
-### 2. Frontend HTML5
+Django sirve el frontend y la API desde el mismo origen. No hace falta `npm install` ni build.
 
-El frontend nativo no necesita instalar paquetes ni compilarse. Se recomienda ejecutarlo a través del servidor integrado de Django, que es el único que respeta los alias de `STATICFILES_DIRS` y sirve tanto las páginas HTML (`frontend/html/`) como los recursos estáticos (`/assets/css/`, `/assets/js/`, `/assets/images/`):
+> `python -m http.server` no sirve para el preview: los recursos se resuelven con los alias de `STATICFILES_DIRS` (por ejemplo, `/assets/css/styles.css` → `frontend/css/styles.css`).
 
-```powershell
-cd backend
-.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
-```
-
-Abrí:
-
-- Sitio público: `http://127.0.0.1:8000/`
-- Acceso: `http://127.0.0.1:8000/acceso.html`
-- Cómo funciona: `http://127.0.0.1:8000/como-funciona.html`
-- Nosotros y contacto: `http://127.0.0.1:8000/nosotros.html`
-- Espacio docente: `http://127.0.0.1:8000/espacio-docente/`
-
-En modo integrado, Django sirve el sitio y la API desde `http://127.0.0.1:8000`. `config.js` apunta al backend local `127.0.0.1:8000`. En producción, detecta el mismo origen y usa `/api`; no hay que configurar una URL interna.
-
-> **Nota:** el comando `py -m http.server --directory frontend` del preview estático no funciona con esta estructura: las páginas HTML viven en `frontend/html/` y los recursos estáticos se resuelven mediante los alias de `STATICFILES_DIRS` (por ejemplo, `/assets/css/styles.css` se sirve desde `frontend/css/styles.css`). Usá siempre `manage.py runserver` para el preview local fiel a producción.
-
-Para probar localmente el comportamiento de producción (Gunicorn + WhiteNoise + archivos recopilados), ejecutá `collectstatic` y levantá el sitio con `DEBUG=False`:
+<details>
+<summary><b>Probar el comportamiento de producción (Gunicorn + WhiteNoise + collectstatic)</b></summary>
 
 ```powershell
 cd backend
@@ -80,212 +379,95 @@ $env:DEBUG="False"
 .\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
 ```
 
-Luego verificá que `http://127.0.0.1:8000/assets/css/styles.css` devuelve `200` con `Content-Type: text/css`.
+Verificá que `http://127.0.0.1:8000/assets/css/styles.css` responda `200` con `Content-Type: text/css`.
+</details>
 
-## Funcionalidades conectadas
+<details>
+<summary><b>Configurar un proveedor de IA</b></summary>
 
-### Sitio público
+Por defecto se usa `mock`, que genera propuestas de demostración **no aprobables** como calificaciones. Para un proveedor real hay que configurar su clave y modelo en el backend (por ejemplo `OPENAI_API_KEY` y `OPENAI_MODEL`). Una fila habilitada en `public.ai_provider_config` prevalece sobre `AI_PROVIDER`, por lo que `AI_PROVIDER=mock` no deshabilita una configuración externa activa en la base. Detalles en [`docs/CONFIGURACION-IA-EXTERNA.md`](docs/CONFIGURACION-IA-EXTERNA.md).
+</details>
 
-- Portada, presentación, preguntas frecuentes y demostración visual.
-- Registro e inicio de sesión por Supabase Auth.
-- Confirmación de correo y recuperación/restablecimiento de contraseña.
-- Formulario de contacto público persistido en `public.contact_message`; el backend determina `user_id`, `source` y estado, y no acepta notas ni campos administrativos del cliente.
+---
 
-### Espacio docente
+## 🧪 Pruebas y calidad
 
-- Resumen y actividad de cuenta.
-- Cursos: alta, edición, archivado/reactivación y detalle.
-- Estudiantes: alta, edición, activación, importación CSV y matrículas.
-- Evaluaciones: creación, edición, consignas, material de referencia y propuestas de consignas asistidas por IA.
-- Rúbricas: CRUD de rúbricas, criterios, niveles y generación asistida.
-- Entregas: texto/archivo, vinculación de estudiante, respuestas por consigna y detalle.
-- Correcciones: generar propuesta, revisar y editar criterios/evidencias, ajustar puntajes con motivo, aprobar con trazabilidad y exportar/compartir devolución.
-- Perfil de identidad y cierre de sesión.
-
-### Administración
-
-- Administradores globales: perfiles asociados a identidades Supabase existentes, instituciones, membresías, mensajes de contacto, proveedores IA y auditoría.
-- Administradores institucionales: consulta acotada de sus instituciones, gestión de sus miembros y edición limitada de nombre/contacto.
-- Administradores de departamento: consulta acotada a la membresía propia porque el esquema actual no contiene un `department_id` que permita aislar grupos departamentales.
-- No se crean usuarios Auth desde la interfaz: para invitar identidades nuevas hace falta una acción segura del lado servidor con Supabase Auth Admin.
-
-## Comportamiento IA y revisión humana
-
-La IA propone; el docente decide. El proveedor `mock` produce propuestas de demostración no aprobables como calificaciones. La configuración de despliegue usa `mock` por defecto; para activar OpenAI hay que configurar explícitamente `OPENAI_API_KEY` y `OPENAI_MODEL` con un modelo habilitado en el proyecto. Las credenciales se guardan exclusivamente en el backend. La activación de procesamiento externo requiere una decisión institucional y una revisión de las condiciones vigentes de tratamiento y retención del proveedor. Si hay una fila activa en `public.ai_provider_config`, ésta prevalece sobre el proveedor del entorno; por eso `AI_PROVIDER=mock` no deshabilita una configuración externa activa en base de datos. Consultá `docs/CONFIGURACION-IA-EXTERNA.md` y `ANALISIS-ESTABILIZACION-REFACTORING.md` antes de activar un proveedor.
-
-Los datos de práctica se crean mediante `POST /api/demo/seed/` bajo confirmación explícita y se identifican como ficticios. No son datos de producción ni una autenticación simulada del frontend.
-
-## Esquema de datos y migraciones
-
-El esquema físico existente `public.*` de PostgreSQL/Supabase es la fuente de verdad. Django mapea los modelos con `db_table` y `managed = False`; el dominio `core` no debe reconstruirse mediante migraciones Django. No ejecutar `migrate`, `makemigrations` ni `--fake` para reconstruir tablas de negocio. Para Shared Pooler en modo transacción, settings desactiva el auto-prepare de psycopg.
-
-Verificación de sólo lectura:
+La suite de backend tiene **130 pruebas** (pytest) sobre permisos y aislamiento entre docentes, administración, flujo de corrección, evidencia de IA, procesamiento de documentos y correcciones de auditoría. Corre contra un PostgreSQL de prueba separado; `conftest.py` impide ejecutarla contra Supabase de producción.
 
 ```powershell
 cd backend
-python manage.py verify_public_schema
+.\.venv\Scripts\python.exe -m compileall -q config apps manage.py
+.\.venv\Scripts\python.exe ..\scripts\check_backend_imports.py
+.\.venv\Scripts\python.exe manage.py check
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-La herramienta contrasta tablas, columnas, tipos, identidades, FK compuestas, índices y triggers con el esquema esperado. No cambia la base.
-
-Instalación limpia (proyecto Supabase nuevo o Supabase local): ejecutar `db/maestria_schema.sql`, snapshot del esquema de producción, y después, en orden, las migraciones de `backend/database/migrations/` con versión posterior a la indicada en su encabezado. Los scripts `db/maestria_schema_v2*.sql` quedan como historial y no reproducen producción (ver `AUDITORIA-SUPABASE-2026-11-09.md`). Para pruebas locales con Docker, ver `docs/PRUEBAS-LOCALES.md`.
-
-## Pruebas y chequeos
-
-Chequeo frontend estático (no requiere npm ni dependencias de frontend). Valida referencias HTML, rutas de imports, correspondencia entre imports nombrados/exports y sintaxis JavaScript si Node.js está instalado:
+Chequeos del frontend (no requieren dependencias de Node):
 
 ```powershell
-python scripts/check_static_frontend.py
+npm run check:frontend
 ```
 
-El chequeo valida referencias locales, imports ES modules, exports nombrados y sintaxis JavaScript si Node.js está instalado.
+Valida referencias HTML, imports/exports de módulos ES, sintaxis JavaScript, el contrato de Content Security Policy, el contrato del flujo de corrección y el formato de números.
 
-Verificador estructural de imports relativos y símbolos locales del backend (no requiere instalar Django):
+**Integración continua:** GitHub Actions ejecuta `backend.yml` y `frontend.yml` en cada cambio.
 
-```powershell
-python scripts/check_backend_imports.py
-```
+---
 
-Chequeos backend, en un entorno Python con las dependencias instaladas y PostgreSQL de prueba (la suite no debe apuntar a Supabase de producción):
+## ☁️ Despliegue
 
-```powershell
-cd backend
-python -m compileall -q config apps manage.py
-python ../scripts/check_backend_imports.py
-python manage.py check
-pytest -q
-```
+[`render.yaml`](render.yaml) define un único **Web Service** de Python en Render: instala `requirements-prod.txt`, ejecuta `collectstatic` y levanta Gunicorn (`gthread`, 2 workers × 6 hilos, timeout 150 s) con health check en `/api/health/`.
 
-La suite backend usa PostgreSQL y un esquema de prueba separado. No apunta a Supabase de producción. Las pruebas contra la instancia real requieren una conexión configurada y una ventana controlada.
+1. Configurar las variables privadas en Render: `DATABASE_URL` (Shared Pooler de Supabase, *session mode*, puerto 5432), `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET`, `SITE_URL`, `FRONTEND_URL` y las claves del proveedor de IA.
+2. En Supabase Auth, cargar el dominio de producción en **Site URL** y **Redirect URLs**.
+3. Mantener `FRONTEND_ASSETS_VERSION` (`backend/config/settings.py`) igual a la versión de `package.json` en cada release.
 
-## Despliegue en Render
+Checklist antes de habilitar un despliegue: login, logout, recuperación de contraseña, contacto, ABM docentes, aislamiento entre dos propietarios, permisos administrativos y generación IA con una configuración de privacidad aprobada.
 
-El `render.yaml` despliega un único Web Service Python: Django sirve el frontend y la API desde el mismo origen. No hay servicio estático separado ni build de Node. Configurá `DATABASE_URL` con Shared Pooler IPv4 de Supabase cuando Render no tenga IPv6; para este backend persistente, preferí session mode (puerto 5432) y copiá la URI exacta desde Supabase > Connect. Configurá Supabase URL/anon key/JWT secret y la clave del proveedor IA sólo en el backend. En este MVP el adaptador no valida automáticamente el nivel gratuito o pago del proveedor: si se configura Gemini y hay credenciales válidas, las correcciones pueden enviar contenido al proveedor. Antes de procesar datos reales, un responsable debe revisar finalidad, base legal, información a docentes y términos/retención del proveedor (releé `docs/CONFIGURACION-IA-EXTERNA.md`). Una fila habilitada en `public.ai_provider_config` puede sobreescribir `AI_PROVIDER=mock`. Guardá los cambios en el entorno del backend y reiniciá/reimplementá el servicio. No existe un interruptor equivalente para docentes en el navegador. Confirmá Site URL y Redirect URLs de Supabase Auth para el dominio de producción y el origen local `http://localhost:5500`.
+---
 
-No habilites despliegue final hasta comprobar login, logout, recuperación de contraseña, contacto, CRUD docente, aislamiento de dos propietarios, permisos administrativos y generación IA real con una configuración de privacidad aprobada.
+## 🚧 Límites conocidos
 
-## Límites conocidos
+- No hay portal de estudiantes ni rendición de exámenes en línea.
+- La API no crea ni invita usuarios de Supabase Auth; las identidades se registran desde el sitio.
+- Los roles institucionales se gestionan desde la administración global; los administradores de departamento sólo acceden a su propia membresía porque el esquema aún no modela departamentos.
+- Los datos personales del perfil son de sólo lectura.
+- OCR de manuscritos, detección de plagio, pagos y analítica institucional avanzada quedan fuera del MVP.
+- Las páginas de privacidad y términos son informativas y requieren revisión legal antes de ser vinculantes.
 
-- No se implementa portal de estudiantes ni rendición de exámenes en línea.
-- No hay invitación/creación de Auth users en la API actual.
-- Los administradores de departamento sólo pueden acceder a su membresía; falta modelar departamentos para ampliar esa gestión de forma segura.
-- La edición de datos personales del perfil se mantiene de sólo lectura porque no existe una ruta API específica.
-- OCR manuscrito, detección de plagio, pagos y analítica institucional avanzada quedan fuera del MVP.
-- Las páginas de privacidad y términos son referencias informativas del MVP y requieren revisión legal antes de su publicación como documentos vinculantes.
+---
 
-## Documentos
+## 📚 Documentación
 
-- `docs/API.md`: contrato de API.
-- `docs/FRONTEND-ARCHITECTURE.md`: organización modular del frontend.
-- `docs/BACKEND-ARCHITECTURE.md`: límites de módulos, dependencias y persistencia del backend.
-- `docs/AUDITORIA-TECNICA-v1.0.1.md`: evaluación, cambios y riesgos de la versión anterior.
-- `docs/AUDITORIA-TECNICA-v1.0.2.md`: diagnóstico y mejoras de carga inicial, concurrencia, guía, estadísticas, IA y Supabase aplicadas en esta versión.
-- `backend/database/migrations/20261105202119_maestria_v1_0_2_hardening.sql`: registro de la migración aplicada en Supabase.
-- `docs/AUDITORIA-TECNICA-2026-11-05.md`: hallazgos, cambios y riesgos pendientes.
-- `docs/ADAPTACION-DJANGO-POSTGRESQL-SUPABASE-2026-11-04.md`: adaptación del ORM, permisos, migraciones y administración.
-- `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
-- `docs/CONFIGURACION-IA-EXTERNA.md`: referencia para configurar proveedores externos y revisar el tratamiento de datos antes de habilitarlos.
-- `docs/PRUEBAS-LOCALES.md`: entorno local con PostgreSQL en Docker, sin tocar Supabase de producción.
+| Documento | Contenido |
+|---|---|
+| [`docs/API.md`](docs/API.md) | Contrato de la API REST. |
+| [`docs/BACKEND-ARCHITECTURE.md`](docs/BACKEND-ARCHITECTURE.md) | Módulos, dependencias y persistencia del backend. |
+| [`docs/FRONTEND-ARCHITECTURE.md`](docs/FRONTEND-ARCHITECTURE.md) | Organización modular del frontend. |
+| [`docs/SECURITY-AND-PRIVACY.md`](docs/SECURITY-AND-PRIVACY.md) | Seguridad y tratamiento de datos. |
+| [`docs/CONFIGURACION-IA-EXTERNA.md`](docs/CONFIGURACION-IA-EXTERNA.md) | Configuración de Gemini, OpenAI y Ollama. |
+| [`docs/PRUEBAS-LOCALES.md`](docs/PRUEBAS-LOCALES.md) | Entorno local con Docker, sin tocar producción. |
+| [`docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md`](docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md) | Auditoría y alineación del esquema de producción. |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Historial de versiones. |
+| [`docs/presentacion/`](docs/presentacion/) | Guion del video de presentación. |
 
-## Cambios v1.1.3
+Las auditorías técnicas de cada etapa están en [`docs/`](docs/) y [`docs/auditoria/`](docs/auditoria/).
 
-- **Estáticos en desarrollo:** `runserver` servía `/assets/` sin `Cache-Control`; el navegador cacheaba los módulos por heurística y, tras cada cambio, mezclaba JavaScript viejo con CSS nuevo (la interfaz quedaba a medio actualizar: filtros que no respondían, tarjetas con la respuesta completa, botones faltantes). Ahora los sirve WhiteNoise (`whitenoise.runserver_nostatic`) con el mismo `no-cache` que producción. `config/static_files.py` corrige además la búsqueda en Windows: con los prefijos `css/` y `js/` de `STATICFILES_DIRS`, WhiteNoise no encontraba el código fuente y servía la copia de `backend/staticfiles/`, que puede estar desactualizada. En producción no cambia nada (sin finders ni autorefresh).
-- **Versión de assets 1.1.3:** los navegadores que ya habían cargado la 1.1.2 reciben `Clear-Site-Data` una vez y descartan los módulos guardados.
-- **Nueva entrega:** el botón también está en la barra de revisión del paso 3 (elegir una entrega con propuesta abre ese paso).
-- **Avisos y textos:** el aviso «Cargá una entrega para poder revisar» se cierra con una ×; los indicadores del panel docente ya no muestran «Ver pendientes / aprobadas / devoluciones» (queda como tooltip); la guía de uso no muestra «Paso N de M» ni la línea «La guía está disponible desde el botón de ayuda».
+---
 
-## Cambios v1.1.2
+## 👩‍💻 Equipo
 
-- **Panel docente:** los indicadores (Por revisar, Revisadas, Tiempo ahorrado) son botones que abren el historial de correcciones filtrado por ese estado.
-- **Desplegables exclusivos:** en todo el sitio sólo queda abierto un desplegable por grupo; al abrir otro, el anterior se pliega (`frontend/js/modules/core/disclosure.js`; en el sitio público, `<details name>`).
-- **Curso:** cuatro desplegables (Estudiantes, Evaluaciones, Entregas, Correcciones); se quitó «Resumen del curso» y la descripción del curso pasó debajo del título. Cada paso del recorrido muestra en su círculo la cantidad de elementos de su desplegable, abre ese desplegable al hacer clic y comparte su color.
-- **Correcciones:** un desplegable por curso (acordeón); dentro, chips para filtrar por evaluación cuando el curso tiene más de una. Cada fila se titula con el nombre del estudiante.
-- **Espacio de trabajo más limpio:** sin rótulos «Paso N ·» repetidos, marca de agua ni nota al pie; la portada sólo muestra estado y curso. Paso 1: «Apuntes y materiales» forma parte del formulario de contexto (debajo de los objetivos, arriba de la rúbrica); la rúbrica queda a la vista y agregar/reemplazar material sólo aparece al elegir un archivo. Paso 2: privacidad en una línea (sin desplegable), sin barra de progreso ni contador duplicados; con un archivo adjunto el cuadro de texto se bloquea; renglones más tenues en la respuesta del estudiante. La lista de entregas muestra nombre y legajo (sin avatar), arranca filtrada por «Pendientes» y el filtro es un selector (Pendientes / Aprobadas / Todas). Al editar una entrega, «Nueva entrega» la deselecciona y deja el formulario listo para cargar otra. Paso 3: «Criterios» primero, sin índice de secciones, «Expandir todo», selector de entrega duplicado ni «Sugerido por la IA» en cada criterio; la columna izquierda muestra la respuesta y, plegada, la consigna.
-- **Archivos e IA:** los archivos se procesan en memoria y sólo se guarda el texto extraído (más nombre y tipo). Ahora el DOCX incluye el texto de las tablas; los TXT en Windows‑1252 se leen bien; se eliminan bytes NUL que PostgreSQL rechazaba (error 500); un PDF con contraseña da un mensaje claro. Con Gemini, el contexto de la corrección se cortaba en 8.000 caracteres y la IA perdía el material de referencia (y a veces la consigna): ahora la consigna va primero y el tope es 42.000. La «respuesta esperada» de cada consigna se guardaba pero nunca llegaba a la IA: ahora forma parte del contexto de la corrección. La interfaz avisa que la IA lee los primeros 12.000 caracteres del material. Si la corrección fallaba después de subir un archivo, el reintento quedaba bloqueado: corregido.
-- **Menú lateral:** sin scroll horizontal; textos y botones se ajustan al ancho (también contraído y en móvil).
-- **Valores por defecto:** «Mis materias» se muestra como lista compacta y el tema inicial es el claro (el oscuro queda sólo si se elige).
-- **Guía de uso:** se abre sola la primera vez que la persona entra o mientras no tenga cursos creados (una vez por sesión). Sin íconos decorativos.
-- **Revisión pedagógica (`?view=correction`):** no muestra el proveedor de IA; cada criterio es un plegable (acordeón, el primero abierto). Un campo inválido dentro de un plegable cerrado se abre al enviar, e «Imprimir» despliega todo antes de imprimir.
-- **Portadas:** se quitaron las etiquetas superiores (`view-kicker`) de los encabezados de sección.
+<table>
+<tr>
+<td align="center" width="16%"><img src="frontend/assets/images/manuel.jpeg" width="96" alt=""><br><b>Manuel Ariel Bernardez</b><br><sub>Back-end y QA</sub><br><a href="https://www.linkedin.com/in/manuel-bernardez/">LinkedIn</a></td>
+<td align="center" width="16%"><img src="frontend/assets/images/felipe.jpeg" width="96" alt=""><br><b>Felipe García Lopez Boero</b><br><sub>Seguridad y Despliegue</sub><br><a href="https://www.linkedin.com/in/felipe-garc%C3%ADa-l%C3%B3pez-boero-408396261/">LinkedIn</a></td>
+<td align="center" width="16%"><img src="frontend/assets/images/tomas.jpeg" width="96" alt=""><br><b>Tomás Lautaro Acosta</b><br><sub>Front-end y UX</sub></td>
+<td align="center" width="16%"><img src="frontend/assets/images/lorenzo.jpeg" width="96" alt=""><br><b>Lorenzo Rodriguez Wilson</b><br><sub>Front-end y UX</sub></td>
+<td align="center" width="16%"><img src="frontend/assets/images/juanmanuel.webp" width="96" alt=""><br><b>Juan Manuel Serrano</b><br><sub>Base de Datos</sub><br><a href="https://www.linkedin.com/in/juan-manuel-serrano-30b151253/">LinkedIn</a></td>
+<td align="center" width="16%"><img src="frontend/assets/images/lautaro.png" width="96" alt=""><br><b>Lautaro Pavan Sarquis</b><br><sub>Testing</sub><br><a href="https://www.linkedin.com/in/lautaropavan/">LinkedIn</a></td>
+</tr>
+</table>
 
-## Cambios v1.1.0 – v1.1.1
-
-- **Identidad visual y espacio de trabajo (v1.1.0):** rediseño "Cuaderno de cátedra" del espacio docente y del panel de administración.
-- **Caché de despliegue (v1.1.1):** JS, CSS y CSV se revalidan siempre (`no-cache`) y el primer HTML de cada versión envía `Clear-Site-Data` para que el navegador no mezcle módulos viejos y nuevos. La versión de assets vive en `FRONTEND_ASSETS_VERSION` (`backend/config/settings.py`) y debe coincidir con `package.json`.
-- **Validación integral:** "Guardar contexto" también guarda la consigna en edición; `/api/*` inexistente responde 404 JSON; la importación de estudiantes por CSV acepta encabezados en español; `conftest.py` impide correr las pruebas contra Supabase.
-- **Revisión por consigna:** en entregas con varias consignas, "Revisar y aprobar" muestra cada respuesta por separado, indica a qué consigna pertenece cada criterio y resalta la cita en la respuesta que la IA corrigió.
-- **Mensajes de error:** los errores de validación del backend que llegaban como lista (`["…"]`) o anidados se muestran con su texto en lugar de "HTTP 400".
-- **Base de datos:** `db/maestria_schema_v2_contract_alignment.sql` alinea instalaciones nuevas con lo que espera el backend. En producción ya se aplicó el rango de timeout 5–85 s (2026-11-07). *(Desde 2026-11-09 la instalación limpia usa `db/maestria_schema.sql`.)*
-
-## Cambios v1.0.9
-
-- **Espacio de trabajo docente:** se incorpora en JavaScript nativo el flujo de tres etapas Contexto → Entrega → Revisar, incluyendo objetivos, instrucciones, consignas, propuestas de consignas, material de referencia, selección de estudiante y rúbrica, importación de archivos, cola filtrable, revisión de criterios, aprobación, exportación y opciones de compartir.
-- **Contrato de backend:** se reutilizan las rutas y payloads ya existentes (`correction-workspace/`, `assessments/`, `questions/`, `submissions/`, `corrections/`). No se agrega una API paralela ni se cambia el backend para simular funciones.
-- **Rendimiento y asincronía:** la primera carga consulta el resumen liviano del espacio; los detalles completos de entrega/corrección se obtienen al seleccionarlos. Las lecturas cancelables evitan que respuestas fuera de orden sobrescriban la selección actual y un bloqueo síncrono evita duplicar operaciones de IA/importación.
-- **Navegación:** se mantiene una SPA HTML/CSS/JS por módulos, ahora con vistas enlazables (`?view=...`) y soporte de historial del navegador. El estado compartido del flujo de revisión permanece dentro de una misma vista sin fragmentarse entre páginas.
-- **Accesibilidad y seguridad:** formularios nativos etiquetados, estados `aria-live`, foco visible, controles semánticos, mensajes de error y validación en cliente; la aprobación real y los controles de autorización siguen siendo responsabilidad del backend.
-- **Mantenimiento:** se retiran copias estáticas antiguas que no forman parte del frontend servido por Django, se conserva el directorio de imágenes, se versiona el CSS para invalidar caché y se agregan verificaciones del contrato del workspace.
-- **Base recibida:** el ZIP `maestria-starter.zip` declara la versión `1.0.8`, no `1.0.7`. Para no degradar ni sobrescribir cambios posteriores, esta entrega se construye sobre esa base y se publica como `1.0.9`.
-
-## Despliegue
-
-La configuración lista para Render está en `render.yaml`: un solo Web Service sirve frontend + backend. Usá `render.yaml`, `backend/.env.example`, `docs/CONFIGURACION-IA-EXTERNA.md` y el informe vigente `ANALISIS-ESTABILIZACION-REFACTORING.md` para completar las variables privadas y habilitar un proveedor. `docs/DEPLOYMENT-v0.2.0.md` es histórico y no debe usarse como receta operativa. No cargar `backend/.env` en Git.
-
-
-
-## Cambios v1.0.7
-
-- **IA y privacidad:** se conserva el bloqueo *fail-closed* para Gemini/OpenAI. El error ahora explica qué revisión debe realizar el responsable antes de habilitar el procesamiento externo. Nunca se activa el permiso automáticamente ni desde la interfaz docente.
-- **Estados HTTP de IA:** correcciones, rúbricas y consignas devuelven `503` cuando falta una aprobación o una configuración local; los errores reales del proveedor continúan devolviendo `502`.
-- **Puntajes y decimales:** la presentación limita la visualización a dos decimales significativos (por ejemplo, `10`, `8,5` o `8,25`) y oculta la escala de almacenamiento de PostgreSQL. Los valores persistidos no se redondean ni modifican.
-- **Identidad visual del espacio docente:** sidebar verde bosque, fondo cuadriculado tipo papel, superficies cálidas en modo claro y paneles profundos en modo oscuro, manteniendo el selector de tema y el diseño responsive.
-- **Caché:** versión de assets actualizada a `1.0.7` para evitar que se reutilice el CSS anterior.
-- **Verificación:** comprobaciones estáticas de frontend, sintaxis JS/Python e inspección de las rutas de error/configuración. La generación IA real requiere configurar claves y autorizaciones en el entorno desplegado; no puede darse por probada sin esas credenciales.
-
-## Cambios v1.0.6
-
-- Cursos: el alta siempre crea el curso activo; se quitó el selector de estado del formulario. Archivar/reactivar continúa disponible después de crear el curso. El backend también fuerza `active=True` en altas por API.
-- Evaluaciones: el editor recibe y conserva `reference_material`, evitando que una edición descarte material de referencia importado.
-- Consignas: al editar una consigna ya no se reenvía la relación `assessment`, que es inmutable; la relación se envía solamente al crearla.
-- Números: se normalizan puntajes, máximos, ponderaciones y valores de formularios para eliminar ceros decimales redundantes, sin agregar decimales que el usuario no ingresó.
-- Generación de consignas: los errores de configuración/política de IA (incluido Gemini sin nivel pago confirmado) devuelven `503` y un mensaje accionable; los errores reales del proveedor siguen devolviendo `502`. No se desactiva la protección que impide enviar trabajos docentes/estudiantiles a Gemini Free.
-- Verificación: `npm run check:frontend`, compilación Python (`compileall`), verificación de imports y pruebas unitarias de formato numérico. No se ejecutó una prueba E2E contra Render/Supabase; el entorno de revisión no tiene Django instalado ni conexión a la base desplegada.
-
-## Frontend v1.0.5
-
-El frontend se organiza en cuatro carpetas: `frontend/html`, `frontend/css`, `frontend/js` y `frontend/assets`. Django sirve las páginas HTML desde `html/`; WhiteNoise publica CSS/JS bajo `/assets/css/` y `/assets/js/`, y las imágenes bajo `/assets/`.
-
-Validaciones: `npm run check:frontend` ejecuta los chequeos de referencias, módulos y contrato del flujo docente.
-
-## Cambios v1.0.5
-Auditoría estática del tramo «generar corrección → editar → aprobar → compartir» (sin Django ni red en el entorno de revisión: los cambios están verificados por sintaxis y pruebas puras, no por una corrida E2E).
-- IA/Gemini: tope de espera por llamada de 18 s → 85 s (por defecto 60 s, `AI_TIMEOUT_SECONDS`); antes una corrección con varios criterios daba 502 por timeout.
-- IA/Gemini: `maxOutputTokens` 1800 → 8192 en correcciones (4096 en consignas/rúbricas). Los modelos con razonamiento consumen esos tokens y la salida JSON llegaba truncada.
-- IA: un reintento ante 429/5xx/error de conexión; se tolera JSON envuelto en ```; el error indica si fue truncado por tokens.
-- Evidencia literal: la validación tolera espacios, saltos de línea, comillas y guiones tipográficos, y guarda el texto exacto de la fuente. Antes se descartaba evidencia válida y la aprobación fallaba con «debe coincidir literalmente» si la entrega tenía `\r\n`.
-- Mensajes de error accionables para 429 (cuota), 401/403 (clave), 400/404 (modelo), 5xx y timeout.
-- Aprobar: se eliminó una lectura redundante; la entrega queda en estado «review» en pantalla tras generar.
-- Compartir: el correo (`mailto:`) recorta cuerpos largos y copia el texto completo al portapapeles; «Copiar» tiene alternativa si no hay API de portapapeles.
-- Imprimir/PDF: nueva hoja `@media print` (antes se imprimía el menú y los botones).
-- Caché: la ruta de respaldo de Django también envía `no-cache` para JS/CSS/CSV.
-- Despliegue: gunicorn `--timeout 150` (render.yaml y Dockerfile) y `AI_TIMEOUT_SECONDS=60`.
-- Tests puros nuevos: `backend/apps/core/test_ai_evidence.py`.
-
-### Segunda tanda v1.0.5
-- **Ponderaciones (crítico):** la nota final ahora aplica los pesos: cada criterio aporta logro relativo × peso/Σpesos, expresado sobre la suma de máximos (igual a la suma simple si pesos y máximos son iguales). Se aplica al generar y al aprobar, por consigna. Los criterios de la propuesta guardan su `weight`. La pantalla de rúbrica muestra la suma de pesos (debería ser 100%) con botón «Normalizar a 100%»; un criterio nuevo propone el porcentaje restante. Las correcciones ya aprobadas conservan su nota.
-- **Gemini / error 400:** el 400 que llegaba a `api.js` se mostraba sin causa. Ahora se ve el mensaje de Google (estado y texto, sin claves) y se guarda en `ai_generation.error_code` (p. ej. `HTTP_400_INVALID_ARGUMENT`); `api.js` además muestra errores de validación por campo. Causas típicas de 400 de Google: clave inválida, región o facturación no habilitada.
-- **Tiempos de carga:** compresión GZip de la API; el resumen se pide en paralelo con `/me/`; pintado inmediato desde caché de sesión (10 min, se limpia al cerrar sesión) mientras se actualiza; esqueleto de carga.
-- **Registro de devoluciones:** `GET/POST corrections/{id}/deliveries/` deja constancia (canal, destinatario, fecha) en la auditoría, sin cambios de esquema; la pantalla de una devolución aprobada muestra «Envíos registrados». No hay envío automático ni confirmación de recepción.
-
-Pendiente de despliegue (v1.0.9): la migración de timeout ya se aplicó en producción el 2026-11-07; queda configurar la clave del proveedor y la aprobación operativa correspondiente, y ejecutar `verify_ai --live` más pruebas E2E en el entorno real. Las pruebas de adaptadores usan HTTP simulado y no sustituyen una prueba con credenciales de producción.
-
-## Cambios v1.0.4
-- Corregido STATICFILES_DIRS (tuplas prefijo/directorio invertidas): rompía collectstatic y el servido de CSS/JS.
-- Corregido ReferenceError (escapeHtml sin importar) al elegir evaluación en «Registrar entrega».
-- Corregido 500 al eliminar una consigna (select_for_update con LEFT JOIN).
-- Límites: user 900/min, IA 120/hora (configurables por THROTTLE_*); importar archivos ya no cuenta como IA. Antes se obtenía 429 tras ~10 acciones.
-- JS/CSS con Cache-Control: no-cache (evita que queden scripts viejos en el navegador tras un deploy).
-- Los bloques del curso se mantienen abiertos tras guardar.
-- Botones «Volver» de entrega/devolución corregidos; nueva entrada «Rúbricas» en el menú.
-- Plantilla CSV de estudiantes (antes 404); el CSV acepta «;» y muestra filas omitidas.
-- Tests: perfil docente en el helper de Auth (de 43 a 11 fallas; restantes: tests desactualizados).
+<div align="center">
+<sub>Proyecto final · Programación IV · 2026</sub>
+</div>

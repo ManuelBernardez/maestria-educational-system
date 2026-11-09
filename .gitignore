@@ -13,6 +13,7 @@ node_modules/
 out/
 coverage/
 .DS_Store
+.claude
 
 # Local databases, logs, coverage and generated build metadata
 *.sqlite3
@@ -27,3 +28,7 @@ pnpm-debug.log*
 playwright-report/
 test-results/
 .vercel/
+# Configuración local de servidores MCP (Claude Code)
+.mcp.json
+# Archivos de bloqueo temporales de Word/Office
+~$*

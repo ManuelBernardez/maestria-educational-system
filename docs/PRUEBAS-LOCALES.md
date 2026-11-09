@@ -24,7 +24,7 @@ empezar de cero: `npx supabase db reset`. Para apagar: `npx supabase stop`.
 
 Más liviana, pero instala el esquema histórico v2: sirve para la suite y el
 verificador, aunque **no** es idéntico a producción (ver
-`AUDITORIA-SUPABASE-2026-11-09.md` §7).
+`docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md` §7).
 
 ```bash
 docker run -d --name maestria-pg-local -e POSTGRES_PASSWORD=localtest \
