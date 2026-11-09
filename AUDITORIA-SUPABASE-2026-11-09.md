@@ -266,8 +266,14 @@ En cada diferencia se decidió qué lado es el correcto según el código del ba
 Quedó afuera a propósito: el cambio del usuario en `.gitignore` (`.mcp.json`).
 
 ## 9. Pendientes
-1. **Aplicar `20261109160000_maestria_align_prod_with_contract.sql` en producción** desde el SQL Editor, registrar la versión en el historial y verificar.
-2. **Configurar la política de contraseñas en el dashboard** (§10).
+1. ~~Aplicar `20261109160000` en producción~~ ✅ La aplicó el usuario desde el SQL Editor. **Verificación posterior (solo lectura):**
+   - columnas: `varchar(24)`, `varchar(128)`, `varchar(80)` y `varchar(80)`;
+   - el guard tiene `ERRCODE 23514` y las dos funciones de trigger tienen `EXECUTE` solo para `postgres`;
+   - los 2 triggers están activos y no hay índices inválidos;
+   - el historial tiene 3 migraciones (`hardening`, `db_cleanup`, `align_prod_with_contract`);
+   - `verify_public_schema` da compatible;
+   - advisors de seguridad: sin cambios (3 INFO intencionales y la protección contra contraseñas filtradas).
+2. ~~Configurar la política de contraseñas en el dashboard~~ ✅ La configuró el usuario. No se pudo verificar desde acá: el MCP no expone la configuración de Auth, y probar un registro en producción podría crear un usuario real.
 3. **Protección contra contraseñas filtradas:** requiere plan Pro ([documentación](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)). Se compensa en parte con la política de §10. El aviso del advisor se mantiene.
 4. `backend/database/test_schema.sql` (el esquema de la suite) también tiene `varchar` sin límite en las 4 columnas de §7.3. No afecta los tests, pero conviene alinearlo.
 5. Mergear `chore/db-hardening` a `main`.
