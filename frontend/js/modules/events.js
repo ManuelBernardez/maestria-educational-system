@@ -10,8 +10,31 @@ import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsFo
 import { copyCorrection, openCorrectionShareModal, handleShareAction } from './features/share.js';
 import { saveProfilePreferences } from './features/profile.js';
 import { GUIDE_STEPS, guideStep, setGuideStep, renderQuickStart, openQuickStart, closeQuickStart } from './features/guide.js';
-import { handleWorkspaceAction, handleWorkspaceSubmit, handleWorkspaceInput, handleWorkspaceChange, workspaceChipHandlers, bindWorkspaceEvents, openAssessmentInWorkspace } from './features/workspace-feature.js';
+import { handleWorkspaceAction, handleWorkspaceSubmit, handleWorkspaceInput, handleWorkspaceChange, bindWorkspaceEvents, openAssessmentInWorkspace } from './features/workspace-feature.js';
 import { COURSE_FILTER_DEFAULTS } from './features/courses.js';
+import { CORRECTION_ASSESSMENT_GROUP } from './features/corrections.js';
+import { bindExclusiveDetails, openExclusive } from './core/disclosure.js';
+
+// Un solo desplegable abierto por grupo en todo el espacio docente (vistas y modales).
+bindExclusiveDetails(document);
+
+// Un campo inválido dentro de un plegable cerrado no puede recibir el foco y el envío
+// fallaría en silencio: se abre su plegable para que el navegador muestre el error.
+document.addEventListener('invalid', event => {
+  const folded = event.target.closest?.('details:not([open])');
+  if (folded) openExclusive(folded);
+}, true);
+
+// Al imprimir se despliega todo (si no, lo plegado no sale en el papel) y después se restaura.
+let printOpened = [];
+window.addEventListener('beforeprint', () => {
+  printOpened = $$('details:not([open])', content);
+  printOpened.forEach(node => { node.open = true; });
+});
+window.addEventListener('afterprint', () => {
+  printOpened.forEach(node => { node.open = false; });
+  printOpened = [];
+});
 
 /* ---------- Chips de filtro ----------
  * Dos modos:
@@ -37,10 +60,19 @@ function applyRowFilter(group, value) {
   return true;
 }
 
+/** Handler de estado para grupos de chips con nombre dinámico (uno por curso). */
+function chipStateHandler(group) {
+  if (CHIP_STATE_HANDLERS[group]) return CHIP_STATE_HANDLERS[group];
+  if (group.startsWith(CORRECTION_ASSESSMENT_GROUP)) {
+    const courseKey = group.slice(CORRECTION_ASSESSMENT_GROUP.length);
+    return value => { state.correctionsAssessmentFilter[courseKey] = value; };
+  }
+  return null;
+}
+
 function handleChip(chip) {
   const { chipGroup: group, chipValue: value } = chip.dataset;
-  if (workspaceChipHandlers[group]) { workspaceChipHandlers[group](value); return; }
-  const updateState = CHIP_STATE_HANDLERS[group];
+  const updateState = chipStateHandler(group);
   updateState?.(value);
   // Las filas ya pintadas se filtran en el lugar; los filtros de vista re-renderizan.
   if (!updateState || content.querySelector(`[data-filter-scope="${CSS.escape(group)}"]`)) applyRowFilter(group, value);
@@ -48,11 +80,16 @@ function handleChip(chip) {
 }
 
 // Tras cada render se reaplican los filtros de cliente que estén activos (p. ej. el curso elegido en el resumen).
-window.addEventListener('maestria:rendered', () => {
+window.addEventListener('maestria:rendered', ({ detail }) => {
   $$('[data-filter-scope]', content).forEach(scope => {
     const pressed = content.querySelector(`[data-chip-group="${CSS.escape(scope.dataset.filterScope)}"][aria-pressed="true"]`);
     if (pressed) applyRowFilter(scope.dataset.filterScope, pressed.dataset.chipValue);
   });
+  // Al filtrar, el plegable del curso que estaba abierto puede desaparecer: siempre queda uno visible.
+  if (detail?.view === 'corrections' && !content.querySelector('details.correction-group[open]')) {
+    const first = content.querySelector('details.correction-group');
+    if (first) first.open = true;
+  }
 });
 
 bindWorkspaceEvents(content);
@@ -101,11 +138,19 @@ async function clickAction(button) {
     switch (action) {
       case 'navigate': navigate(button.dataset.view); break;
       case 'open-fold': {
-        const fold = $(`.course-fold[data-fold="${button.dataset.fold}"]`, content);
+        // Recorrido del curso: abre el plegable correspondiente (y pliega el que estuviera abierto).
+        const fold = $(`details.fold[data-fold="${CSS.escape(button.dataset.fold || '')}"]`, content);
         if (!fold) break;
-        fold.open = true;
+        openExclusive(fold);
         fold.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
         $('summary', fold)?.focus({ preventScroll: true });
+        break;
+      }
+      case 'open-corrections': {
+        // Indicadores del panel: llevan al historial filtrado por el estado que cuentan.
+        state.correctionsStatusFilter = button.dataset.status || 'all';
+        state.correctionsCourseFilter = 'all';
+        navigate('corrections');
         break;
       }
       case 'seed-demo': {
@@ -389,7 +434,7 @@ document.addEventListener('keydown', event => {
     return;
   }
   closeModal(); closeSidebar();
-  if ($('#quickstart-root')?.innerHTML) closeQuickStart(false);
+  if ($('#quickstart-root')?.innerHTML) closeQuickStart();
 });
 window.addEventListener('maestria:session-expired', () => { api.clearSession(); window.location.replace('../acceso.html'); });
 window.addEventListener('online', () => toast('Conexión restablecida. Actualizá la vista para recuperar datos recientes.'));

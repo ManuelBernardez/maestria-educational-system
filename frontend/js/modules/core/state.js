@@ -24,7 +24,7 @@ export const state = {
   search: '',
   selectedStudent: null,
   // Filtros de listados: viven en memoria mientras dura la sesión de la vista.
-  courseFilters: { status: 'active', cycle: 'all', sort: 'pending', layout: 'cards' },
+  courseFilters: { status: 'active', cycle: 'all', sort: 'pending', layout: 'list' },
   examFilters: { course: 'all', status: 'all', limit: 50 },
   dashboardCourseFilter: 'all',
   studentCourseFilter: 'all',
@@ -35,6 +35,8 @@ export const state = {
   submissionCourseFilter: 'all',
   correctionsStatusFilter: 'all',
   correctionsCourseFilter: 'all',
+  // Evaluación elegida dentro de cada grupo de Correcciones: { [claveDelCurso]: idDeEvaluación | 'all' }.
+  correctionsAssessmentFilter: {},
   feedbackStyle: 'constructivo',
   selectedInstitution: null,
   adminMessageSearch: '',

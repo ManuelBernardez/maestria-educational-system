@@ -9,6 +9,15 @@
     document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenu(); });
     document.addEventListener('click', event => { if (nav.classList.contains('is-open') && !nav.contains(event.target) && !menuButton.contains(event.target)) closeMenu(); });
   }
+  // Desplegables exclusivos: <details name="…"> ya lo resuelve el navegador; esto sólo
+  // cubre navegadores sin soporte del atributo, plegando los hermanos del mismo grupo.
+  if (!('name' in HTMLDetailsElement.prototype)) {
+    document.addEventListener('toggle', event => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement) || !details.open || !details.getAttribute('name')) return;
+      document.querySelectorAll(`details[name="${CSS.escape(details.getAttribute('name'))}"][open]`).forEach(other => { if (other !== details) other.open = false; });
+    }, true);
+  }
   const progress = document.querySelector('.scroll-progress'), header = document.querySelector('.site-header'); let ticking = false;
   const updateScrollUI = () => { const max = document.documentElement.scrollHeight - window.innerHeight; if (progress) progress.value = max > 0 ? (window.scrollY / max) * 100 : 0; if (header) header.classList.toggle('is-scrolled', window.scrollY > 12); ticking = false; };
   window.addEventListener('scroll', () => { if (!ticking) { requestAnimationFrame(updateScrollUI); ticking = true; } }, { passive: true }); updateScrollUI();

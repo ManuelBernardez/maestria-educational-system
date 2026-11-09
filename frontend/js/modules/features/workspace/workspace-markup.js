@@ -2,15 +2,18 @@ import { escapeHtml, icon } from '../../core/utils.js';
 
 export const ACCEPTED_FILES = '.txt,.md,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
-
-const STEP_LABELS = Object.freeze({ 1: 'Paso 1 · Contexto y criterios', 2: 'Paso 2 · Entrega del estudiante', 3: 'Paso 3 · Revisar y aprobar' });
+/** Caracteres del material de referencia que recibe la IA (= REFERENCE_CONTEXT_CHARS en backend/apps/core/ai.py). */
+export const REFERENCE_CONTEXT_CHARS = 12000;
 
 /** Ids históricos de los títulos de cada paso (se conservan: otras partes pueden apuntarlos). */
 const STEP_TITLE_IDS = Object.freeze({ 1: 'workspace-context-title', 2: 'workspace-submission-title', 3: 'workspace-review-title' });
 export const stepTitleId = (step) => STEP_TITLE_IDS[step];
 
-/** Encabezado único de panel: rótulo mono + título + una línea de ayuda. Recibe el foco al cambiar de paso. */
-export const stepHeader = (step, title, help, aside = '') => `<header class="step-head"><div><p class="step-label">${STEP_LABELS[step]}</p><h2 class="step-title" id="${stepTitleId(step)}" tabindex="-1">${escapeHtml(title)}</h2><p class="step-help">${escapeHtml(help)}</p></div>${aside}</header>`;
+/**
+ * Encabezado único de panel: título + una línea de ayuda. Recibe el foco al cambiar de paso.
+ * El número y nombre del paso ya están en la pestaña: no se repiten acá.
+ */
+export const stepHeader = (step, title, help, aside = '') => `<header class="step-head"><div><h2 class="step-title" id="${stepTitleId(step)}" tabindex="-1">${escapeHtml(title)}</h2>${help ? `<p class="step-help">${escapeHtml(help)}</p>` : ''}</div>${aside}</header>`;
 
 /** Indicador "Guardado / Cambios sin guardar" (se actualiza en vivo vía data-save-status). */
 export const saveStatus = (step, dirty, savedLabel = 'Guardado') => `<span class="save-status${dirty ? ' is-dirty' : ''}" role="status" data-save-status="${step}" data-saved-label="${escapeHtml(savedLabel)}">${dirty ? 'Cambios sin guardar' : escapeHtml(savedLabel)}</span>`;
@@ -19,7 +22,7 @@ export const saveStatus = (step, dirty, savedLabel = 'Guardado') => `<span class
 export const actionBar = (status, actions) => `<div class="step-actions">${status}<div class="step-actions-buttons">${actions}</div></div>`;
 
 /** Botón "?" con la lista de atajos de teclado (tooltip accesible). */
-export const shortcutsHint = (id) => `<span class="shortcut-hint"><button type="button" class="icon-button" aria-describedby="${id}" aria-label="Atajos de teclado">?</button><span class="shortcut-tip" role="tooltip" id="${id}">Ctrl/⌘ + S guarda el paso · Ctrl/⌘ + Enter envía o guarda la edición · Esc cancela · ← → cambian de pestaña</span></span>`;
+export const shortcutsHint = (id) => `<span class="shortcut-hint"><button type="button" class="icon-button" aria-describedby="${id}" aria-label="Atajos de teclado">?</button><span class="shortcut-tip" role="tooltip" id="${id}">Ctrl/⌘ + S guarda el paso · Ctrl/⌘ + Enter envía o guarda la edición · Shift + Enter en el puntaje guarda la consigna y abre otra · Esc cancela · ← → cambian de pestaña</span></span>`;
 
 export const formatBytes = (bytes) => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toLocaleString('es-AR', { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 

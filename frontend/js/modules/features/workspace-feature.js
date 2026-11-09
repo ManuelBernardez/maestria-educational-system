@@ -3,6 +3,7 @@ import { state, content } from '../core/state.js';
 import { escapeHtml, formatNumber, statusPill, toneOf, icon } from '../core/utils.js';
 import { render, navigate } from '../core/router.js';
 import { toast } from '../core/ui.js';
+import { openExclusive } from '../core/disclosure.js';
 import { invalidateResources } from '../data/resources.js';
 import { openCorrectionShareModal, copyCorrection } from './share.js';
 import {
@@ -12,7 +13,7 @@ import {
 import { MAX_FILE_BYTES, serverFieldErrors, stepTitleId } from './workspace/workspace-markup.js';
 import { contextStep, emptyQuestionDraft, questionDraft } from './workspace/context-step.js';
 import { deliveryStep, queueListMarkup } from './workspace/delivery-step.js';
-import { reviewStep, totals, reviewedCount, findFragment, criterionAnswer, fullAnswerText, navigationTarget, restoreCriterion } from './workspace/review-step.js';
+import { reviewStep, totals, reviewedCount, findFragment, criterionAnswer, criterionMark, criteriaSummary, fullAnswerText, navigationTarget, restoreCriterion } from './workspace/review-step.js';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const HIGHLIGHT_MS = 4000;
@@ -27,7 +28,6 @@ let selectionSequence = 0;
 let actionLocked = false;
 let searchTimer = null;
 let pendingFocus = null;
-let sectionObserver = null;
 
 /* =========================================================================
  * Datos
@@ -68,7 +68,7 @@ function replaceData(payload) {
 }
 
 function resetReview() {
-  workspace.review = { reviewed: new Set(), open: new Set(), expandedLists: new Set(), onlyUnreviewed: false, onlyPending: workspace.review?.onlyPending || false, feedbackMode: 'edit', approveWarning: false, menuOpen: false };
+  workspace.review = { reviewed: new Set(), open: new Set(), expandedLists: new Set(), onlyUnreviewed: false, onlyPending: workspace.review?.onlyPending || false, approveWarning: false, menuOpen: false };
 }
 
 function resetForAssessment(assessment) {
@@ -84,7 +84,7 @@ function resetForAssessment(assessment) {
     materialConfirmRemove: false, questionEditor: null, questionDeleteId: '', questionDeleteError: '', questionSuggestions: [],
     questionSuggestionDemo: false, suggestError: '', activeSubmission: null, correction: null, proposal: null, feedback: '',
     changeReason: '', baseline: '', contextJustSaved: false, proposalReady: false, leaveGuard: null, lockedNotice: false,
-    search: '', statusFilter: 'all', queueLimit: 50, error: ''
+    search: '', statusFilter: 'pending', queueLimit: 50, error: ''
   });
   resetReview();
   workspace.step = assessment ? Math.min(2, recalledStep(assessment.id)) : 1;
@@ -407,7 +407,7 @@ async function createSubmissionAndCorrection() {
   validateFile(workspace.answerFile);
   await saveContext();
   const existing = workspace.activeSubmission && String(workspace.activeSubmission.assessment) === String(assessment.id);
-  if (existing && workspace.answerFile) throw new Error('Para modificar una entrega existente, editá el texto extraído. El archivo fuente original se conserva.');
+  if (existing && workspace.answerFile) throw new Error('Esta entrega ya tiene su texto cargado. Quitá el archivo adjunto y editá el texto directamente.');
   let submission;
   if (existing) {
     // PATCH sólo con campos editables: evaluación, consigna y estudiante son identidades inmutables.
@@ -420,6 +420,9 @@ async function createSubmissionAndCorrection() {
     if (workspace.studentId) payload.set('student', workspace.studentId);
     if (studentName) payload.set('student_name', studentName);
     submission = await api.upload('submissions/import-file/', payload, { timeoutMs: 90000 });
+    // El archivo ya se convirtió en texto guardado: si la corrección falla, el reintento
+    // reutiliza esta entrega en vez de chocar con «ya existe» por el archivo pendiente.
+    workspace.answerFile = null;
   } else {
     submission = await api.post('submissions/', {
       assessment: Number(assessment.id), question: workspace.questionId ? Number(workspace.questionId) : null,
@@ -497,6 +500,24 @@ function goToStep(step, { focusTab = false } = {}) {
   render();
 }
 
+/**
+ * Deselecciona la entrega activa y deja el formulario del paso 2 vacío para cargar otra.
+ * Conserva evaluación, consigna y tono elegidos: suelen repetirse entre entregas.
+ */
+function startNewSubmission() {
+  selectionController?.abort();
+  Object.assign(workspace, {
+    activeSubmission: null, correction: null, proposal: null, feedback: '', changeReason: '', baseline: '',
+    studentId: '', studentName: '', answerText: '', answerFile: null, proposalReady: false, leaveGuard: null, error: ''
+  });
+  resetReview();
+  workspace.step = 2;
+  syncCurrentSelection();
+  updateWorkspaceUrl({ assessment: workspace.assessmentId, submission: '' });
+  pendingFocus = '#workspace-student-select';
+  render();
+}
+
 /** Cambiar de paso, entrega o evaluación con cambios pendientes muestra un aviso en línea. */
 function guarded(target, proceed) {
   // Al cambiar de paso importa el paso actual; al cambiar de entrega o evaluación, cualquiera.
@@ -533,16 +554,15 @@ async function copyText(text, label) {
 
 function cover() {
   const assessment = selectedAssessment();
-  const questions = assessmentQuestions();
-  const deliveries = assessmentSubmissions();
   const courses = state.data.courses.filter(item => item.active);
   const assessments = state.data.assessments.filter(item => item.status !== 'archived' && (workspace.courseFilter === 'all' || String(item.course ?? item.course_id ?? 'unassigned') === workspace.courseFilter));
   const disabled = workspace.loading || actionLocked || workspace.generatingQuestions ? 'disabled' : '';
   const tone = toneOf(assessment?.course ?? assessment?.course_id ?? 'none');
-  const meta = assessment ? `<ul class="meta-chips" aria-label="Datos de la evaluación"><li>${statusPill(assessment.status)}</li>${assessment.subject ? `<li class="meta-chip">${escapeHtml(assessment.subject)}</li>` : ''}<li class="meta-chip">${questions.length} ${questions.length === 1 ? 'consigna' : 'consignas'} · ${escapeHtml(formatNumber(questionTotal(questions)))} pts</li><li class="meta-chip">${deliveries.length} ${deliveries.length === 1 ? 'entrega' : 'entregas'}</li><li><button class="text-link" type="button" data-action="workspace-open-corrections">Historial de correcciones</button></li></ul>` : '';
+  // Sólo identidad de la evaluación: los conteos de consignas y entregas ya están en cada pestaña.
+  const meta = assessment ? `<ul class="meta-chips" aria-label="Datos de la evaluación"><li>${statusPill(assessment.status)}</li>${assessment.course_name ? `<li class="meta-chip">${escapeHtml(assessment.course_name)}</li>` : ''}</ul>` : '';
   const actions = `${assessment ? `<button class="btn btn-secondary btn-small" type="button" data-action="edit-assessment" data-id="${escapeHtml(assessment.id)}">${icon('pencil')} Editar</button>` : ''}<button class="btn btn-primary btn-small" type="button" data-action="new-assessment">${icon('plus')} Nueva evaluación</button>`;
   return `<header class="view-header ws-cover" data-tone-h="${tone}">
-    <div class="view-heading-copy"><p class="view-kicker">${escapeHtml(assessment?.course_name || 'Espacio de trabajo')}</p><h1>${escapeHtml(assessment?.title || 'Vamos a corregir con criterio.')}</h1>${assessment ? meta : '<p class="view-lead">Elegí la materia, prepará el contexto y revisá cada propuesta antes de aprobarla.</p>'}</div>
+    <div class="view-heading-copy"><h1>${escapeHtml(assessment?.title || 'Vamos a corregir con criterio.')}</h1>${assessment ? meta : '<p class="view-lead">Elegí la materia, prepará el contexto y revisá cada propuesta antes de aprobarla.</p>'}</div>
     <div class="view-actions">${actions}</div>
     <div class="ws-selectors">
       <label class="pill-field" for="workspace-course-filter"><span class="pill-field-label">Materia o curso</span><select id="workspace-course-filter" data-workspace-course ${disabled}><option value="all">Todas las materias</option>${courses.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.courseFilter) ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}${state.data.assessments.some(item => !item.course && !item.course_id) ? `<option value="unassigned" ${workspace.courseFilter === 'unassigned' ? 'selected' : ''}>Sin materia asignada</option>` : ''}</select></label>
@@ -613,44 +633,36 @@ export function renderWorkspace() {
       // Avisos y "próximo paso" van dentro del panel activo: la pestaña sigue pegada a su hoja.
       const notices = workspace.step === step ? `${inlineNotices()}${nextStepNote()}${error}${workspace.loadingSelection ? '<p class="notice notice-info" role="status" aria-live="polite">Cargando la entrega seleccionada…</p>' : ''}` : '';
       return `<section class="step-panel" role="tabpanel" id="workspace-panel-${step}" aria-labelledby="workspace-tab-${step}" data-tone="${STEP_TONES[step]}" ${workspace.step === step ? '' : 'hidden'}>${notices}${panels[step]()}</section>`;
-    }).join('')}
-    <p class="margin-note">MaestrIA asiste en la corrección; el docente revisa y aprueba la calificación final.</p>`;
+    }).join('')}`;
 }
 
 /* ---------- Ajustes después de pintar ---------- */
 
-function focusFirstError() {
-  const target = content.querySelector('[aria-invalid="true"], .question-editor .notice-error');
-  target?.focus?.();
+/** Enfoca un nodo; con desplegables exclusivos puede estar plegado, así que primero se abre. */
+function revealAndFocus(target) {
+  if (!target) return;
+  const folded = target.closest('details:not([open])');
+  if (folded) openExclusive(folded);
+  target.focus?.({ preventScroll: false });
 }
 
-function observeSections() {
-  sectionObserver?.disconnect();
-  const anchors = [...content.querySelectorAll('[data-review-anchor]')];
-  if (!anchors.length || !('IntersectionObserver' in window)) return;
-  sectionObserver = new IntersectionObserver(entries => {
-    entries.filter(entry => entry.isIntersecting).forEach(entry => {
-      anchors.forEach(anchor => anchor.setAttribute('aria-current', String(anchor.dataset.reviewAnchor === entry.target.id)));
-    });
-  }, { rootMargin: '-30% 0px -60% 0px' });
-  anchors.forEach(anchor => { const target = content.querySelector(`#${anchor.dataset.reviewAnchor}`); if (target) sectionObserver.observe(target); });
+function focusFirstError() {
+  revealAndFocus(content.querySelector('[aria-invalid="true"], .question-editor .notice-error'));
 }
 
 window.addEventListener('maestria:rendered', event => {
-  if (event.detail.view !== 'workspace') { sectionObserver?.disconnect(); return; }
+  if (event.detail.view !== 'workspace') return;
   // En pantallas angostas la barra de pestañas hace scroll: la pestaña activa queda a la vista.
   const tabsBar = content.querySelector('.notebook-tabs');
   const activeTab = tabsBar?.querySelector('[aria-selected="true"]');
   if (tabsBar && activeTab && tabsBar.scrollWidth > tabsBar.clientWidth) tabsBar.scrollLeft = Math.max(0, activeTab.offsetLeft - 12);
-  observeSections();
   if (workspace.questionHighlight) {
     const id = workspace.questionHighlight;
     window.setTimeout(() => { if (workspace.questionHighlight === id) { workspace.questionHighlight = ''; content.querySelector(`#ws-question-${id}`)?.classList.remove('is-new'); } }, 1200);
   }
   if (pendingFocus) {
-    const target = pendingFocus === 'focus-first-error' ? null : content.querySelector(pendingFocus);
     if (pendingFocus === 'focus-first-error') focusFirstError();
-    else target?.focus({ preventScroll: false });
+    else revealAndFocus(content.querySelector(pendingFocus));
     pendingFocus = null;
   }
 });
@@ -678,10 +690,7 @@ function refreshCriterion(index) {
   const meter = content.querySelector(`[data-criterion-meter="${index}"]`);
   if (meter) meter.value = Math.max(0, Number(item.score) || 0);
   const mark = content.querySelector(`[data-criterion-mark="${index}"]`);
-  if (mark) {
-    mark.innerHTML = workspace.review.reviewed.has(index) ? '<span class="origin-mark origin-mark--reviewed">✓ Revisado</span>'
-      : criterionModified(index) ? `<span class="origin-mark origin-mark--edited">${icon('pencil')} Modificado por vos</span>` : '<span class="origin-mark origin-mark--ai">Sugerido por la IA</span>';
-  }
+  if (mark) mark.innerHTML = criterionMark(index);
   const restore = content.querySelector(`[data-action="workspace-restore-criterion"][data-index="${index}"]`);
   if (restore) restore.hidden = !criterionModified(index);
   const { score, max: total } = totals();
@@ -691,12 +700,20 @@ function refreshCriterion(index) {
   if (totalMeter) totalMeter.value = score;
   const progress = content.querySelector('[data-review-progress]');
   if (progress) progress.textContent = `${reviewedCount()} de ${criteria().length} criterios revisados`;
+  const sectionSummary = content.querySelector('[data-section-summary="ws-sec-criteria"]');
+  if (sectionSummary) sectionSummary.textContent = criteriaSummary();
   refreshSaveStatus();
 }
 
 function updateCharCount(target) {
   const counter = content.querySelector(`[data-char-count="${target.id}"]`);
   if (counter) counter.textContent = `${target.value.length.toLocaleString('es-AR')} caracteres`;
+}
+
+/** Abre un único criterio (acordeón): pliega el que estuviera abierto. */
+function openOnlyCriterion(index) {
+  [...workspace.review.open].filter(position => position !== index).forEach(position => setCriterionOpen(position, false));
+  setCriterionOpen(index, true);
 }
 
 function setCriterionOpen(index, open) {
@@ -712,7 +729,7 @@ function openFirstUnreviewed() {
   if (index < 0) return;
   workspace.review.approveWarning = false;
   workspace.review.onlyUnreviewed = false;
-  workspace.review.open.add(index);
+  workspace.review.open = new Set([index]);
   pendingFocus = `#ws-criterion-${index} .criterion-toggle`;
   render();
   content.querySelector(`#ws-criterion-${index}`)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
@@ -725,7 +742,7 @@ function showEvidence(index) {
   const range = findFragment(text, item?.evidence);
   const node = content.querySelector(`#${nodeId}`);
   if (!range || !node) return;
-  for (let details = node.closest('details'); details; details = details.parentElement?.closest('details')) details.open = true;
+  openExclusive(node.closest('details'));
   // Se arma con nodos DOM: el texto del estudiante nunca pasa por innerHTML.
   const mark = document.createElement('mark');
   mark.textContent = text.slice(range[0], range[1]);
@@ -779,10 +796,10 @@ export async function handleWorkspaceAction(button) {
         break;
       }
       case 'workspace-guard-discard': { const guard = workspace.leaveGuard; discardStep(guard?.from); workspace.leaveGuard = null; guard?.proceed(); if (guard?.type !== 'step') render(); break; }
+      case 'workspace-new-submission': guarded({ type: 'submission', value: '' }, startNewSubmission); break;
       case 'workspace-guard-stay': workspace.leaveGuard = null; pendingFocus = `#${stepTitleId(workspace.step)}`; render(); break;
       case 'workspace-open-evaluations': navigate('assessments'); break;
       case 'workspace-manage-rubrics': navigate('rubrics'); break;
-      case 'workspace-open-corrections': navigate('corrections'); break;
 
       // Paso 1 · consignas en línea
       case 'workspace-question-new': workspace.questionEditor = emptyQuestionDraft(); workspace.questionDeleteId = ''; pendingFocus = '#ws-q-prompt'; render(); break;
@@ -843,10 +860,8 @@ export async function handleWorkspaceAction(button) {
       case 'workspace-nav': if (id) guarded({ type: 'submission', value: id }, () => selectSubmission(id)); break;
       case 'workspace-only-pending': workspace.review.onlyPending = !workspace.review.onlyPending; render(); break;
       case 'workspace-only-unreviewed': workspace.review.onlyUnreviewed = !workspace.review.onlyUnreviewed; render(); break;
-      case 'workspace-criterion-toggle': setCriterionOpen(index, !workspace.review.open.has(index)); break;
-      case 'workspace-expand-all': criteria().forEach((_, position) => setCriterionOpen(position, true)); content.querySelectorAll('.review-section').forEach(node => { node.open = true; }); break;
-      case 'workspace-collapse-all': criteria().forEach((_, position) => setCriterionOpen(position, false)); break;
-      case 'workspace-restore-criterion': restoreCriterion(index); workspace.review.open.add(index); pendingFocus = `#workspace-score-${index}`; render(); announce('Criterio restablecido a la sugerencia de la IA.'); break;
+      case 'workspace-criterion-toggle': if (workspace.review.open.has(index)) setCriterionOpen(index, false); else openOnlyCriterion(index); break;
+      case 'workspace-restore-criterion': restoreCriterion(index); workspace.review.open = new Set([index]); pendingFocus = `#workspace-score-${index}`; render(); announce('Criterio restablecido a la sugerencia de la IA.'); break;
       case 'workspace-evidence-expand': {
         const quote = content.querySelector(`#ws-evidence-${index}`);
         const expanded = quote?.classList.toggle('is-clamped') === false;
@@ -856,7 +871,6 @@ export async function handleWorkspaceAction(button) {
       }
       case 'workspace-show-evidence': showEvidence(index); break;
       case 'workspace-toggle-list': { const key = button.dataset.list; if (workspace.review.expandedLists.has(key)) workspace.review.expandedLists.delete(key); else workspace.review.expandedLists.add(key); render(); break; }
-      case 'workspace-feedback-mode': workspace.review.feedbackMode = button.dataset.mode === 'preview' ? 'preview' : 'edit'; pendingFocus = `[data-action="workspace-feedback-mode"][data-mode="${workspace.review.feedbackMode}"]`; render(); break;
       case 'workspace-feedback-restore': workspace.feedback = workspace.correction?.proposal?.feedback || ''; render(); announce('Devolución restablecida a la propuesta.'); break;
       case 'workspace-copy-feedback': await copyText(workspace.feedback || workspace.proposal?.feedback || '', 'Devolución'); break;
       case 'workspace-copy-answer': await copyText(fullAnswerText(workspace.activeSubmission), 'Respuesta'); break;
@@ -1015,10 +1029,11 @@ export async function handleWorkspaceChange(event) {
     return true;
   }
   if (target.matches('[data-workspace-material-mode]')) { workspace.materialMode = target.value; return true; }
-  if (target.matches('[data-workspace-review-submission]')) {
-    const id = target.value;
-    if (stepDirty(3)) target.value = String(workspace.activeSubmission?.id || '');
-    guarded({ type: 'submission', value: id }, () => selectSubmission(id));
+  if (target.matches('[data-workspace-queue-status]')) {
+    workspace.statusFilter = ['pending', 'approved', 'all'].includes(target.value) ? target.value : 'pending';
+    workspace.queueLimit = 50;
+    pendingFocus = '#workspace-queue-status';
+    render();
     return true;
   }
   if (target.matches('[data-workspace-suggestion][data-field="selected"]')) {
@@ -1048,11 +1063,6 @@ function setFile(kind, file) {
   pendingFocus = `[data-action="workspace-remove-file"][data-kind="${kind}"]`;
   render();
 }
-
-/** Chips propios del espacio (los consume el manejador genérico de chips). */
-export const workspaceChipHandlers = Object.freeze({
-  'ws-queue-status': (value) => { workspace.statusFilter = value; workspace.queueLimit = 50; render(); }
-});
 
 /* ---------- Teclado, doble clic y arrastrar/soltar ---------- */
 
@@ -1134,15 +1144,5 @@ export function bindWorkspaceEvents(root) {
   ['dragover', 'dragleave', 'drop'].forEach(type => root.addEventListener(type, onDrag));
   document.addEventListener('click', event => {
     if (workspace.review.menuOpen && !event.target.closest('.split-menu')) closeMoreMenu();
-  });
-  root.addEventListener('click', event => {
-    const anchor = event.target.closest('[data-review-anchor]');
-    if (!anchor) return;
-    event.preventDefault();
-    const section = content.querySelector(`#${anchor.dataset.reviewAnchor}`);
-    if (!section) return;
-    section.open = true;
-    section.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
-    section.querySelector('summary')?.focus({ preventScroll: true });
   });
 }

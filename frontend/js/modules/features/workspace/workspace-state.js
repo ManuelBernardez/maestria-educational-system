@@ -45,7 +45,8 @@ export const workspace = {
   answerText: '',
   answerFile: null,
   search: '',
-  statusFilter: 'all',
+  // Por defecto la lista muestra lo que falta revisar.
+  statusFilter: 'pending',
   queueLimit: 50,
   proposalReady: false,
 
@@ -56,7 +57,7 @@ export const workspace = {
   feedback: '',
   changeReason: '',
   baseline: '',
-  review: { reviewed: new Set(), open: new Set(), onlyUnreviewed: false, onlyPending: false, feedbackMode: 'edit', approveWarning: false, menuOpen: false },
+  review: { reviewed: new Set(), open: new Set(), onlyUnreviewed: false, onlyPending: false, approveWarning: false, menuOpen: false },
 
   // Aviso en línea al salir de un paso con cambios sin guardar.
   leaveGuard: null
@@ -99,10 +100,17 @@ export function queueStatus(submission) {
   return 'pending';
 }
 
+/** Legajo del estudiante de una entrega ('' si la entrega sólo tiene un nombre identificador). */
+export function studentCode(submission) {
+  if (submission?.student == null) return '';
+  const student = state.data.students.find(item => String(item.id) === String(submission.student));
+  return String(student?.external_code || '').trim();
+}
+
 export function visibleSubmissions() {
   const query = workspace.search.trim().toLocaleLowerCase('es-AR');
   return assessmentSubmissions().filter(item => {
-    const haystack = `${item.student_display_name || item.student_name || ''} ${item.source_filename || ''} ${item.answer_text || ''}`.toLocaleLowerCase('es-AR');
+    const haystack = `${item.student_display_name || item.student_name || ''} ${studentCode(item)} ${item.source_filename || ''} ${item.answer_text || ''}`.toLocaleLowerCase('es-AR');
     if (query && !haystack.includes(query)) return false;
     const status = queueStatus(item);
     if (workspace.statusFilter === 'pending') return status !== 'approved';

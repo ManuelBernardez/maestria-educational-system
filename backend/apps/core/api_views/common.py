@@ -302,18 +302,65 @@ class OwnerViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner_id=self.request.user.id)
 
+def _decode_plain_text(raw: bytes) -> str:
+    """UTF-8 first; Windows-1252 as fallback (Bloc de notas / «Texto sin formato» de Word en Windows)."""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252")
+
+
+def _docx_text(document) -> str:
+    """Paragraphs and tables in document order (python-docx's `paragraphs` skips tables).
+
+    Student answers are often written inside tables (worksheets, «completá el cuadro»),
+    so ignoring them silently dropped part of the submission before the AI saw it.
+    """
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    lines = []
+    for child in document.element.body.iterchildren():
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            lines.append(Paragraph(child, document).text)
+        elif tag == "tbl":
+            for row in Table(child, document).rows:
+                cells = []
+                for cell in row.cells:
+                    value = cell.text.strip()
+                    # Merged cells are returned once per spanned column: keep one copy.
+                    if value and (not cells or cells[-1] != value):
+                        cells.append(value)
+                if cells:
+                    lines.append(" | ".join(cells))
+    return "\n".join(lines)
+
+
 def _read_document(uploaded):
-    """Extract text in memory; uploaded source files are not permanently stored."""
+    """Extract text in memory; uploaded source files are not permanently stored.
+
+    Only the extracted text is persisted (Submission.answer_text or
+    Assessment.reference_material) together with the file name and type.
+    """
     if uploaded.size > MAX_DOCUMENT_BYTES:
         raise ValidationError({"file": "El archivo supera el límite de 5 MB."})
     extension = Path(uploaded.name).suffix.lower()
     try:
         if extension in {".txt", ".md"}:
-            text = uploaded.read().decode("utf-8-sig")
+            text = _decode_plain_text(uploaded.read())
             source_type = "txt"
         elif extension == ".pdf":
             from pypdf import PdfReader
             reader = PdfReader(uploaded)
+            if reader.is_encrypted:
+                # Some PDFs are "encrypted" with an empty user password only to restrict editing.
+                try:
+                    unlocked = reader.decrypt("")
+                except Exception:
+                    unlocked = 0
+                if not unlocked:
+                    raise ValidationError({"file": "El PDF está protegido con contraseña. Quitale la protección y volvé a cargarlo."})
             if len(reader.pages) > 50:
                 raise ValidationError({"file": "El PDF supera el límite de 50 páginas."})
             text = "\n".join((page.extract_text() or "") for page in reader.pages)
@@ -334,17 +381,18 @@ def _read_document(uploaded):
             uploaded.seek(0)
             from docx import Document
             document = Document(uploaded)
-            text = "\n".join(p.text for p in document.paragraphs)
+            text = _docx_text(document)
             source_type = "docx"
         else:
             raise ValidationError({"file": "Formato no admitido. Usá .txt, .md, .pdf o .docx con texto seleccionable."})
     except UnicodeDecodeError as exc:
-        raise ValidationError({"file": "El archivo de texto debe estar codificado en UTF-8."}) from exc
+        raise ValidationError({"file": "No se pudo leer la codificación del archivo de texto. Guardalo como UTF-8 y volvé a cargarlo."}) from exc
     except ValidationError:
         raise
     except Exception as exc:
         raise ValidationError({"file": "No se pudo leer el archivo. Verificá que no esté dañado o protegido."}) from exc
-    text = text.strip()
+    # PostgreSQL text columns reject NUL bytes; some PDFs emit them during extraction.
+    text = text.replace("\x00", "").strip()
     if not text:
         raise ValidationError({"file": "No se encontró texto extraíble. Los archivos escaneados o manuscritos no están soportados en este MVP."})
     if len(text) > MAX_ANSWER_CHARS:

@@ -24,23 +24,38 @@ export function bindQuickStartEvents() {
     event.preventDefault();
     event.stopPropagation();
     switch (button.dataset.guideAction) {
-      case 'close': closeQuickStart(false); break;
+      case 'close': closeQuickStart(); break;
       case 'previous': setGuideStep(Math.max(0, guideStep - 1)); renderQuickStart(); break;
       case 'next': setGuideStep(Math.min(GUIDE_STEPS.length - 1, guideStep + 1)); renderQuickStart(); break;
-      case 'go': { const step = GUIDE_STEPS[guideStep]; closeQuickStart(true); if (step?.view) navigate(step.view); break; }
+      case 'go': { const step = GUIDE_STEPS[guideStep]; closeQuickStart(); if (step?.view) navigate(step.view); break; }
       default: break;
     }
   });
   guideEventsBound = true;
 }
 
-export function guidePreferenceKey() { return `maestria-quickstart-complete:${state.profile?.user_id || state.profile?.email || 'teacher'}`; }
-export function guideDismissedKey() { return `${guidePreferenceKey()}:dismissed`; }
+/* Apertura automática de la guía:
+ *  - la primera vez que la persona entra (marca persistente en localStorage), o
+ *  - mientras no tenga ningún curso creado (una vez por sesión, para no insistir
+ *    en cada recarga si la cierra).
+ * La marca guarda sólo el id de usuario; nunca el correo. */
+const SEEN_PREFIX = 'maestria-quickstart-seen:';
+const SESSION_DISMISSED_PREFIX = 'maestria-quickstart-dismissed:';
+const userKey = () => String(state.profile?.user_id || 'teacher');
+
+// `kind` es 'localStorage' o 'sessionStorage': se accede dentro del try porque
+// el propio acceso puede lanzar con el almacenamiento bloqueado.
+function readFlag(kind, key) {
+  try { return window[kind].getItem(key) === 'true'; } catch { return false; }
+}
+function writeFlag(kind, key) {
+  try { window[kind].setItem(key, 'true'); } catch { /* almacenamiento bloqueado: la guía puede volver a abrirse */ }
+}
 
 export function renderQuickStart() {
   const root = $('#quickstart-root'); if (!root) return;
   const step = GUIDE_STEPS[guideStep];
-  root.innerHTML = `<div class="quickstart-backdrop" role="presentation"><section class="quickstart-dialog" role="dialog" aria-modal="true" aria-labelledby="quickstart-title" aria-describedby="quickstart-description"><div class="quickstart-topline"><span class="eyebrow">PRIMEROS PASOS CON MAESTRIA</span><button type="button" class="quickstart-close" data-guide-action="close" aria-label="Cerrar guía">×</button></div><div class="quickstart-progress" aria-label="Paso ${guideStep + 1} de ${GUIDE_STEPS.length}">${GUIDE_STEPS.map((item, index) => `<span class="${index <= guideStep ? 'is-current' : ''}"></span>`).join('')}</div><div class="quickstart-icon" aria-hidden="true">${['▣', '▤', '✓', '≡'][guideStep]}</div><span class="quickstart-step-label">PASO ${guideStep + 1} DE ${GUIDE_STEPS.length}</span><h2 id="quickstart-title">${escapeHtml(step.title)}</h2><p id="quickstart-description">${escapeHtml(step.body)}</p><div class="quickstart-tip"><span>${escapeHtml(step.tip)}</span></div><div class="quickstart-footer"><button type="button" class="btn btn-secondary" data-guide-action="close">Lo veo después</button><div>${guideStep > 0 ? '<button type="button" class="btn btn-secondary" data-guide-action="previous">Anterior</button>' : ''}${guideStep < GUIDE_STEPS.length - 1 ? '<button type="button" class="btn btn-primary" data-guide-action="next">Siguiente</button>' : `<button type="button" class="btn btn-primary" data-guide-action="go">${escapeHtml(step.action)}</button>`}</div></div><p class="quickstart-link-row">La guía está disponible desde el botón de ayuda.</p></section></div>`;
+  root.innerHTML = `<div class="quickstart-backdrop" role="presentation"><section class="quickstart-dialog" role="dialog" aria-modal="true" aria-labelledby="quickstart-title" aria-describedby="quickstart-description"><div class="quickstart-topline"><span class="eyebrow">PRIMEROS PASOS CON MAESTRIA</span><button type="button" class="quickstart-close" data-guide-action="close" aria-label="Cerrar guía">×</button></div><div class="quickstart-progress" aria-label="Paso ${guideStep + 1} de ${GUIDE_STEPS.length}">${GUIDE_STEPS.map((item, index) => `<span class="${index <= guideStep ? 'is-current' : ''}"></span>`).join('')}</div><span class="quickstart-step-label">PASO ${guideStep + 1} DE ${GUIDE_STEPS.length}</span><h2 id="quickstart-title">${escapeHtml(step.title)}</h2><p id="quickstart-description">${escapeHtml(step.body)}</p><div class="quickstart-tip"><span>${escapeHtml(step.tip)}</span></div><div class="quickstart-footer"><button type="button" class="btn btn-secondary" data-guide-action="close">Lo veo después</button><div>${guideStep > 0 ? '<button type="button" class="btn btn-secondary" data-guide-action="previous">Anterior</button>' : ''}${guideStep < GUIDE_STEPS.length - 1 ? '<button type="button" class="btn btn-primary" data-guide-action="next">Siguiente</button>' : `<button type="button" class="btn btn-primary" data-guide-action="go">${escapeHtml(step.action)}</button>`}</div></div><p class="quickstart-link-row">La guía está disponible desde el botón de ayuda.</p></section></div>`;
   root.querySelector('.quickstart-close')?.focus();
 }
 
@@ -50,19 +65,21 @@ export function openQuickStart() {
   guideStep = 0; renderQuickStart();
 }
 
-export function closeQuickStart(completed = true) {
+export function closeQuickStart() {
   const root = $('#quickstart-root'); if (root) root.innerHTML = '';
-  try {
-    if (completed) { sessionStorage.setItem(guidePreferenceKey(), 'true'); sessionStorage.removeItem(guideDismissedKey()); }
-    else sessionStorage.setItem(guideDismissedKey(), 'true');
-  } catch {}
+  // Cerrarla (completa o «Lo veo después») cuenta como primera visita hecha.
+  writeFlag('localStorage', `${SEEN_PREFIX}${userKey()}`);
+  writeFlag('sessionStorage', `${SESSION_DISMISSED_PREFIX}${userKey()}`);
   const opener = guideOpener; guideOpener = null;
   if (opener instanceof HTMLElement && opener.isConnected && opener.getClientRects().length) opener.focus({ preventScroll: true });
 }
 
 export function maybeOpenQuickStart() {
   if (['admin', 'superadmin'].includes(state.profile?.role)) return;
-  try {
-    if (sessionStorage.getItem(guidePreferenceKey()) !== 'true' && sessionStorage.getItem(guideDismissedKey()) !== 'true') openQuickStart();
-  } catch {}
+  const firstVisit = !readFlag('localStorage', `${SEEN_PREFIX}${userKey()}`);
+  // Si los cursos no se pudieron cargar, no se asume que la lista esté vacía.
+  const coursesKnown = !state.errors.courses && (Boolean(state.data.overview) || !state.errors.overview);
+  const withoutCourses = coursesKnown && state.data.courses.length === 0;
+  const dismissedThisSession = readFlag('sessionStorage', `${SESSION_DISMISSED_PREFIX}${userKey()}`);
+  if (firstVisit || (withoutCourses && !dismissedThisSession)) openQuickStart();
 }

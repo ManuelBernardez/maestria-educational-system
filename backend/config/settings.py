@@ -131,7 +131,7 @@ WHITENOISE_MAX_AGE = 60 * 60 * 24
 
 # Versión de los recursos del frontend. Al cambiarla, cada navegador recibe una única vez
 # `Clear-Site-Data: "cache"` en el próximo HTML y descarta copias viejas de JS/CSS.
-FRONTEND_ASSETS_VERSION = "1.1.1"
+FRONTEND_ASSETS_VERSION = "1.1.2"
 
 
 def _whitenoise_headers(headers, path, url):

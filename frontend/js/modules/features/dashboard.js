@@ -48,15 +48,15 @@ export function renderDashboard() {
   const pendingByCourse = new Map((state.data.overview?.course_correction_counts || [])
     .filter(item => item.status === 'pending_review')
     .map(item => [String(item.course_id), Number(item.count || 0)]));
-  const today = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
   const name = firstName();
   const intro = pendingCount
     ? `Tenés <strong>${pendingCount}</strong> ${pendingCount === 1 ? 'devolución esperando' : 'devoluciones esperando'} tu revisión.`
     : 'No hay nada pendiente. Buen momento para preparar la próxima evaluación.';
+  // Cada indicador lleva al historial de correcciones filtrado por lo que cuenta.
   const stats = [
-    { label: 'Por revisar', value: pendingCount, detail: 'Propuestas que esperan tu decisión', tone: 2, note: pendingCount > 0 },
-    { label: 'Revisadas', value: approved, detail: 'Devoluciones aprobadas por vos', tone: 0 },
-    { label: 'Tiempo ahorrado estimado', value: estimatedTime(approved), detail: 'Estimación orientativa · 8 min por devolución aprobada', tone: 1 }
+    { label: 'Por revisar', value: pendingCount, detail: 'Propuestas que esperan tu decisión', tone: 2, note: pendingCount > 0, status: 'pending_review', cta: 'Ver pendientes' },
+    { label: 'Revisadas', value: approved, detail: 'Devoluciones aprobadas por vos', tone: 0, status: 'approved', cta: 'Ver aprobadas' },
+    { label: 'Tiempo ahorrado estimado', value: estimatedTime(approved), detail: 'Estimación orientativa · 8 min por devolución aprobada', tone: 1, status: 'approved', cta: 'Ver devoluciones' }
   ];
 
   const courseItems = state.data.courses.filter(item => item.active)
@@ -83,10 +83,10 @@ export function renderDashboard() {
       </div>`;
 
   const title = `${greeting()}${name ? `, ${name}` : ''}`;
-  return `${heading(title, '', btn('Ir a cursos', 'navigate', 'data-view="courses"', 'primary'), { kicker: today, tone: 2, leadHtml: intro })}
+  return `${heading(title, '', btn('Ir a cursos', 'navigate', 'data-view="courses"', 'primary'), { tone: 2, leadHtml: intro })}
     ${state.errors.overview ? `<div class="notice notice-error" role="alert"><strong>No se pudo cargar el resumen.</strong> ${escapeHtml(state.errors.overview)} ${btn('Reintentar', 'refresh-resource', 'data-resource="overview"')}</div>` : ''}
     <section class="stat-grid" aria-label="Resumen de actividad">
-      ${stats.map(stat => `<article class="stat${stat.note ? ' stat--note' : ''}" data-tone="${stat.tone}"><strong>${state.data.overview ? escapeHtml(stat.value) : '—'}</strong><span>${escapeHtml(stat.label)}</span><small>${escapeHtml(stat.detail)}</small></article>`).join('')}
+      ${stats.map(stat => `<button type="button" class="stat stat-link${stat.note ? ' stat--note' : ''}" data-tone="${stat.tone}" data-action="open-corrections" data-status="${stat.status}"><strong>${state.data.overview ? escapeHtml(stat.value) : '—'}</strong><span>${escapeHtml(stat.label)}</span><small>${escapeHtml(stat.detail)}</small><span class="stat-cta">${escapeHtml(stat.cta)} <span aria-hidden="true">→</span></span></button>`).join('')}
     </section>
     ${body}`;
 }

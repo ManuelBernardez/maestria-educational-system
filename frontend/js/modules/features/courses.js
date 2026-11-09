@@ -2,8 +2,11 @@ import { state, modal } from '../core/state.js';
 import { escapeHtml, formatNumber, toneOf, statusPill, btn, date, heading, emptyState, resourceError, formField, textField, courseIdForCorrection, icon, searchField, chipGroup, toolbarSelect, resultCount, filteredEmpty } from '../core/utils.js';
 import { openModal, modalForm } from '../core/ui.js';
 
-export const COURSE_FILTER_DEFAULTS = Object.freeze({ status: 'active', cycle: 'all', sort: 'pending', layout: 'cards' });
+/** La vista por defecto de «Mis materias» es la lista compacta. */
+export const COURSE_FILTER_DEFAULTS = Object.freeze({ status: 'active', cycle: 'all', sort: 'pending', layout: 'list' });
 const ROW_FILTER_THRESHOLD = 4;
+/** Tono fijo por sección del curso: cada plegable (y su paso del recorrido) se distingue por color. */
+const FOLD_TONES = Object.freeze({ students: 0, assessments: 3, submissions: 2, corrections: 1 });
 
 /** Métricas de un curso a partir de las listas cargadas (con respaldo en los contadores del resumen). */
 function courseMetrics(course) {
@@ -113,7 +116,7 @@ export function renderCourseDetail() {
   const correctionRows = corrections.map(item => record(`<button type="button" class="entity-link" data-action="open-correction" data-id="${escapeHtml(item.id)}">${escapeHtml(item.submission_title || 'Evaluación')}</button><small>${escapeHtml(item.student_name || 'Estudiante')} · ${date(item.created_at, true)}</small>`, `${statusPill(item.status)}<strong class="score-value">${escapeHtml(formatNumber(item.total_score))}</strong>`, btn('Abrir devolución', 'open-correction', `data-id="${escapeHtml(item.id)}"`, 'primary'), item.status));
 
   const statusLabels = { active: 'Activas', inactive: 'Inactivas', draft: 'Borradores', ready: 'Listas', archived: 'Archivadas', pending: 'Pendientes', processing: 'Procesando', review: 'A revisar', approved: 'Aprobadas', pending_review: 'Por revisar', rejected: 'Rechazadas' };
-  const fold = (key, title, detail, rows, statuses, emptyText, action = '') => `<details class="fold" data-fold="${key}"><summary><span class="fold-copy"><strong>${title}</strong><small>${detail}</small></span><span class="fold-count">${rows.length}</span>${icon('chevron')}</summary><div class="fold-body">${rows.length ? `${rowFilter(`course-${key}`, statuses, statusLabels)}<div class="work-list" data-filter-scope="course-${key}" data-filter-attr="status">${rows.join('')}</div>` : `<p class="muted">${emptyText}</p>`}${action ? `<div class="fold-footer">${action}</div>` : ''}</div></details>`;
+  const fold = (key, title, detail, rows, statuses, emptyText, action = '') => `<details class="fold" id="course-fold-${key}" data-fold="${key}" data-tone="${FOLD_TONES[key]}"><summary><span class="fold-copy"><strong>${title}</strong><small>${detail}</small></span><span class="fold-count">${rows.length}</span>${icon('chevron')}</summary><div class="fold-body">${rows.length ? `${rowFilter(`course-${key}`, statuses, statusLabels)}<div class="work-list" data-filter-scope="course-${key}" data-filter-attr="status">${rows.join('')}</div>` : `<p class="muted">${emptyText}</p>`}${action ? `<div class="fold-footer">${action}</div>` : ''}</div></details>`;
   const studentActions = `${btn('Agregar estudiante', 'new-student', `data-course="${course.id}"`, 'primary')}${btn('Vincular existente', 'enroll-student', `data-course="${course.id}"`)}${btn('Ver lista completa', 'manage-course-students', `data-course="${course.id}"`)}`;
 
   const withCourse = `data-course="${course.id}"`;
@@ -126,13 +129,14 @@ export function renderCourseDetail() {
         : !submissions.length
           ? { text: 'Cargá las entregas para generar propuestas de corrección.', label: 'Cargar entrega', action: 'new-submission', attrs: withCourse }
           : null;
-  const steps = [['students', 'Estudiantes', activeEnrollments.length, 0], ['assessments', 'Evaluaciones', assessments.length, 0], ['submissions', 'Entregas', submissions.length, 0], ['corrections', 'Correcciones', corrections.length, pendingCorrections.length]];
-  const pipeline = `<nav class="pipeline" aria-label="Recorrido del curso">${steps.map(([key, label, count, pending], index) => `${index ? '<span class="pipeline-sep" aria-hidden="true">›</span>' : ''}<button type="button" class="pipeline-step${pending ? ' has-pending' : ''}" data-action="open-fold" data-fold="${key}"><span class="pipeline-dot">${index + 1}</span><span class="pipeline-label">${label}</span><strong>${count}</strong>${pending ? `<span class="visually-hidden">, ${pending} por revisar</span>` : ''}</button>`).join('')}</nav>
+  // El círculo de cada paso muestra cuántos elementos tiene su plegable (el mismo número que la lista).
+  const steps = [['students', 'Estudiantes', enrollments.length, 0], ['assessments', 'Evaluaciones', assessments.length, 0], ['submissions', 'Entregas', submissions.length, 0], ['corrections', 'Correcciones', corrections.length, pendingCorrections.length]];
+  const pipeline = `<nav class="pipeline" aria-label="Recorrido del curso">${steps.map(([key, label, count, pending], index) => `${index ? '<span class="pipeline-sep" aria-hidden="true">›</span>' : ''}<button type="button" class="pipeline-step${pending ? ' has-pending' : ''}" data-action="open-fold" data-fold="${key}" data-tone="${FOLD_TONES[key]}" aria-controls="course-fold-${key}" title="Ver ${label.toLocaleLowerCase('es-AR')}"><span class="pipeline-dot">${count}</span><span class="pipeline-label">${label}</span>${pending ? `<span class="pipeline-pending">${pending} por revisar</span>` : ''}</button>`).join('')}</nav>
     ${nextStep ? `<div class="next-step" role="status"><span class="next-step-mark" aria-hidden="true">✳</span><p>${nextStep.text}</p>${btn(nextStep.label, nextStep.action, nextStep.attrs, 'primary')}</div>` : '<p class="margin-note"><strong>Todo al día en este curso.</strong></p>'}`;
 
-  return `<div class="course-view" data-tone="${toneOf(course.id)}">${heading(course.name, `${course.subject || 'Curso'} · ${course.level || 'Nivel no indicado'} · ${course.academic_year || 'Ciclo no indicado'}`, `${btn('Volver a cursos', 'navigate', 'data-view="courses"')}${btn('Editar curso', 'edit-course', `data-id="${course.id}"`)}`, { kicker: 'Curso' })}
+  return `<div class="course-view" data-tone="${toneOf(course.id)}">${heading(course.name, `${course.subject || 'Curso'} · ${course.level || 'Nivel no indicado'} · ${course.academic_year || 'Ciclo no indicado'}`, `${btn('Volver a cursos', 'navigate', 'data-view="courses"')}${btn('Editar curso', 'edit-course', `data-id="${course.id}"`)}`)}
+    ${course.description ? `<p class="course-description">${escapeHtml(course.description)}</p>` : ''}
     ${pipeline}
-    <details class="fold" data-fold="summary"><summary><span class="fold-copy"><strong>Resumen del curso</strong><small>Indicadores, descripción y actividad de esta materia</small></span>${icon('chevron')}</summary><div class="fold-body course-summary"><p>${escapeHtml(course.description || 'Este espacio concentra la información académica y el proceso de corrección de esta materia.')}</p><dl class="entity-metrics"><div><dt>Estudiantes activos</dt><dd>${activeEnrollments.length}</dd></div><div><dt>Evaluaciones</dt><dd>${assessments.length}</dd></div><div><dt>Entregas</dt><dd>${submissions.length}</dd></div><div class="${pendingCorrections.length ? 'is-pending' : ''}"><dt>Por revisar</dt><dd>${pendingCorrections.length}</dd></div></dl></div></details>
     <section class="fold-list" aria-label="Información del curso">
       ${fold('students', 'Estudiantes', 'Personas matriculadas en este curso', studentRows, enrollments.map(item => item.status), 'Todavía no hay estudiantes matriculados.', studentActions)}
       ${fold('assessments', 'Evaluaciones', 'Consignas, materiales y rúbricas del curso', assessmentRows, assessments.map(item => item.status), 'Todavía no hay evaluaciones para este curso.', btn('Crear evaluación', 'new-assessment', `data-course="${course.id}"`, 'primary'))}

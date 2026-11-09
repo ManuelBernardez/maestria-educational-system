@@ -1,7 +1,7 @@
 import { state } from '../../core/state.js';
 import { escapeHtml, formatNumber, formatInputNumber, icon } from '../../core/utils.js';
 import { workspace, assessmentQuestions, questionTotal, selectedRubric, stepDirty } from './workspace-state.js';
-import { stepHeader, saveStatus, actionBar, shortcutsHint, dropzone, scoreStepper, fieldError } from './workspace-markup.js';
+import { stepHeader, saveStatus, actionBar, shortcutsHint, dropzone, scoreStepper, fieldError, REFERENCE_CONTEXT_CHARS } from './workspace-markup.js';
 
 const QUESTION_TYPES = [['open', 'Respuesta abierta'], ['short', 'Respuesta breve'], ['case', 'Caso']];
 
@@ -25,7 +25,7 @@ function questionEditor(number) {
         ${rubrics.length ? `<div class="form-field full"><label for="ws-q-rubric">Rúbrica de la consigna</label><select id="ws-q-rubric" data-qe-field="rubric"><option value="">Sin rúbrica</option>${rubrics.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(draft.rubric || '') ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select>${fieldError(errors, 'rubric', 'ws-q-rubric')}</div>` : ''}
       </div>
       ${draft.confirmCancel ? `<div class="inline-confirm" role="alert"><p>Hay cambios sin guardar en esta consigna. ¿Descartarlos?</p><button type="button" class="btn btn-danger btn-small" data-action="workspace-question-discard">Descartar</button><button type="button" class="text-link" data-action="workspace-question-keep">Seguir editando</button></div>` : ''}
-      <div class="editor-actions"><button type="submit" class="btn btn-primary btn-small" ${draft.saving ? 'disabled aria-busy="true"' : ''}>${draft.saving ? 'Guardando…' : 'Guardar'}</button><button type="button" class="text-link" data-action="workspace-question-cancel">Cancelar</button><small class="field-hint">Ctrl/⌘ + Enter guarda · Shift + Enter en puntos guarda y abre otra</small></div>
+      <div class="editor-actions"><button type="submit" class="btn btn-primary btn-small" ${draft.saving ? 'disabled aria-busy="true"' : ''}>${draft.saving ? 'Guardando…' : 'Guardar'}</button><button type="button" class="text-link" data-action="workspace-question-cancel">Cancelar</button></div>
     </div>
   </form>`;
 }
@@ -68,14 +68,14 @@ function suggestionNote() {
   const busy = workspace.generatingQuestions;
   const open = workspace.suggestOpen || workspace.questionSuggestions.length > 0;
   const cards = workspace.questionSuggestions.map((item, index) => `<article class="suggestion-card${item.selected ? ' is-selected' : ''}">
-    <div class="suggestion-head"><label class="check"><input type="checkbox" data-workspace-suggestion="${index}" data-field="selected" ${item.selected ? 'checked' : ''}><span>Incluir sugerencia ${index + 1}</span></label><span class="ai-label">✳ Sugerencia de la IA</span></div>
+    <div class="suggestion-head"><label class="check"><input type="checkbox" data-workspace-suggestion="${index}" data-field="selected" ${item.selected ? 'checked' : ''}><span>Incluir sugerencia ${index + 1}</span></label></div>
     <label class="visually-hidden" for="workspace-suggestion-${index}">Enunciado de la sugerencia ${index + 1}</label><textarea id="workspace-suggestion-${index}" rows="3" maxlength="5000" data-workspace-suggestion="${index}" data-field="prompt">${escapeHtml(item.prompt)}</textarea>
     ${item.rationale ? `<p class="suggestion-why">${escapeHtml(item.rationale)}</p>` : ''}
     <div class="suggestion-points"><label for="workspace-suggestion-score-${index}">Puntos</label><input id="workspace-suggestion-score-${index}" type="number" min="0.5" max="1000" step="0.5" data-workspace-suggestion="${index}" data-field="max_score" value="${escapeHtml(item.max_score)}"></div>
   </article>`).join('');
   const selected = workspace.questionSuggestions.filter(item => item.selected).length;
   return `<section class="sticky-note" aria-labelledby="ws-suggest-title">
-    <div class="sticky-note-head"><h3 id="ws-suggest-title"><span class="mark" aria-hidden="true">✳</span> Proponer consignas con MaestrIA</h3><button type="button" class="icon-button" data-action="workspace-suggest-toggle" aria-expanded="${open}" aria-controls="ws-suggest-body" aria-label="${open ? 'Ocultar propuestas' : 'Mostrar propuestas'}">${icon(open ? 'minus' : 'plus')}</button></div>
+    <div class="sticky-note-head"><h3 id="ws-suggest-title">Proponer consignas con IA</h3><button type="button" class="icon-button" data-action="workspace-suggest-toggle" aria-expanded="${open}" aria-controls="ws-suggest-body" aria-label="${open ? 'Ocultar propuestas' : 'Mostrar propuestas'}">${icon(open ? 'minus' : 'plus')}</button></div>
     <div id="ws-suggest-body" ${open ? '' : 'hidden'}>
       <p>Ideas editables a partir del contexto y los apuntes. Nada se agrega sin tu confirmación.</p>
       <form id="workspace-suggest-form" class="suggest-form" novalidate><div class="form-field"><label for="ws-suggest-count">Cantidad</label><input id="ws-suggest-count" type="number" min="1" max="5" step="1" value="${escapeHtml(workspace.suggestCount)}" data-workspace-suggest-count></div><button type="submit" class="btn btn-secondary btn-small" ${busy ? 'disabled aria-busy="true"' : ''}>${busy ? 'Preparando ideas…' : 'Proponer consignas'}</button></form>
@@ -86,44 +86,55 @@ function suggestionNote() {
   </section>`;
 }
 
+const chars = (value) => `${value.toLocaleString('es-AR')} caracteres`;
+
+/**
+ * Apuntes del docente: lo ya incorporado, el archivo nuevo y cómo combinarlo.
+ * Del archivo sólo se guarda el texto extraído (el original no se almacena).
+ */
 function materials() {
   const material = workspace.referenceMaterial;
-  const current = material
-    ? workspace.materialConfirmRemove
-      ? `<div class="inline-confirm inline-confirm--danger" role="group" aria-label="Confirmar"><p>¿Quitar el material incorporado (${material.length.toLocaleString('es-AR')} caracteres)?</p><button type="button" class="btn btn-danger btn-small" data-action="workspace-material-remove-confirm">Quitar</button><button type="button" class="text-link" data-action="workspace-material-remove-cancel">Cancelar</button></div>`
-      : `<div class="material-row"><span class="file-chip-icon" aria-hidden="true">${icon('book')}</span><span class="material-name">Material incorporado</span><span class="file-chip-size">${material.length.toLocaleString('es-AR')} caracteres</span><button type="button" class="text-link" data-action="workspace-material-remove">Quitar</button></div>`
-    : '';
+  const file = workspace.materialFile;
+  let current = '';
+  if (material && workspace.materialConfirmRemove) {
+    current = `<div class="inline-confirm inline-confirm--danger" role="group" aria-label="Confirmar"><p>¿Quitar el material incorporado (${chars(material.length)})?</p><button type="button" class="btn btn-danger btn-small" data-action="workspace-material-remove-confirm">Quitar</button><button type="button" class="text-link" data-action="workspace-material-remove-cancel">Cancelar</button></div>`;
+  } else if (material) {
+    const preview = `${escapeHtml(material.slice(0, REFERENCE_CONTEXT_CHARS))}${material.length > REFERENCE_CONTEXT_CHARS ? '\n\n[…]' : ''}`;
+    current = `<details class="material-current" id="ws-material-preview"><summary><span class="file-chip-icon" aria-hidden="true">${icon('book')}</span><span class="material-name">Material incorporado</span><span class="file-chip-size">${chars(material.length)}</span>${icon('chevron')}</summary><pre class="material-preview">${preview}</pre><p class="evidence-links"><button type="button" class="text-link" data-action="workspace-material-remove">Quitar material</button></p></details>
+      ${material.length > REFERENCE_CONTEXT_CHARS ? `<p class="field-hint">La IA lee los primeros ${chars(REFERENCE_CONTEXT_CHARS)} del material.</p>` : ''}`;
+  }
+  // Agregar o reemplazar sólo importa cuando ya hay material y se eligió un archivo nuevo.
+  const mode = file && material ? `<div class="form-field"><label for="workspace-material-mode">Con el material actual</label><select id="workspace-material-mode" data-workspace-material-mode><option value="append" ${workspace.materialMode === 'append' ? 'selected' : ''}>Agregar al final</option><option value="replace" ${workspace.materialMode === 'replace' ? 'selected' : ''}>Reemplazarlo</option></select></div>` : '';
   return `<section class="ws-block" aria-labelledby="ws-materials-title">
-    <h3 class="ws-block-title" id="ws-materials-title">Apuntes y materiales</h3>
+    <h3 class="ws-block-title" id="ws-materials-title">Apuntes y materiales <small class="ws-block-optional">opcional</small></h3>
     ${current}
-    ${dropzone({ id: 'workspace-material-file', kind: 'material', file: workspace.materialFile, hint: 'PDF con texto seleccionable, DOCX, TXT o MD · máximo 5 MB' })}
-    <div class="editor-actions"><button class="btn btn-secondary btn-small" type="button" data-action="workspace-import-reference" ${workspace.materialFile ? '' : 'disabled title="Elegí un archivo para poder incorporarlo"'}>Incorporar material</button></div>
+    ${dropzone({ id: 'workspace-material-file', kind: 'material', file, hint: 'PDF con texto seleccionable, DOCX, TXT o MD · máx. 5 MB' })}
+    ${file ? `${mode}<div class="editor-actions"><button class="btn btn-secondary btn-small" type="button" data-action="workspace-import-reference">Incorporar material</button></div>` : ''}
   </section>`;
 }
 
-function moreDetails() {
+/** Rúbrica de la corrección: a la vista, porque define «con qué criterios» se evalúa. */
+function rubricField() {
   const rubric = selectedRubric();
   const rubrics = state.data.rubrics;
-  const material = workspace.referenceMaterial;
-  return `<details class="disclosure" id="ws-more-details"><summary>Más detalles ${icon('chevron')}</summary><div class="disclosure-body">
-    ${material ? `<details class="disclosure disclosure--nested" id="ws-material-preview"><summary>Ver material incorporado (${material.length.toLocaleString('es-AR')} caracteres) ${icon('chevron')}</summary><pre class="material-preview">${escapeHtml(material.slice(0, 12000))}${material.length > 12000 ? '\n\n[Vista previa recortada; se conserva el texto completo.]' : ''}</pre></details>` : '<p class="field-hint">Todavía no hay material de referencia incorporado.</p>'}
-    <div class="form-field"><label for="workspace-material-mode">Al incorporar el archivo</label><select id="workspace-material-mode" data-workspace-material-mode><option value="append" ${workspace.materialMode === 'append' ? 'selected' : ''}>Agregar al material existente</option><option value="replace" ${workspace.materialMode === 'replace' ? 'selected' : ''}>Reemplazar el material existente</option></select></div>
-    ${rubrics.length ? `<div class="form-field"><label for="workspace-rubric">Rúbrica para la corrección</label><select id="workspace-rubric" data-workspace-rubric><option value="">Usar criterios generales de la consigna</option>${rubrics.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.rubricId) ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></div>
-      ${rubric ? `<div class="rubric-summary"><p><strong>${escapeHtml(rubric.title)}</strong> · ${(rubric.criteria || []).length} criterios</p><ul>${(rubric.criteria || []).map(item => `<li>${escapeHtml(item.name)} <small>${escapeHtml(formatNumber(item.max_score))} pts</small></li>`).join('')}</ul></div>` : ''}` : '<p class="muted">Todavía no hay rúbricas disponibles.</p>'}
-    <button class="text-link" type="button" data-action="workspace-manage-rubrics">Editar rúbrica</button>
-  </div></details>`;
+  if (!rubrics.length) return `<div class="form-field"><span class="read-label">Rúbrica</span><p class="field-hint">Sin rúbrica, la IA usa un criterio general por consigna. <button class="text-link" type="button" data-action="workspace-manage-rubrics">Crear rúbrica</button></p></div>`;
+  const criteriaList = rubric?.criteria || [];
+  return `<div class="form-field"><label for="workspace-rubric">Rúbrica</label><select id="workspace-rubric" data-workspace-rubric><option value="">Criterio general por consigna</option>${rubrics.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.rubricId) ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select>
+    ${rubric ? `<ul class="rubric-summary">${criteriaList.map(item => `<li>${escapeHtml(item.name)} <small>${escapeHtml(formatNumber(item.max_score))} pts</small></li>`).join('')}</ul>` : ''}
+    <p class="field-hint"><button class="text-link" type="button" data-action="workspace-manage-rubrics">${rubric ? 'Editar rúbricas' : 'Ver rúbricas'}</button></p></div>`;
 }
 
 export function contextStep() {
   const dirty = stepDirty(1);
-  return `${stepHeader(1, 'Qué evaluar y con qué criterios', 'Definí el contexto: MaestrIA lo usa para proponer cada corrección.', shortcutsHint('ws-shortcuts-1'))}
+  return `${stepHeader(1, 'Qué evaluar y con qué criterios', 'MaestrIA usa este contexto para proponer cada corrección.', shortcutsHint('ws-shortcuts-1'))}
     <div class="step-grid step-grid--context">
       <form id="workspace-context-form" class="step-col" novalidate>
         <div class="form-field form-field--lead"><label for="workspace-instructions">¿Qué querés evaluar?</label><textarea id="workspace-instructions" class="lined lined--lead" name="instructions" maxlength="8000" data-workspace-field="instructions" placeholder="Describí el tema, la consigna o qué debería resolver el estudiante.">${escapeHtml(workspace.instructions)}</textarea></div>
-        <div class="form-field"><label for="workspace-objectives">Objetivos de aprendizaje</label><textarea id="workspace-objectives" class="lined" name="objectives" maxlength="5000" data-workspace-field="objectives" placeholder="Ej. comparar dos teorías y justificar una conclusión con evidencia." title="¿Qué deberían comprender o poder hacer los estudiantes?">${escapeHtml(workspace.objectives)}</textarea></div>
-        ${moreDetails()}
+        <div class="form-field"><label for="workspace-objectives">Objetivos de aprendizaje</label><textarea id="workspace-objectives" class="lined" name="objectives" maxlength="5000" data-workspace-field="objectives" placeholder="Ej. comparar dos teorías y justificar una conclusión con evidencia.">${escapeHtml(workspace.objectives)}</textarea></div>
+        ${materials()}
+        ${rubricField()}
       </form>
-      <div class="step-col">${questionList()}${suggestionNote()}${materials()}</div>
+      <div class="step-col">${questionList()}${suggestionNote()}</div>
     </div>
     ${actionBar(saveStatus(1, dirty), `<button class="btn btn-primary" type="submit" form="workspace-context-form" id="ws-save-context">Guardar contexto</button>`)}`;
 }

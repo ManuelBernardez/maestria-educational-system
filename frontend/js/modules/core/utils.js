@@ -81,11 +81,9 @@ export const errorText = (error) => error?.message || 'No se pudo completar la o
  * (por defecto hereda el `--tone` del contenedor o usa salvia). `leadHtml` sólo
  * debe recibir HTML ya escapado.
  */
-export function heading(title, description, actions = '', { kicker, tone, leadHtml } = {}) {
-  const isAdmin = ['admin', 'superadmin'].includes(state.profile?.role);
-  const label = kicker || (isAdmin ? 'Administración' : 'Espacio docente');
+export function heading(title, description, actions = '', { tone, leadHtml } = {}) {
   const toneAttr = tone == null ? '' : ` data-tone-h="${Number(tone)}"`;
-  return `<header class="view-header"${toneAttr}><div class="view-heading-copy"><p class="view-kicker">${escapeHtml(label)}</p><h1>${escapeHtml(title)}</h1>${leadHtml || description ? `<p class="view-lead">${leadHtml || escapeHtml(description)}</p>` : ''}</div>${actions ? `<div class="view-actions">${actions}</div>` : ''}</header>`;
+  return `<header class="view-header"${toneAttr}><div class="view-heading-copy"><h1>${escapeHtml(title)}</h1>${leadHtml || description ? `<p class="view-lead">${leadHtml || escapeHtml(description)}</p>` : ''}</div>${actions ? `<div class="view-actions">${actions}</div>` : ''}</header>`;
 }
 
 export function panel(title, description, body, actions = '') {

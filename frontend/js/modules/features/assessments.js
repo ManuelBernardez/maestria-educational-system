@@ -59,10 +59,12 @@ export function renderAssessments() {
     ${resultCount(`${visibleGroups.length} ${visibleGroups.length === 1 ? 'evaluación' : 'evaluaciones'} · ${examTotal} ${examTotal === 1 ? 'examen' : 'exámenes'}`, filtered ? 'clear-exam-filters' : '')}
   </div>`;
 
-  const fold = ({ assessment, exams }) => {
+  // Acordeón: al filtrar se abre sólo la primera evaluación con resultados.
+  const firstWithExams = filtered ? visibleGroups.findIndex(group => group.exams.length) : -1;
+  const fold = ({ assessment, exams }, index) => {
     const reviewCount = exams.filter(item => examStatus(item) === 'review').length;
     const courseId = assessment.course ?? assessment.course_id;
-    return `<details class="fold" data-ui-key="assessment-${escapeHtml(assessment.id)}" data-tone="${toneOf(courseId ?? 'none')}" ${filtered && exams.length ? 'open' : ''}>
+    return `<details class="fold" data-ui-key="assessment-${escapeHtml(assessment.id)}" data-tone="${toneOf(courseId ?? 'none')}" ${index === firstWithExams ? 'open' : ''}>
       <summary><span class="fold-copy"><strong>${escapeHtml(assessment.title)}</strong><small>${escapeHtml(assessment.course_name || 'Sin curso')} · Actualizada ${escapeHtml(date(assessment.updated_at))}</small></span>${statusPill(assessment.status)}${reviewCount ? `<span class="count-badge" title="${reviewCount} por revisar"><span class="visually-hidden">Por revisar: </span>${reviewCount}</span>` : ''}<span class="fold-count">${exams.length}<span class="visually-hidden"> exámenes</span></span>${icon('chevron')}</summary>
       <div class="fold-body">${exams.length ? `<div class="work-list">${exams.map(examRow).join('')}</div>` : '<p class="muted">Todavía no hay exámenes cargados para esta evaluación.</p>'}<div class="fold-footer">${btn('Trabajar en el espacio', 'open-in-workspace', `data-id="${escapeHtml(assessment.id)}"`, 'primary')}${btn('Editar', 'edit-assessment', `data-id="${escapeHtml(assessment.id)}"`)}</div></div>
     </details>`;

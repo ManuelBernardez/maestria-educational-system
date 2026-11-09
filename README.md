@@ -1,4 +1,4 @@
-# MaestrIA v1.1.1
+# MaestrIA v1.1.2
 
 Plataforma educativa para asistir a docentes en la preparación de evaluaciones, revisión de entregas y elaboración de devoluciones pedagógicas. El frontend se entrega como **HTML5, CSS y JavaScript nativos**; Django REST Framework sirve también el frontend y consume PostgreSQL/Supabase; producción utiliza un único dominio.
 
@@ -186,6 +186,20 @@ No habilites despliegue final hasta comprobar login, logout, recuperación de co
 - `docs/AI-EVALUATION-v0.2.0.md`: evaluación IA con datos sintéticos.
 - `docs/CONFIGURACION-IA-EXTERNA.md`: referencia para configurar proveedores externos y revisar el tratamiento de datos antes de habilitarlos.
 - `docs/PRUEBAS-LOCALES.md`: entorno local con PostgreSQL en Docker, sin tocar Supabase de producción.
+
+## Cambios v1.1.2
+
+- **Panel docente:** los indicadores (Por revisar, Revisadas, Tiempo ahorrado) son botones que abren el historial de correcciones filtrado por ese estado.
+- **Desplegables exclusivos:** en todo el sitio sólo queda abierto un desplegable por grupo; al abrir otro, el anterior se pliega (`frontend/js/modules/core/disclosure.js`; en el sitio público, `<details name>`).
+- **Curso:** cuatro desplegables (Estudiantes, Evaluaciones, Entregas, Correcciones); se quitó «Resumen del curso» y la descripción del curso pasó debajo del título. Cada paso del recorrido muestra en su círculo la cantidad de elementos de su desplegable, abre ese desplegable al hacer clic y comparte su color.
+- **Correcciones:** un desplegable por curso (acordeón); dentro, chips para filtrar por evaluación cuando el curso tiene más de una. Cada fila se titula con el nombre del estudiante.
+- **Espacio de trabajo más limpio:** sin rótulos «Paso N ·» repetidos, marca de agua ni nota al pie; la portada sólo muestra estado y curso. Paso 1: «Apuntes y materiales» forma parte del formulario de contexto (debajo de los objetivos, arriba de la rúbrica); la rúbrica queda a la vista y agregar/reemplazar material sólo aparece al elegir un archivo. Paso 2: privacidad en una línea (sin desplegable), sin barra de progreso ni contador duplicados; con un archivo adjunto el cuadro de texto se bloquea; renglones más tenues en la respuesta del estudiante. La lista de entregas muestra nombre y legajo (sin avatar), arranca filtrada por «Pendientes» y el filtro es un selector (Pendientes / Aprobadas / Todas). Al editar una entrega, «Nueva entrega» la deselecciona y deja el formulario listo para cargar otra. Paso 3: «Criterios» primero, sin índice de secciones, «Expandir todo», selector de entrega duplicado ni «Sugerido por la IA» en cada criterio; la columna izquierda muestra la respuesta y, plegada, la consigna.
+- **Archivos e IA:** los archivos se procesan en memoria y sólo se guarda el texto extraído (más nombre y tipo). Ahora el DOCX incluye el texto de las tablas; los TXT en Windows‑1252 se leen bien; se eliminan bytes NUL que PostgreSQL rechazaba (error 500); un PDF con contraseña da un mensaje claro. Con Gemini, el contexto de la corrección se cortaba en 8.000 caracteres y la IA perdía el material de referencia (y a veces la consigna): ahora la consigna va primero y el tope es 42.000. La «respuesta esperada» de cada consigna se guardaba pero nunca llegaba a la IA: ahora forma parte del contexto de la corrección. La interfaz avisa que la IA lee los primeros 12.000 caracteres del material. Si la corrección fallaba después de subir un archivo, el reintento quedaba bloqueado: corregido.
+- **Menú lateral:** sin scroll horizontal; textos y botones se ajustan al ancho (también contraído y en móvil).
+- **Valores por defecto:** «Mis materias» se muestra como lista compacta y el tema inicial es el claro (el oscuro queda sólo si se elige).
+- **Guía de uso:** se abre sola la primera vez que la persona entra o mientras no tenga cursos creados (una vez por sesión). Sin íconos decorativos.
+- **Revisión pedagógica (`?view=correction`):** no muestra el proveedor de IA; cada criterio es un plegable (acordeón, el primero abierto). Un campo inválido dentro de un plegable cerrado se abre al enviar, e «Imprimir» despliega todo antes de imprimir.
+- **Portadas:** se quitaron las etiquetas superiores (`view-kicker`) de los encabezados de sección.
 
 ## Cambios v1.1.0 – v1.1.1
 
