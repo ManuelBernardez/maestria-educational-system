@@ -265,7 +265,7 @@ class AIGeneration(PublicTable):
 class AuditEvent(PublicTable):
     ACTOR_ROLE_CHOICES = [(role, role) for role in ("teacher", "student", "admin", "superadmin", "system")]
     # NULL cuando la identidad dueña fue eliminada de Supabase Auth: la traza se conserva
-    # (migración 20261109170000, AUD-008).
+    # (migración 20261109174649, AUD-008).
     owner_id = models.UUIDField(editable=False, null=True)
     # Largos iguales a las columnas reales de producción (AUD-015).
     event_type = models.CharField(max_length=80)

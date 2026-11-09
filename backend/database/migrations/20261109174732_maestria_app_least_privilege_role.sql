@@ -1,4 +1,4 @@
--- Migration 20261109180000 / maestria_app_least_privilege_role
+-- Migration 20261109174732 / maestria_app_least_privilege_role
 -- Auditoría técnica 2026-11-09, AUD-006.
 --
 -- Situación verificada: Django se conecta como `postgres` (DATABASE_URL de Render,

@@ -1,4 +1,4 @@
--- Migration 20261109170000 / maestria_integrity_and_audit_retention
+-- Migration 20261109174649 / maestria_integrity_and_audit_retention
 -- Auditoría técnica 2026-11-09 (docs/auditoria/AUDITORIA_TECNICA_MAESTRIA.md):
 --   AUD-028  una sola propuesta pending_review por entrega, también en la base.
 --   AUD-008  borrar una identidad de Supabase Auth ya no elimina su traza de auditoría.
