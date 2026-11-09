@@ -25,7 +25,8 @@
     const password = document.getElementById('new-password').value;
     const confirmation = document.getElementById('confirm-password').value;
     if (!tokenSession?.access_token || fragment.get('type') !== 'recovery') return show('El enlace de recuperación no está disponible o venció. Solicitá uno nuevo.');
-    if (password.length < 8) return show('La contraseña debe tener al menos 8 caracteres.');
+    const passwordError = api.passwordPolicyError(password);
+    if (passwordError) return show(passwordError);
     if (password !== confirmation) return show('Las contraseñas no coinciden.');
     const button = form.querySelector('[type="submit"]'); button.disabled = true;
     try {
