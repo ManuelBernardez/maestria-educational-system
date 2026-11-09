@@ -6,5 +6,8 @@
   "scripts": {
     "check:frontend": "python scripts/check_static_frontend.py && python scripts/check_csp_contract.py && python scripts/check_workflow_contract.py && node scripts/check_display_numbers.mjs"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "supabase": "^2.122.1"
+  }
 }
