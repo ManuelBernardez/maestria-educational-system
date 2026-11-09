@@ -206,8 +206,16 @@ class Command(BaseCommand):
             if schema_name != "public" or "public" not in search_path.split(",") and "public" not in search_path:
                 warnings.append("La conexión no muestra public como esquema actual/search_path; revisar OPTIONS -c search_path=public.")
 
-            cursor.execute("SELECT to_regclass('auth.users')")
-            if cursor.fetchone()[0] is None:
+            # pg_catalog en lugar de to_regclass('auth.users'): to_regclass exige USAGE sobre el
+            # esquema auth, que el rol de mínimo privilegio maestria_app no tiene (AUD-006).
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_catalog.pg_class c
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'auth' AND c.relname = 'users'
+                )
+            """)
+            if not cursor.fetchone()[0]:
                 errors.append("No se encuentra auth.users; Supabase Auth debe existir.")
 
             cursor.execute("""
