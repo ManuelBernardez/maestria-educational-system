@@ -153,7 +153,7 @@ export async function handleModalSubmit(form, button) {
       await api.patch(`admin/contact-messages/${modal.dataset.recordId}/`, payload);
       closeModal(true); await afterWrite('Mensaje actualizado.', ['admin']);
     } else if (kind === 'new-provider' || kind === 'edit-provider') {
-      const payload = { provider: values.provider, model_name: values.model_name.trim(), enabled: values.enabled === 'true', priority: Number(values.priority), timeout_seconds: Number(values.timeout_seconds), input_usd_per_1k_tokens: values.input_usd_per_1k_tokens === '' ? null : Number(values.input_usd_per_1k_tokens), output_usd_per_1k_tokens: values.output_usd_per_1k_tokens === '' ? null : Number(values.output_usd_per_1k_tokens) };
+      const payload = { provider: values.provider, model_name: values.model_name.trim(), enabled: values.enabled === 'true', priority: Number(values.priority), timeout_seconds: Number(values.timeout_seconds), input_usd_per_1k_tokens: values.input_usd_per_1k_tokens === '' ? null : Number(values.input_usd_per_1k_tokens), output_usd_per_1k_tokens: values.output_usd_per_1k_tokens === '' ? null : Number(values.output_usd_per_1k_tokens), confirm_external_processing: values.confirm_external_processing === 'true' };
       if (kind === 'new-provider') await api.post('admin/ai-providers/', payload);
       else await api.patch(`admin/ai-providers/${modal.dataset.recordId}/`, payload);
       closeModal(true); await afterWrite('Configuración de proveedor guardada.', ['admin']);

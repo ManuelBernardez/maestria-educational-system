@@ -1,5 +1,6 @@
 import httpx
 from ..ai import REFERENCE_CONTEXT_CHARS as MAX_REFERENCE_CONTEXT_CHARS, locate_evidence, weighted_total_by_question
+from ..ai_guard import ai_slot
 from ..models import AuditEvent
 from .common import (
     AIUserRateThrottle,
@@ -185,6 +186,13 @@ class SubmissionViewSet(OwnerViewSet):
 
     @action(detail=True, methods=["post"], url_path="generate-correction", throttle_classes=[AIUserRateThrottle])
     def generate_correction_action(self, request, pk=None):
+        # Validar propiedad (404) antes de consumir cupo; luego tomar un cupo de IA
+        # del proceso para que las generaciones no agoten los hilos web (AUD-001).
+        self.get_object()
+        with ai_slot(request.user.id):
+            return self._generate_correction(request, pk)
+
+    def _generate_correction(self, request, pk=None):
         submission = self.get_object()
         submission_updated_at = submission.updated_at
         assessment_updated_at = submission.assessment.updated_at

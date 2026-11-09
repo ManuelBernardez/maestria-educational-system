@@ -41,6 +41,7 @@ from ..serializers import (
     CorrectionSummarySerializer, RubricCriterionSerializer, RubricLevelSerializer, RubricOptionSerializer, RubricSerializer,
     StudentOptionSerializer, StudentSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
 )
+from ..client_ip import client_ip
 from ..throttles import AIUserRateThrottle, ContactRateThrottle, ContactUserRateThrottle
 from ..admin_api import PublicContactMessageSerializer
 
@@ -132,7 +133,8 @@ def record_audit(owner_id, event_type, object_type, object_id, detail=None, requ
                 user_id=actor_user_id, status="active",
             ).values_list("role", flat=True).first() or "system"
         request_id = getattr(request, "request_id", None)
-        ip_address = request.META.get("REMOTE_ADDR")
+        # REMOTE_ADDR es la IP del proxy de Render; usar la IP real informada por Cloudflare.
+        ip_address = client_ip(request)
         user_agent = request.META.get("HTTP_USER_AGENT", "")[:1000] or None
     AuditEvent.objects.create(
         owner_id=owner_id, actor_user_id=actor_user_id, actor_role=actor_role,

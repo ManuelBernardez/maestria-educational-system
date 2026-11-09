@@ -62,6 +62,14 @@ Debe terminar con `Esquema compatible: 20 tablas, 19 FK compuestas, ...`.
 cd backend && .venv/bin/pytest -q
 ```
 
+pytest crea su propia base desechable en el mismo servidor y le instala **el esquema de
+producción**: `db/local_supabase_stub.sql` + `db/maestria_schema.sql` + las migraciones de
+`backend/database/migrations/` posteriores a la versión del encabezado del snapshot (ver
+`backend/conftest.py`). No existe un esquema de pruebas aparte: si una migración nueva
+cambia índices o restricciones, la suite la aplica automáticamente, y
+`SchemaContractTests` ejecuta `verify_public_schema` contra esa base. Con Supabase local
+(opción A) usá `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres`.
+
 `conftest.py` se niega a ejecutar si `DATABASE_URL` apunta a `*.supabase.co` /
 `*.supabase.com`, y fuerza `AI_PROVIDER=mock` con credenciales vacías.
 

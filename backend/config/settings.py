@@ -157,13 +157,58 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500").split(",") if x.strip()]
 CSRF_TRUSTED_ORIGINS = [x.strip().rstrip("/") for x in os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500").split(",") if x.strip()]
 
+def _env_list(name, default=""):
+    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+def _env_int(name, default, minimum=1, maximum=10_000):
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
+
+
+# Cachés (AUD-005):
+# - "default" (memoria del proceso): límites anti-ráfaga generales de cada request. Son
+#   aproximados por worker, pero no agregan consultas a Supabase en cada petición.
+# - "shared" (tabla public.django_cache, ya existente en Supabase): contadores de los
+#   límites sensibles (IA y contacto), compartidos entre workers y persistentes entre deploys.
+CACHES = {
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "maestria-local"},
+    "shared": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+        "TIMEOUT": 60 * 60 * 24,
+        "OPTIONS": {"MAX_ENTRIES": 20_000, "CULL_FREQUENCY": 4},
+    },
+}
+
+# Cabeceras de IP de cliente confiables, en orden. Cloudflare (delante de Render) las
+# sobrescribe; X-Forwarded-For no se usa porque Render conserva el valor del cliente.
+TRUSTED_CLIENT_IP_HEADERS = _env_list(
+    "TRUSTED_CLIENT_IP_HEADERS", "" if DEBUG else "True-Client-IP,CF-Connecting-IP",
+)
+
+# IA (AUD-001): generaciones simultáneas por proceso de Gunicorn. El resto de los hilos
+# queda libre para HTML, API y health check aunque el proveedor tarde.
+AI_MAX_CONCURRENT_REQUESTS = _env_int("AI_MAX_CONCURRENT_REQUESTS", 2, 1, 32)
+# Espera máxima por un cupo antes de responder 503 "intentá en unos segundos".
+AI_SLOT_WAIT_SECONDS = _env_int("AI_SLOT_WAIT_SECONDS", 5, 0, 60)
+# Cuota persistente por docente en 24 h (se cuenta en public.ai_generation). 0 = sin cuota.
+AI_DAILY_LIMIT_PER_USER = _env_int("AI_DAILY_LIMIT_PER_USER", 300, 0, 100_000)
+# Deadline total de generación de consignas y rúbricas (la corrección usa el suyo).
+AI_SUGGESTION_DEADLINE_SECONDS = _env_int("AI_SUGGESTION_DEADLINE_SECONDS", 100, 10, 140)
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["apps.core.authentication.SupabaseJWTAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["apps.core.permissions.IsWorkspaceUser"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    # Violaciones de integridad de PostgreSQL → 409/400 controlados (AUD-003).
+    "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
     # Avoid loading django.contrib.auth.models.AnonymousUser for unauthenticated API requests.
     "UNAUTHENTICATED_USER": None,
-    "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.AnonRateThrottle", "rest_framework.throttling.UserRateThrottle"],
+    "DEFAULT_THROTTLE_CLASSES": ["apps.core.throttles.MaestriaAnonRateThrottle", "apps.core.throttles.MaestriaUserRateThrottle"],
     # Cada guardado del espacio docente recarga ~10 recursos; 120/min se agotaba en pocas acciones.
     # Los límites se pueden ajustar por entorno sin tocar el código.
     "DEFAULT_THROTTLE_RATES": {

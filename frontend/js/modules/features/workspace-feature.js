@@ -340,9 +340,14 @@ async function moveQuestion(id, direction) {
   if (from < 0 || to < 0 || to >= ordered.length) return;
   const reordered = [...ordered];
   [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
-  const changes = reordered.map((row, index) => ({ row, position: index + 1 })).filter(({ row, position }) => Number(row.position) !== position);
-  const updated = await Promise.all(changes.map(({ row, position }) => api.patch(`questions/${row.id}/`, { position })));
-  updated.forEach(storeQuestion);
+  // Una sola petición atómica: el índice único (evaluación, posición) de la base no
+  // admite intercambiar posiciones con un PATCH por consigna (respondía 500).
+  const result = await api.post(`assessments/${workspace.assessmentId}/reorder-questions/`, { order: reordered.map(row => Number(row.id)) });
+  workspace.questions = [
+    ...workspace.questions.filter(row => String(row.assessment) !== String(workspace.assessmentId)),
+    ...(Array.isArray(result?.questions) ? result.questions : [])
+  ];
+  storeAssessment({ id: workspace.assessmentId, questions: workspace.questions });
   pendingFocus = `#ws-question-${id} [data-action="workspace-question-move"][data-direction="${direction}"], #ws-question-${id} [data-action="workspace-question-edit"]`;
   announce('Orden de consignas actualizado.');
 }

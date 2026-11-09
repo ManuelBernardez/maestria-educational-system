@@ -16,14 +16,27 @@ from .models import (
     AIProviderConfig, AuditEvent, ContactMessage, Institution,
     InstitutionMembership, UserProfile,
 )
+from .client_ip import client_ip
 from .permissions import IsGlobalAdmin, active_memberships, active_profile, global_role
 
 SUPERADMIN_GUARD_LOCK = (1297303908, 1)
 
 
+def auth_user_exists(user_id):
+    """Consulta Supabase Auth sin acceso directo al esquema auth (AUD-006).
+
+    El rol de mínimo privilegio `maestria_app` no puede leer auth.users; la función
+    SECURITY DEFINER sólo responde si la identidad existe.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT public.maestria_auth_user_exists(%s::uuid)", [str(user_id)])
+        row = cursor.fetchone()
+    return bool(row and row[0])
+
+
 def _audit(request, event_type, object_type, object_id, detail=None):
     role = global_role(request.user) or "teacher"
-    ip = request.META.get("REMOTE_ADDR")
+    ip = client_ip(request)
     AuditEvent.objects.create(
         owner_id=request.user.id,
         actor_user_id=request.user.id,
@@ -181,10 +194,7 @@ class UserProfileAdminSerializer(serializers.ModelSerializer):
             if value != self.instance.user_id:
                 raise serializers.ValidationError("No se puede cambiar la identidad Supabase de un perfil existente.")
             return value
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM auth.users WHERE id = %s", [str(value)])
-            exists = cursor.fetchone()
-        if not exists:
+        if not auth_user_exists(value):
             raise serializers.ValidationError("La identidad no existe en Supabase Auth.")
         return value
 
@@ -389,10 +399,8 @@ class InstitutionMembershipSerializer(serializers.ModelSerializer):
     def validate_user_id(self, value):
         if self.instance and value != self.instance.user_id:
             raise serializers.ValidationError("No se puede cambiar la identidad de una membresía existente.")
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM auth.users WHERE id = %s", [str(value)])
-            if not cursor.fetchone():
-                raise serializers.ValidationError("La identidad no existe en Supabase Auth.")
+        if not auth_user_exists(value):
+            raise serializers.ValidationError("La identidad no existe en Supabase Auth.")
         return value
 
     def validate(self, attrs):
@@ -507,20 +515,62 @@ class AIProviderConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
+def _confirmation_flag(value):
+    return value is True or str(value).strip().lower() in {"true", "1", "on", "yes"}
+
+
 class AIProviderConfigViewSet(viewsets.ModelViewSet):
+    """Configuración de proveedores IA.
+
+    Habilitar un proveedor externo envía respuestas de estudiantes a un tercero. Esa
+    decisión exige rol superadmin y una confirmación explícita que queda auditada
+    (AUD-012); no basta con cambiar una fila de la base desde cualquier cuenta admin.
+    """
     queryset = AIProviderConfig.objects.all()
     serializer_class = AIProviderConfigSerializer
     permission_classes = [IsAuthenticated, IsGlobalAdmin]
 
+    def _external_processing_gate(self, serializer):
+        instance = serializer.instance
+        data = serializer.validated_data
+        provider = data.get("provider", getattr(instance, "provider", "mock"))
+        enabled = data.get("enabled", getattr(instance, "enabled", False))
+        model_name = data.get("model_name", getattr(instance, "model_name", ""))
+        if not enabled or provider == "mock":
+            return False
+        was_same_enabled = bool(
+            instance and instance.enabled and instance.provider == provider and instance.model_name == model_name
+        )
+        if was_same_enabled:
+            # Ajustes de prioridad, timeout o costos de un proveedor ya aprobado.
+            return False
+        if global_role(self.request.user) != "superadmin":
+            raise PermissionDenied("Sólo un superadministrador puede habilitar un proveedor de IA externo.")
+        if not _confirmation_flag(self.request.data.get("confirm_external_processing")):
+            raise ValidationError({
+                "confirm_external_processing": (
+                    "Confirmá que la institución autorizó enviar respuestas de estudiantes a este proveedor externo."
+                )
+            })
+        return True
+
     def perform_create(self, serializer):
+        confirmed = self._external_processing_gate(serializer)
         with transaction.atomic():
             obj = serializer.save(updated_by=self.request.user.id)
-            _audit(self.request, "ai_provider_config.created", "ai_provider_config", obj.pk, {"provider": obj.provider})
+            _audit(self.request, "ai_provider_config.created", "ai_provider_config", obj.pk, {
+                "provider": obj.provider, "enabled": obj.enabled, "model_name": obj.model_name,
+                "external_processing_confirmed": confirmed,
+            })
 
     def perform_update(self, serializer):
+        confirmed = self._external_processing_gate(serializer)
         with transaction.atomic():
             obj = serializer.save(updated_by=self.request.user.id)
-            _audit(self.request, "ai_provider_config.updated", "ai_provider_config", obj.pk, {"provider": obj.provider, "enabled": obj.enabled})
+            _audit(self.request, "ai_provider_config.updated", "ai_provider_config", obj.pk, {
+                "provider": obj.provider, "enabled": obj.enabled, "model_name": obj.model_name,
+                "external_processing_confirmed": confirmed,
+            })
 
     def destroy(self, request, *args, **kwargs):
         with transaction.atomic():
@@ -544,9 +594,9 @@ class AdminAuditEventViewSet(viewsets.ReadOnlyModelViewSet):
         actor = self.request.query_params.get("actor")
         owner = self.request.query_params.get("owner")
         if event_type:
-            qs = qs.filter(event_type=event_type[:120])
+            qs = qs.filter(event_type=event_type[:80])
         if object_type:
-            qs = qs.filter(object_type=object_type[:120])
+            qs = qs.filter(object_type=object_type[:80])
         if actor:
             try:
                 from uuid import UUID

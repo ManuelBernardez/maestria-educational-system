@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: starter
     buildCommand: pip install -r backend/requirements-prod.txt && cd backend && python manage.py collectstatic --noinput
-    startCommand: cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --worker-class gthread --workers 2 --threads 4 --timeout 150 --keep-alive 5 --access-logfile - --error-logfile -
+    startCommand: cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --worker-class gthread --workers 2 --threads 6 --timeout 150 --keep-alive 5 --access-logfile - --error-logfile -
     healthCheckPath: /api/health/
     envVars:
       - key: PYTHON_VERSION
@@ -40,6 +40,15 @@ services:
         value: "60"
       - key: AI_MAX_CONCURRENT_ANSWERS
         value: "3"
+      # Generaciones de IA simultáneas por worker (2 workers × 2 = 4 en total); los otros
+      # 4 hilos de cada worker quedan libres para HTML, API y health check (AUD-001).
+      - key: AI_MAX_CONCURRENT_REQUESTS
+        value: "2"
+      - key: AI_DAILY_LIMIT_PER_USER
+        value: "300"
+      # Cloudflare (delante de Render) fija estas cabeceras; X-Forwarded-For es falsificable.
+      - key: TRUSTED_CLIENT_IP_HEADERS
+        value: "True-Client-IP,CF-Connecting-IP"
       - key: CORS_ALLOWED_ORIGINS
         value: ""
       - key: CSRF_TRUSTED_ORIGINS
