@@ -52,6 +52,8 @@ from .common import (
     throttle_classes,
     transaction,
 )
+from django.conf import settings
+from django.core.mail import get_connection
 
 @api_view(["GET"])
 def dashboard_overview(request):
@@ -573,14 +575,18 @@ def contact(request):
                 user_id, "contact_message.created", "contact_message", message.pk,
                 {"category": message.category, "source": "public_web"}, request=request,
             )
-    # Email notification is best-effort and independent from database persistence.
-    if os.getenv("CONTACT_NOTIFY_EMAIL") and os.getenv("DEFAULT_FROM_EMAIL"):
-        try:
-            send_mail(
-                f"Contacto MaestrIA: {message.subject}",
-                f"Nombre: {message.name}\nCorreo: {message.email}\n\n{message.message}",
-                os.getenv("DEFAULT_FROM_EMAIL"), [os.getenv("CONTACT_NOTIFY_EMAIL")], fail_silently=True,
-            )
-        except Exception:
-            logger.warning("Contact notification failed")
+    # The message is always mailed to the site's contact inbox (a simulated address with
+    # the console backend unless SMTP is configured). Delivery is best-effort: the
+    # message is already persisted, so a mail failure never fails the request.
+    try:
+        send_mail(
+            f"Contacto MaestrIA: {message.subject}",
+            f"Nombre: {message.name}\nCorreo: {message.email}\nMotivo: {message.category}\n\n{message.message}",
+            settings.CONTACT_FROM_EMAIL, [settings.CONTACT_NOTIFY_EMAIL],
+            fail_silently=False, connection=get_connection(settings.CONTACT_EMAIL_BACKEND),
+        )
+    except Exception as exc:
+        # The SMTP error (e.g. "535 Username and Password not accepted") never includes
+        # the password, so it is safe to log and it makes misconfiguration diagnosable.
+        logger.warning("Contact notification failed for message %s: %s: %s", message.pk, type(exc).__name__, exc)
     return Response({"detail": "Mensaje recibido. Gracias por escribirnos."}, status=status.HTTP_201_CREATED)

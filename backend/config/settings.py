@@ -266,3 +266,15 @@ try:
 except ValueError:
     EMAIL_TIMEOUT = 5
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
+
+# Formulario de contacto: cada consulta se guarda en contact_message y además se envía
+# por correo. Sin SMTP configurado, el correo va a una casilla simulada del sitio y se
+# escribe en el log del servidor (backend de consola), igual que mail() en un entorno local.
+CONTACT_NOTIFY_EMAIL = os.getenv("CONTACT_NOTIFY_EMAIL", "").strip() or "contacto@maestria.test"
+CONTACT_FROM_EMAIL = DEFAULT_FROM_EMAIL or "no-responder@maestria.test"
+CONTACT_EMAIL_BACKEND = os.getenv(
+    "CONTACT_EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST and os.getenv("CONTACT_NOTIFY_EMAIL", "").strip()
+    else "django.core.mail.backends.console.EmailBackend",
+)

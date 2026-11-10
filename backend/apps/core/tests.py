@@ -235,6 +235,14 @@ class APIRootTests(SimpleTestCase):
         self.assertIn("style-src 'self' https://fonts.googleapis.com", csp)
         self.assertIn("connect-src 'self' https://*.supabase.co https://*.supabase.com", csp)
         self.assertNotIn("unsafe-inline", csp)
+        self.assertIn("frame-src https://www.google.com https://maps.google.com", csp)
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"SUPABASE_URL": "http://127.0.0.1:54321"}):
+            local_csp = Client().get("/")["Content-Security-Policy"]
+        self.assertIn("connect-src 'self' https://*.supabase.co https://*.supabase.com http://127.0.0.1:54321;", local_csp)
+        with patch.dict("os.environ", {"SUPABASE_URL": "https://abc.supabase.co"}):
+            cloud_csp = Client().get("/")["Content-Security-Policy"]
+        self.assertIn("connect-src 'self' https://*.supabase.co https://*.supabase.com;", cloud_csp)
         health = Client().get("/api/health/")
         self.assertEqual(health["Content-Type"], "application/json")
         # The HTML policy (style-src/connect-src for the browser app) must not leak into

@@ -1,9 +1,11 @@
 """PostgreSQL integration tests for composite integrity and administrative APIs."""
+from unittest.mock import patch
 from uuid import uuid4
 
+from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from .authentication import SupabasePrincipal
@@ -83,6 +85,26 @@ class PublicContactMessageTests(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         message = ContactMessage.objects.get(email="docente@example.test")
         self.assertEqual(str(message.user_id), str(self.teacher_id))
+
+    def test_contact_mails_the_message_to_the_simulated_site_inbox(self):
+        with override_settings(
+            CONTACT_EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+            CONTACT_NOTIFY_EMAIL="contacto@maestria.test",
+        ):
+            response = APIClient().post("/api/contact/", self.payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ["contacto@maestria.test"])
+        self.assertEqual(sent.subject, "Contacto MaestrIA: Consulta de demostración")
+        self.assertIn("docente@example.test", sent.body)
+        self.assertIn("Necesito información sobre la plataforma MaestrIA.", sent.body)
+
+    def test_mail_failure_does_not_lose_the_stored_message(self):
+        with patch("apps.core.api_views.dashboard.send_mail", side_effect=OSError("smtp caído")):
+            response = APIClient().post("/api/contact/", self.payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(ContactMessage.objects.filter(email="docente@example.test").exists())
 
     def test_public_form_rejects_privileged_workflow_fields(self):
         payload = {**self.payload, "status": "handled", "assigned_to": str(self.teacher_id), "internal_notes": "nota"}

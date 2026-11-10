@@ -62,6 +62,12 @@ def _execute_sql_file(cursor, path, sqlparse):
             cursor.execute(cleaned)
 
 
+@pytest.fixture(autouse=True)
+def contact_mail_stays_in_memory(settings):
+    """Las pruebas nunca envían correo real, aunque backend/.env tenga SMTP configurado."""
+    settings.CONTACT_EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+
+
 @pytest.fixture(scope="session", autouse=True)
 def install_supabase_contract_schema(django_db_setup, django_db_blocker):
     if connection.vendor != "postgresql":

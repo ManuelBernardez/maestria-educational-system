@@ -1,4 +1,7 @@
 import mimetypes
+import os
+from urllib.parse import urlsplit
+
 from django.http import FileResponse, Http404, JsonResponse
 from django.urls import include, path, re_path
 from django.conf import settings
@@ -7,6 +10,22 @@ from django.views.decorators.csrf import csrf_exempt
 from apps.core.views import health
 
 ASSETS_COOKIE = "maestria_assets"
+
+
+def _supabase_connect_sources():
+    """Orígenes de Supabase Auth que el navegador puede consultar.
+
+    Además de los dominios de Supabase en la nube, admite el SUPABASE_URL configurado
+    (por ejemplo, Supabase local en http://127.0.0.1:54321 para una instalación local).
+    """
+    sources = ["https://*.supabase.co", "https://*.supabase.com"]
+    parsed = urlsplit(os.getenv("SUPABASE_URL", "").strip())
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        host = parsed.hostname or ""
+        if not (parsed.scheme == "https" and (host.endswith(".supabase.co") or host.endswith(".supabase.com"))):
+            sources.append(origin)
+    return " ".join(sources)
 
 
 def api_root(request):
@@ -71,7 +90,9 @@ def frontend_file(request, frontend_path=""):
             "style-src 'self' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
-            "connect-src 'self' https://*.supabase.co https://*.supabase.com; "
+            f"connect-src 'self' {_supabase_connect_sources()}; "
+            # Solo el mapa de Google de la sección de contacto puede embeberse.
+            "frame-src https://www.google.com https://maps.google.com; "
             "object-src 'none'; "
             "base-uri 'self'; "
             "form-action 'self'; "

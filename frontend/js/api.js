@@ -255,6 +255,19 @@
     return `A la contraseña le falta ${list}.`;
   }
 
+  // Errores frecuentes de Supabase Auth (registro, login y recuperación), por error_code.
+  const AUTH_ERROR_MESSAGES = {
+    email_address_invalid: 'Ese correo electrónico no es válido o no puede recibir mensajes. Usá una dirección real.',
+    email_address_not_authorized: 'No se pueden enviar correos a esa dirección. Usá otra dirección.',
+    user_already_exists: 'Ya existe una cuenta con ese correo. Ingresá o recuperá tu contraseña.',
+    email_exists: 'Ya existe una cuenta con ese correo. Ingresá o recuperá tu contraseña.',
+    invalid_credentials: 'El correo o la contraseña son incorrectos.',
+    email_not_confirmed: 'Todavía no confirmaste tu correo. Revisá tu bandeja de entrada.',
+    over_email_send_rate_limit: 'Se enviaron demasiados correos. Esperá unos minutos y volvé a intentar.',
+    over_request_rate_limit: 'Demasiados intentos. Esperá unos minutos y volvé a intentar.',
+    signup_disabled: 'El registro de cuentas nuevas está deshabilitado.',
+  };
+
   // Supabase Auth responde en inglés; los rechazos de contraseña se traducen.
   function authErrorMessage(payload, statusCode) {
     if (payload?.error_code === 'weak_password') {
@@ -263,6 +276,8 @@
       return `La contraseña no cumple los requisitos. ${PASSWORD_RULES}`;
     }
     if (payload?.error_code === 'same_password') return 'La nueva contraseña debe ser distinta de la actual.';
+    const translated = AUTH_ERROR_MESSAGES[payload?.error_code];
+    if (translated) return translated;
     return errorMessage(payload, statusCode);
   }
 

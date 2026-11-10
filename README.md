@@ -417,7 +417,7 @@ Por defecto se usa `mock`, que genera propuestas de demostración **no aprobable
 
 ## 🧪 Pruebas y calidad
 
-La suite de backend tiene **160 pruebas** (pytest) sobre permisos y aislamiento entre docentes, administración, flujo de corrección, evidencia de IA, reintentos ante fallas del proveedor, escala de notas y nota final, procesamiento de documentos, matrícula en lote, exportación de notas, foto de perfil y correcciones de auditoría. Corre contra un PostgreSQL de prueba separado; `conftest.py` impide ejecutarla contra Supabase de producción.
+La suite de backend tiene **162 pruebas** (pytest) sobre permisos y aislamiento entre docentes, administración, flujo de corrección, evidencia de IA, reintentos ante fallas del proveedor, escala de notas y nota final, procesamiento de documentos, matrícula en lote, exportación de notas, foto de perfil, formulario de contacto y correcciones de auditoría. Corre contra un PostgreSQL de prueba separado; `conftest.py` impide ejecutarla contra Supabase de producción.
 
 ```powershell
 cd backend

@@ -149,8 +149,7 @@
 .contact-aside { display: flex; gap: 13px; max-width: 500px; padding: 15px 17px; border-radius: 15px; margin-top: 25px; background: rgba(255,253,247,.8); }
 .contact-aside > span { color: var(--coral-deep); font-size: 1.35rem; }
 .contact-aside p { margin: 0; color: #647067; font-size: .8rem; }
-.contact-aside strong { color: var(--ink); }
-.contact-form { display: grid; gap: 16px; padding: 23px; border: 1px solid rgba(32,45,40,.08); border-radius: 22px; background: #fffdf8; box-shadow: 0 14px 36px rgba(25,45,37,.07); }
+.contact-aside strong { color: var(--ink); }.contact-form { display: grid; gap: 16px; padding: 23px; border: 1px solid rgba(32,45,40,.08); border-radius: 22px; background: #fffdf8; box-shadow: 0 14px 36px rgba(25,45,37,.07); }
 .form-field { display: grid; gap: 7px; }
 .form-field label { color: #35473d; font-size: .78rem; font-weight: 700; }
 .form-field input, .form-field select, .form-field textarea { width: 100%; min-height: 47px; padding: 12px 14px; border: 1px solid #d9dfd6; border-radius: 12px; outline: none; background: #fbfaf5; color: var(--ink); font: 400 .88rem/1.5 var(--sans); transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
@@ -1203,6 +1202,26 @@ main .process-ethos-copy h2 em {
 }
 @media (max-width: 680px) {
   .about-learning-illustration { width: min(100%, 410px); }
+}
+
+/* Mapa de Google (UTN Haedo) en el lugar de la ilustración de Nosotros. */
+.about-map {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 440px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 6px solid #fffdf7;
+  border-radius: 28px;
+  background: #e9ede4;
+  box-shadow: 0 28px 70px rgba(5, 20, 15, .25);
+}
+.about-map iframe { display: block; width: 100%; height: 100%; border: 0; }
+.about-hero-visual .about-visual-caption { position: static; margin-top: 16px; }
+/* Lenis desactiva los iframes para suavizar el scroll; el mapa necesita arrastre y zoom. */
+.lenis.lenis-smooth .about-map iframe { pointer-events: auto; }
+@media (max-width: 680px) {
+  .about-map { width: min(92%, 360px); border-width: 5px; border-radius: 22px; }
 }
 
 /* Trama de puntos sutil en las secciones de fondo gris/arena (no en las blancas ni en las verdes). */

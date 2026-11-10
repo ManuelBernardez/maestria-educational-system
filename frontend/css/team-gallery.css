@@ -37,6 +37,12 @@
 .team-links a, .team-links span { display: inline-flex; align-items: center; justify-content: center; min-height: 35px; padding: 0 13px; border: 1px solid rgba(49,91,73,.17); border-radius: 999px; background: #f5f6f0; color: #315b49; font-size: .72rem; font-weight: 700; text-decoration: none; }
 .team-links a:hover { background: #315b49; color: #fffdf8; }
 .team-links span { border-style: dashed; background: transparent; color: #89928a; font-weight: 500; }
+/* Logo de la plataforma dentro del óvalo de cada enlace. */
+.team-links a span { width: 16px; min-height: 0; height: 16px; padding: 0; margin-left: 7px; border: 0; border-radius: 0; background: transparent center / contain no-repeat; transition: filter .2s ease; }
+/* Sobre el fondo verde del hover, el logo pasa a blanco para no perderse. */
+.team-links a:hover span { filter: brightness(0) invert(1); }
+.team-links a[aria-label^="LinkedIn"] span { background-image: url("/assets/images/icon-linkedin.svg"); }
+.team-links a[aria-label^="GitHub"] span { background-image: url("/assets/images/icon-github.svg"); }
 @media (max-width: 980px) { .team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; } }
 @media (max-width: 600px) {
   .team-grid { grid-template-columns: minmax(0, 1fr); max-width: 390px; gap: 16px; }
