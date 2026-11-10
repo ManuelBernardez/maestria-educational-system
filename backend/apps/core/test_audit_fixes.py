@@ -213,6 +213,66 @@ class ClientIPTests(TestCase):
         self.assertEqual(client_ip(request), "127.0.0.1")
 
 
+_LOCMEM_CACHES = {
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "contact-default"},
+    "shared": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "contact-shared"},
+}
+
+
+@override_settings(CACHES=_LOCMEM_CACHES, TRUSTED_CLIENT_IP_HEADERS=[])
+class ContactThrottleTests(TestCase):
+    """Un visitante puede enviar 5 mensajes por hora (antes cada envío contaba doble)."""
+
+    def setUp(self):
+        caches["shared"].clear()
+
+    def _send(self, number):
+        return APIClient().post("/api/contact/", {
+            "name": "Visitante", "email": "visitante@example.com",
+            "subject": f"Consulta {number}", "message": "Quisiera más información sobre MaestrIA.",
+        }, format="json", REMOTE_ADDR="198.51.100.20")
+
+    def test_anonymous_visitor_gets_five_messages_per_hour_and_a_clear_message(self):
+        for number in range(1, 6):
+            self.assertEqual(self._send(number).status_code, 201, f"el mensaje {number} debería aceptarse")
+        blocked = self._send(6)
+        self.assertEqual(blocked.status_code, 429)
+        detail = blocked.json()["detail"]
+        self.assertIn("5 mensajes por hora", detail)
+        self.assertIn("Vas a poder enviar uno nuevo en", detail)
+        self.assertNotIn("throttled", detail)
+
+
+class ProfileAvatarTests(TestCase):
+    """Foto de perfil: se guarda como data URL validada y se devuelve en /api/me/."""
+
+    # PNG real de 1x1 píxel.
+    PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+    def setUp(self):
+        self.user_id = uuid4()
+        ensure_auth_users(self.user_id)
+        self.client = _client_for(self.user_id)
+
+    def test_upload_read_and_remove_avatar(self):
+        saved = self.client.put("/api/me/avatar/", {"avatar": self.PNG}, format="json")
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.assertEqual(self.client.get("/api/me/").json()["avatar"], self.PNG)
+        removed = self.client.delete("/api/me/avatar/")
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(UserProfile.objects.get(user_id=self.user_id).avatar_data, "")
+
+    def test_rejects_non_images_and_mismatched_content(self):
+        for value in ("hola", "data:text/html;base64,PGgxPg==", "data:image/jpeg" + self.PNG[len("data:image/png"):], "data:image/png;base64,***"):
+            response = self.client.put("/api/me/avatar/", {"avatar": value}, format="json")
+            self.assertEqual(response.status_code, 400, value)
+        self.assertEqual(UserProfile.objects.get(user_id=self.user_id).avatar_data, "")
+
+    def test_rejects_oversized_avatar(self):
+        response = self.client.put("/api/me/avatar/", {"avatar": "data:image/png;base64," + "A" * 200_001}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+
 class LeastPrivilegeRoleTests(TestCase):
     """AUD-006: la API completa funciona con `maestria_app` (sin BYPASSRLS ni acceso a auth)."""
 

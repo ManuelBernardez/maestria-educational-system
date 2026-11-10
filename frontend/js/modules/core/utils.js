@@ -15,6 +15,17 @@ export const formatInputNumber = (value) => {
   return normalized === '-0' ? '0' : normalized;
 };
 
+/**
+ * Puntaje sugerido para una consigna nueva (escala argentina: la evaluación vale 10).
+ * Propone 2 puntos o lo que falte para llegar a 10, si es menos; con 10 o más ya
+ * asignados vuelve a 2. El docente siempre puede cambiarlo.
+ */
+export const suggestedQuestionScore = (questions = []) => {
+  const total = questions.reduce((sum, item) => sum + (Number(item.max_score) || 0), 0);
+  const remaining = Math.floor((10 - total) * 2) / 2;
+  return String(remaining >= 0.5 ? Math.min(2, remaining) : 2);
+};
+
 /** Display application scores with at most two meaningful decimal places.
  * PostgreSQL DecimalFields use scale 18; those storage zeros must never leak into UI.
  * Inputs keep their exact normalized decimal string through formatInputNumber().

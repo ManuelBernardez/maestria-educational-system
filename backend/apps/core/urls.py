@@ -8,7 +8,7 @@ from .views import (
     AssessmentViewSet, CourseViewSet, EnrollmentViewSet, QuestionViewSet,
     RubricCriterionViewSet, RubricLevelViewSet, RubricViewSet, StudentViewSet,
     SubmissionAnswerViewSet, SubmissionViewSet, CorrectionViewSet,
-    audit_events, client_config, contact, correction_workspace, current_user_profile, dashboard_overview, dashboard_summary, seed_demo_dataset,
+    audit_events, client_config, contact, correction_workspace, current_user_avatar, current_user_profile, dashboard_overview, dashboard_summary, seed_demo_dataset,
 )
 
 router = DefaultRouter()
@@ -33,6 +33,7 @@ router.register("admin/audit-events", AdminAuditEventViewSet, basename="admin-au
 urlpatterns = [
     path("client-config/", client_config, name="client-config"),
     path("me/", current_user_profile, name="current-user-profile"),
+    path("me/avatar/", current_user_avatar, name="current-user-avatar"),
     path("dashboard/overview/", dashboard_overview, name="dashboard-overview"),
     path("dashboard/summary/", dashboard_summary, name="dashboard-summary"),
     path("correction-workspace/", correction_workspace, name="correction-workspace"),

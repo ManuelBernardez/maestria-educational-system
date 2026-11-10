@@ -32,3 +32,7 @@ test-results/
 .mcp.json
 # Archivos de bloqueo temporales de Word/Office
 ~$*
+# Material de la presentación (guion, datos de demo): local, no se versiona
+docs/presentacion/
+# Configuración local de Supabase CLI (npx supabase start): no se versiona
+supabase/

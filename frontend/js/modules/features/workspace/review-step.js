@@ -32,27 +32,49 @@ function weightedTotal(items) {
  * backend), con piso MIN_FINAL_GRADE. Antes se sumaban los puntajes sin ponderar y la nota
  * de esta pantalla podía no coincidir con la que quedaba guardada al aprobar.
  */
-export const totals = () => {
-  const list = criteria();
+/** Nota calculada por criterios, máximo y mínimo admitido. La usan ambas vistas de revisión. */
+export function gradeFor(list) {
   const max = list.reduce((sum, item) => sum + Math.max(0, finiteOr(item.max_score, 0)), 0);
   const groups = new Map();
   list.forEach(item => {
     const key = item.question_id == null ? '' : String(item.question_id);
     groups.set(key, [...(groups.get(key) || []), item]);
   });
-  let score = Math.round([...groups.values()].reduce((sum, group) => sum + weightedTotal(group), 0) * 100) / 100;
-  if (max >= MIN_FINAL_GRADE) score = Math.max(MIN_FINAL_GRADE, score);
-  return { score, max };
+  let computed = Math.round([...groups.values()].reduce((sum, group) => sum + weightedTotal(group), 0) * 100) / 100;
+  if (max >= MIN_FINAL_GRADE) computed = Math.max(MIN_FINAL_GRADE, computed);
+  return { computed, max, minimum: max >= MIN_FINAL_GRADE ? MIN_FINAL_GRADE : 0 };
+}
+
+export const totals = () => {
+  const { computed, max, minimum } = gradeFor(criteria());
+  // Aprobada: manda la nota guardada (puede haberla fijado el docente). En revisión: la
+  // nota fijada a mano si es válida; si no, la calculada por criterios.
+  if (isApproved() && workspace.correction?.total_score != null) return { score: Number(workspace.correction.total_score), computed, max, minimum, overridden: Boolean(workspace.proposal?.final_score_overridden) };
+  const manual = workspace.finalScore === '' ? NaN : Number(workspace.finalScore);
+  const valid = Number.isFinite(manual) && manual >= minimum && manual <= max;
+  const overridden = valid && Math.abs(manual - computed) >= 0.005;
+  return { score: overridden ? Math.round(manual * 100) / 100 : computed, computed, max, minimum, overridden };
 };
 
-export const reviewedCount = () => criteria().filter((_, index) => workspace.review.reviewed.has(index)).length;
+/** Nota final editable: arranca en la calculada y el docente puede fijar otra (con motivo). */
+/** ¿Hay que justificar? Sólo si cambió algún puntaje o la nota final. */
+export const needsReason = () => totals().overridden || criteria().some((item, index) => Number(item.score) !== Number(originalCriteria()[index]?.score));
 
-/** Ponderación relativa: el peso del criterio sobre la suma de pesos (1 = 100 % si es el único). */
-function weightPercent(item) {
-  if (item.weight == null) return null;
-  const sum = criteria().reduce((acc, row) => acc + (row.weight == null ? 0 : Number(row.weight) || 0), 0);
-  return sum > 0 ? Math.round(Number(item.weight) / sum * 1000) / 10 : null;
+/** Cierre de la revisión, junto al botón «Aprobar»: nota final y, si hace falta, el motivo. */
+function closingFields() {
+  if (isApproved() || workspace.proposal?.demo) return '';
+  const { computed, max, minimum, overridden } = totals();
+  const value = workspace.finalScore === '' ? formatInputNumber(computed) : workspace.finalScore;
+  return `<div class="form-field reason-row" data-reason-field ${needsReason() ? '' : 'hidden'}><label for="workspace-change-reason">Motivo del cambio <small class="ws-block-optional">obligatorio</small></label><input id="workspace-change-reason" type="text" maxlength="250" data-workspace-change-reason value="${escapeHtml(workspace.changeReason)}" placeholder="Por qué cambiaste el puntaje o la nota"></div>
+    <div class="final-score-row"><label for="workspace-final-score">Nota final</label>${scoreStepper({ id: 'workspace-final-score', value, max, min: minimum, attrs: 'data-workspace-final-score', label: 'la nota final' })}<span class="muted">/ ${escapeHtml(formatNumber(max))}</span><span class="field-hint" data-final-score-hint>${finalScoreHint(computed, overridden)}</span></div>`;
 }
+
+/** Si la nota fue fijada a mano, muestra la calculada y cómo volver a ella. */
+export function finalScoreHint(computed, overridden) {
+  return overridden ? `Calculada: ${escapeHtml(formatNumber(computed))} · <button type="button" class="text-link" data-action="workspace-final-score-reset">Usar la calculada</button>` : '';
+}
+
+export const reviewedCount = () => criteria().filter((_, index) => workspace.review.reviewed.has(index)).length;
 
 /**
  * Busca un fragmento literal en la respuesta comparando con espacios normalizados.
@@ -132,10 +154,10 @@ export function criterionMark(index) {
 
 function evidenceBlock(item, index, submission) {
   const evidence = item.evidence || '';
-  if (!evidence) return '<p class="muted">No se encontró evidencia literal suficiente. Revisá manualmente.</p>';
+  if (!evidence) return '<p class="muted">Sin evidencia literal: revisalo en la respuesta.</p>';
   const found = findFragment(criterionAnswer(submission, item).text, evidence);
   const long = evidence.length > EVIDENCE_CLAMP_CHARS;
-  return `<blockquote class="evidence${long ? ' is-clamped' : ''}" id="ws-evidence-${index}">${escapeHtml(evidence)}</blockquote>
+  return `<span class="read-label">Evidencia</span><blockquote class="evidence${long ? ' is-clamped' : ''}" id="ws-evidence-${index}">${escapeHtml(evidence)}</blockquote>
     <p class="evidence-links">${long ? `<button type="button" class="text-link" data-action="workspace-evidence-expand" data-index="${index}" aria-controls="ws-evidence-${index}" aria-expanded="false">Ver completa</button>` : ''}${found ? `<button type="button" class="text-link" data-action="workspace-show-evidence" data-index="${index}">Ver en la respuesta</button>` : '<span class="muted">No se encontró en la respuesta</span>'}</p>`;
 }
 
@@ -145,20 +167,20 @@ function criterionCard(item, index, submission) {
   const reviewed = workspace.review.reviewed.has(index);
   const name = item.criterion || `Criterio ${index + 1}`;
   const max = Number(item.max_score || 0);
-  const weight = weightPercent(item);
   const hidden = workspace.review.onlyUnreviewed && reviewed;
-  const { position } = criterionAnswer(submission, item);
+  // El nivel sólo aparece si la rúbrica lo define; «sin nivel» no le aporta nada al docente.
+  const level = item.level ? statusPill('review', item.level) : '';
+  // Qué se pregunta en esta consigna: el número y el máximo ya están en la cabecera.
+  const prompt = item.question_prompt ? `<p class="criterion-prompt">${escapeHtml(item.question_prompt)}</p>` : '';
   const editable = readonly
-    ? `<dl class="read-values"><div><dt>Puntaje</dt><dd>${escapeHtml(formatNumber(item.score))} / ${escapeHtml(formatNumber(max))}</dd></div><div><dt>Nivel sugerido</dt><dd>${escapeHtml(item.level || 'Sin nivel sugerido')}</dd></div></dl>
-       <p class="read-label">Evidencia literal en la respuesta</p>${evidenceBlock(item, index, submission)}
-       <dl class="read-values"><div class="full"><dt>Justificación del puntaje</dt><dd>${escapeHtml(item.justification || '—')}</dd></div></dl>`
-    : `<div class="form-grid">
-        <div class="form-field"><label for="workspace-score-${index}">Puntaje</label>${scoreStepper({ id: `workspace-score-${index}`, value: formatInputNumber(item.score), max, attrs: `data-workspace-criterion="${index}" data-field="score" aria-describedby="workspace-score-${index}-error"`, label: name })}<p class="field-error" id="workspace-score-${index}-error" role="alert" data-score-error="${index}"></p></div>
-        <div class="form-field"><span class="read-label">Nivel sugerido</span><p class="read-value" id="workspace-level-${index}">${item.level ? statusPill('review', item.level) : 'Sin nivel sugerido'}</p></div>
-      </div>
-      <p class="read-label">Evidencia literal en la respuesta</p>${evidenceBlock(item, index, submission)}
-      <div class="form-field"><label for="workspace-justification-${index}">Justificación del puntaje</label><textarea id="workspace-justification-${index}" class="lined autogrow" rows="3" data-workspace-criterion="${index}" data-field="justification">${escapeHtml(item.justification || '')}</textarea></div>
-      <div class="criterion-foot"><label class="check"><input type="checkbox" data-workspace-reviewed="${index}" ${reviewed ? 'checked' : ''}><span>Revisé este criterio</span></label><button type="button" class="text-link" data-action="workspace-restore-criterion" data-index="${index}" ${criterionModified(index) ? '' : 'hidden'}>Restablecer a la sugerencia de la IA</button></div>`;
+    ? `${level ? `<p class="criterion-score-line">${level}</p>` : ''}
+       ${evidenceBlock(item, index, submission)}
+       <p class="criterion-justification">${escapeHtml(item.justification || '—')}</p>`
+    : `<div class="criterion-score-line"><label for="workspace-score-${index}">Puntaje</label>${scoreStepper({ id: `workspace-score-${index}`, value: formatInputNumber(item.score), max, attrs: `data-workspace-criterion="${index}" data-field="score" aria-describedby="workspace-score-${index}-error"`, label: name })}<span class="muted">/ ${escapeHtml(formatNumber(max))}</span>${level}</div>
+      <p class="field-error" id="workspace-score-${index}-error" role="alert" data-score-error="${index}"></p>
+      ${evidenceBlock(item, index, submission)}
+      <div class="form-field"><label for="workspace-justification-${index}">Justificación</label><textarea id="workspace-justification-${index}" class="autogrow" rows="2" data-workspace-criterion="${index}" data-field="justification">${escapeHtml(item.justification || '')}</textarea></div>
+      <div class="criterion-foot"><label class="check"><input type="checkbox" data-workspace-reviewed="${index}" ${reviewed ? 'checked' : ''}><span>Revisado</span></label><button type="button" class="text-link" data-action="workspace-restore-criterion" data-index="${index}" ${criterionModified(index) ? '' : 'hidden'}>Volver a la sugerencia de la IA</button></div>`;
   return `<article class="criterion" id="ws-criterion-${index}" data-criterion="${index}" ${hidden ? 'hidden' : ''}>
     <h4 class="criterion-heading"><button type="button" class="criterion-toggle" data-action="workspace-criterion-toggle" data-index="${index}" aria-expanded="${open}" aria-controls="ws-criterion-body-${index}">
       <span class="step-number" aria-hidden="true">${index + 1}</span>
@@ -168,7 +190,7 @@ function criterionCard(item, index, submission) {
       ${icon('chevron')}
     </button></h4>
     <div class="criterion-body" id="ws-criterion-body-${index}" ${open ? '' : 'hidden'}>
-      <p class="mono-meta">${position ? `Consigna ${position} · ` : ''}${weight != null ? `Ponderación ${escapeHtml(formatNumber(weight))}% · ` : ''}Máximo ${escapeHtml(formatNumber(max))} puntos</p>
+      ${prompt}
       ${editable}
     </div>
   </article>`;
@@ -251,9 +273,8 @@ function feedbackSection() {
   // Texto plano: el cuadro editable ya muestra cómo queda. Aprobada, se lee sin edición.
   const body = readonly
     ? `<div class="feedback-preview">${escapeHtml(text || 'Todavía no hay devolución.')}</div>`
-    : `<div class="form-field"><label for="workspace-feedback">Retroalimentación para el estudiante</label><textarea id="workspace-feedback" class="lined autogrow" rows="6" data-workspace-feedback>${escapeHtml(text)}</textarea></div>`;
-  const reason = isApproved() ? '' : `<div class="form-field"><label for="workspace-change-reason">Motivo del ajuste de puntaje <small class="ws-block-optional">sólo si cambiaste alguno · mín. 8 caracteres</small></label><textarea id="workspace-change-reason" rows="2" data-workspace-change-reason placeholder="Explicá el criterio pedagógico que justifica el cambio." ${readonly ? 'disabled' : ''}>${escapeHtml(workspace.changeReason)}</textarea></div>`;
-  return `${body}<p class="evidence-links">${readonly ? '' : '<button type="button" class="text-link" data-action="workspace-feedback-restore">Restablecer a la propuesta</button>'}<button type="button" class="text-link" data-action="workspace-copy-feedback">Copiar</button></p>${reason}`;
+    : `<label class="visually-hidden" for="workspace-feedback">Devolución para el estudiante</label><textarea id="workspace-feedback" class="lined autogrow" rows="6" data-workspace-feedback>${escapeHtml(text)}</textarea>`;
+  return `${body}<p class="evidence-links">${readonly ? '' : '<button type="button" class="text-link" data-action="workspace-feedback-restore">Volver a la propuesta</button>'}<button type="button" class="text-link" data-action="workspace-copy-feedback">Copiar</button></p>`;
 }
 
 function actionFooter() {
@@ -268,7 +289,7 @@ function actionFooter() {
   const warning = workspace.review.approveWarning
     ? `<div class="inline-confirm" role="alert"><p>Quedan ${criteria().length - reviewedCount()} criterios sin marcar como revisados. ¿Aprobar igual?</p><button type="button" class="btn btn-primary btn-small" data-action="workspace-approve-anyway">Aprobar igual</button><button type="button" class="btn btn-secondary btn-small" data-action="workspace-review-unreviewed">Revisar ahora</button></div>`
     : '';
-  return `${warning}<div class="step-actions step-actions--review">${status}<div class="step-actions-buttons">${menu}${primary}</div></div>`;
+  return `${warning}<div class="step-actions step-actions--review">${closingFields()}${status}<div class="step-actions-buttons">${menu}${primary}</div></div>`;
 }
 
 export function lockedReview() {

@@ -2,8 +2,6 @@
 
 <img src="frontend/assets/images/maestria-logo.png" alt="MaestrIA" width="260">
 
-### Corregir menos. Enseñar más.
-
 **Asistente inteligente para la corrección docente:** organiza cursos, evaluaciones y rúbricas, y usa inteligencia artificial para proponer correcciones con evidencia citada y devoluciones pedagógicas que el docente revisa y aprueba.
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -119,15 +117,21 @@ Diseño responsive, HTML semántico, navegación por teclado, foco visible y des
 | Módulo | Operaciones |
 |---|---|
 | **Panel docente** | Indicadores (por revisar, revisadas, tiempo ahorrado) que abren el historial filtrado; guía de uso; tema claro/oscuro. |
-| **Mis materias** | Alta, edición, archivado/reactivación y detalle por curso (estudiantes, evaluaciones, entregas y correcciones). |
-| **Estudiantes** | Alta, edición, activación/desactivación, **importación CSV** con plantilla y matrículas por curso. |
+| **Mis materias** | Alta, edición, archivado/reactivación, detalle por curso (estudiantes, evaluaciones, entregas y correcciones) y **exportación de notas** a CSV para Excel. |
+| **Estudiantes** | Alta, edición, activación/desactivación, **importación CSV** con plantilla (todo el archivo se matricula en el curso elegido) y **matrícula en lote** de estudiantes ya cargados en otro curso. |
 | **Evaluaciones** | Alta y edición, objetivos, instrucciones, material de referencia importado desde PDF/DOCX/TXT y estados. |
-| **Consignas** | Alta, edición, duplicado, reordenamiento y baja; **sugerencias generadas por IA**. |
+| **Consignas** | Alta, edición, duplicado, reordenamiento y baja; puntaje sugerido en escala de 10 (2 puntos o lo que falte para completar 10); **sugerencias generadas por IA**. |
 | **Rúbricas** | Criterios con peso y puntaje máximo, niveles de desempeño, normalización de pesos al 100 % y **generación asistida por IA**. |
 | **Espacio de trabajo** | Flujo Contexto → Entrega → Revisión, cola de entregas filtrable y edición de entregas. |
-| **Correcciones** | Propuesta IA por criterio con evidencia citada, ajuste de puntajes con motivo, aprobación, historial de revisiones. |
+| **Correcciones** | Propuesta IA por criterio con evidencia citada, ajuste de puntajes **y de la nota final** con motivo, aprobación, historial de revisiones. |
 | **Devoluciones** | Copiar, exportar (Markdown), imprimir/PDF, enviar por correo o WhatsApp, con registro de envíos. |
-| **Mi perfil** | Datos de la cuenta, actividad reciente y cierre de sesión. |
+| **Mi perfil** | Datos de la cuenta, **foto de perfil**, tono predeterminado de las devoluciones y cierre de sesión. |
+
+**Escala de notas.** La nota máxima de una evaluación es la suma de los puntos de sus consignas: 10 por defecto (5 consignas de 2 puntos), o 100 si el docente configura 10 consignas de 10. Si una consigna usa una rúbrica escrita en otra escala (por ejemplo, 4 criterios de 10 para una consigna de 2 puntos), al corregir sus criterios se reescalan proporcionalmente a los puntos de la consigna. Las consignas que propone la IA vienen con 2 puntos por defecto. La nota final nunca baja de 1. Al revisar, el docente puede fijar otra nota final entre 1 y el máximo; si difiere de la calculada por criterios, debe indicar el motivo, y queda registrado en el historial junto con la nota calculada.
+
+**Exportación de notas.** Desde el detalle del curso, «Exportar notas (CSV)» descarga una planilla con una fila por estudiante con matrícula activa (nombre, legajo, correo), una columna por evaluación y el promedio. Sólo se incluyen notas de correcciones **aprobadas**: una propuesta de la IA sin revisar no es una calificación. Usa separador `;`, coma decimal y UTF-8 con BOM para abrirse bien en Excel en español.
+
+**Matrícula de estudiantes.** La importación CSV matricula todo el archivo en el curso elegido en el mismo paso. Para sumar estudiantes ya cargados a otro curso, «Vincular existente» permite tildar varios (con búsqueda y «seleccionar todos»); la operación es todo o nada, omite a quienes ya estaban activos en el curso y reactiva las matrículas dadas de baja.
 
 ### Administración
 
@@ -284,8 +288,7 @@ flowchart LR
 - Protección del último superadministrador (`maestria_guard_last_superadmin`).
 - Seguridad a nivel de fila (RLS) y un rol de aplicación con privilegios mínimos.
 
-**Instalación limpia** (proyecto Supabase nuevo o Supabase local): ejecutar `db/maestria_schema.sql` —snapshot del esquema de producción— y luego, en orden, las migraciones de `backend/database/migrations/` posteriores a la versión indicada en su encabezado. Los scripts `db/maestria_schema_v2*.sql` son históricos (ver [`docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md`](docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md)).
-
+**Instalación limpia** (proyecto Supabase nuevo o Supabase local): ejecutar `db/maestria_schema.sql` —snapshot del esquema de producción— y luego, en orden, las migraciones de `backend/database/migrations/` posteriores a la versión indicada en su encabezado.
 > ⚠️ **No ejecutar** `migrate`, `makemigrations` ni `--fake` para crear tablas de negocio: el dominio `core` no se gestiona con migraciones de Django.
 
 Verificación de sólo lectura del esquema contra lo que espera el backend:
@@ -307,9 +310,12 @@ cd backend
 | Límites de uso | 60 peticiones/min anónimas, 900/min por usuario y 120/hora para IA; cuota diaria de IA por docente y tope de generaciones simultáneas. |
 | Contacto | Validación en cliente y servidor, campo trampa antispam; el backend fija estado y origen del mensaje. |
 | IA responsable | Evidencia citada validada literalmente; aprobación humana obligatoria; bloqueo *fail-closed* de proveedores externos sin autorización. |
-| Archivos | Se procesan en memoria y sólo se guarda el texto extraído. |
+| Fallas del proveedor | Si la IA responde 503/500/502/504/429 (p. ej. Gemini «UNAVAILABLE», modelo saturado), se reintenta hasta 3 veces con espera creciente (≈ 8 s en total) y respetando `Retry-After`. Opcionalmente se prueba una vez otro modelo (`GEMINI_FALLBACK_MODEL`). Si igual falla, la API responde 503 con `Retry-After` y un mensaje que aclara que no es un error de MaestrIA; la entrega queda lista para reintentar. |
+| Archivos | Entregas y material de referencia se procesan en memoria: sólo se guarda el texto extraído (`submission.answer_text`, `assessment.reference_material`); el archivo original nunca se almacena. |
+| Foto de perfil | Se guarda en la base, en `user_profile.avatar_data`, como imagen en base64 (no hay almacenamiento de archivos aparte). El navegador la recorta y reduce a 256×256 px (≈20–40 KB); el backend verifica que el contenido sea realmente JPG, PNG o WebP según sus bytes iniciales, y la restricción `user_profile_avatar_data_valid` rechaza en la base cualquier otro formato o más de 200.000 caracteres. Cada alta o baja queda auditada (`profile.avatar_updated` / `profile.avatar_removed`) con el tamaño, sin copiar la imagen al registro. |
+| Exportación de notas | El CSV neutraliza celdas que empiezan con `=`, `+`, `-` o `@` para evitar la inyección de fórmulas al abrirlo en Excel. |
 | Navegador | Contrato de Content Security Policy verificado en CI, sesión por pestaña y `Clear-Site-Data` entre versiones. |
-| Auditoría | Eventos de negocio y administración en `audit_event`; se conservan aunque se elimine la cuenta del usuario, y con el rol `maestria_app` la aplicación sólo puede agregarlos, no modificarlos. |
+| Auditoría | Eventos de negocio y administración en `audit_event`; se conservan aunque se elimine la cuenta del usuario, y con el rol `maestria_app` la aplicación sólo puede agregarlos, no modificarlos. Entre otros: `students.imported`, `enrollments.bulk_created`, `assessment.reference_imported`, `submission.imported`, `correction.proposed`, `correction.approved`, `correction.delivery`, `course.grades_exported`, `profile.avatar_updated` y `profile.avatar_removed`. |
 
 Antes de procesar datos reales con un proveedor externo, revisar [`docs/CONFIGURACION-IA-EXTERNA.md`](docs/CONFIGURACION-IA-EXTERNA.md) y [`docs/SECURITY-AND-PRIVACY.md`](docs/SECURITY-AND-PRIVACY.md).
 
@@ -341,7 +347,6 @@ maestria-starter/
 ├── db/                       # Snapshot del esquema y stub local
 ├── docs/                     # Arquitectura, API, auditorías, changelog
 ├── scripts/                  # Verificaciones estáticas usadas en CI
-├── supabase/                 # Configuración de Supabase local
 ├── .github/workflows/        # CI de backend y frontend
 └── render.yaml               # Despliegue en Render
 ```
@@ -412,7 +417,7 @@ Por defecto se usa `mock`, que genera propuestas de demostración **no aprobable
 
 ## 🧪 Pruebas y calidad
 
-La suite de backend tiene **130 pruebas** (pytest) sobre permisos y aislamiento entre docentes, administración, flujo de corrección, evidencia de IA, procesamiento de documentos y correcciones de auditoría. Corre contra un PostgreSQL de prueba separado; `conftest.py` impide ejecutarla contra Supabase de producción.
+La suite de backend tiene **160 pruebas** (pytest) sobre permisos y aislamiento entre docentes, administración, flujo de corrección, evidencia de IA, reintentos ante fallas del proveedor, escala de notas y nota final, procesamiento de documentos, matrícula en lote, exportación de notas, foto de perfil y correcciones de auditoría. Corre contra un PostgreSQL de prueba separado; `conftest.py` impide ejecutarla contra Supabase de producción.
 
 ```powershell
 cd backend

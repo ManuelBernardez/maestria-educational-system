@@ -1,5 +1,5 @@
 import httpx
-from ..ai import REFERENCE_CONTEXT_CHARS as MAX_REFERENCE_CONTEXT_CHARS, final_grade, locate_evidence
+from ..ai import REFERENCE_CONTEXT_CHARS as MAX_REFERENCE_CONTEXT_CHARS, DEFAULT_ASSESSMENT_SCALE, MIN_FINAL_GRADE, final_grade, locate_evidence, scale_rubric_to
 from ..ai_guard import ai_slot
 from ..models import AuditEvent
 from .common import (
@@ -37,9 +37,8 @@ from .common import (
     Substr,
     ValidationError,
     _read_document,
-    _safe_ai_error_detail,
     ai_error_code,
-    ai_error_http_status,
+    ai_error_response,
     action,
     active_ai_provider_config,
     async_to_sync,
@@ -366,7 +365,8 @@ class SubmissionViewSet(OwnerViewSet):
                     criteria = []
                     for number, question in enumerate(all_questions, start=1):
                         if question.rubric_id:
-                            block = rubric_payload(question.rubric)
+                            # La consigna manda: su rúbrica se reescala a sus puntos.
+                            block = scale_rubric_to(rubric_payload(question.rubric), float(question.max_score))
                             used_rubrics.append(question.rubric)
                             for item in block:
                                 item["name"] = f"Consigna {number} · {item['name']}"[:160]
@@ -382,12 +382,18 @@ class SubmissionViewSet(OwnerViewSet):
                         raise ValidationError({"rubric_id": "Las rúbricas de las consignas suman más de 30 criterios. Elegí una sola rúbrica para toda la entrega o corregí una consigna por vez."})
                 else:
                     rubric = requested_rubric or (question_obj.rubric if question_obj else None)
+                    # Escala de la nota: los puntos de la consigna; para toda la entrega, la suma
+                    # de los puntos de todas las consignas; sin consignas, 10.
+                    if question_obj is not None:
+                        scale = float(question_obj.max_score)
+                    else:
+                        scale = sum(float(item.max_score) for item in all_questions) or DEFAULT_ASSESSMENT_SCALE
                     if rubric:
-                        criteria = rubric_payload(rubric)
+                        criteria = scale_rubric_to(rubric_payload(rubric), scale)
                         used_rubrics.append(rubric)
                     else:
                         # No rubric means one global criterion, not model-invented subcriteria.
-                        criteria = default_rubric_for_question(float(question_obj.max_score if question_obj else 10))
+                        criteria = default_rubric_for_question(scale)
                 effective_max = sum(float(item["max_score"]) for item in criteria)
                 prepared_items.append({
                     "question": question_obj,
@@ -514,7 +520,7 @@ class SubmissionViewSet(OwnerViewSet):
                 release_reservation()
             record_ai_generation(request.user.id, "generate_correction", started, False, fingerprint(context), ai_error_code(exc), assessment=submission.assessment, submission=submission, provider_config=locals().get("provider_config"))
             logger.warning("AI correction generation failed (%s)", ai_error_code(exc))
-            return Response({"detail": _safe_ai_error_detail(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")}, status=ai_error_http_status(exc))
+            return ai_error_response(exc, "No se pudo generar la propuesta. Revisá la configuración del proveedor de IA y los límites de uso.")
 
         total = Decimal(str(final_grade(aggregate["criteria"])))
         try:
@@ -755,19 +761,43 @@ class CorrectionViewSet(OwnerViewSet):
                 "justification": str(item.get("justification", base_item.get("justification", "")))[:3000],
                 "evidence": evidence,
             })
-        final_result = {**final_result, "criteria": validated_criteria, "demo": bool(correction.proposal.get("demo", False))}
+        # Nota final: la calculada por criterios o, si el docente la fija a mano, la suya
+        # (entre la nota mínima y el máximo de la evaluación, con motivo obligatorio).
+        computed_score = Decimal(str(final_grade(validated_criteria)))
+        total_max = sum((Decimal(str(item["max_score"])) for item in validated_criteria), Decimal("0"))
+        final_score, overridden = computed_score, False
+        raw_final = request.data.get("final_score")
+        if raw_final not in (None, ""):
+            try:
+                requested = Decimal(str(raw_final).replace(",", "."))
+            except (InvalidOperation, ValueError, TypeError) as exc:
+                raise ValidationError({"final_score": "La nota final debe ser un número."}) from exc
+            if not requested.is_finite():
+                raise ValidationError({"final_score": "La nota final debe ser un número finito."})
+            minimum = Decimal(str(MIN_FINAL_GRADE)) if total_max >= Decimal(str(MIN_FINAL_GRADE)) else Decimal("0")
+            if requested < minimum or requested > total_max:
+                raise ValidationError({"final_score": f"La nota final debe estar entre {minimum.normalize():f} y {total_max.normalize():f}."})
+            requested = requested.quantize(Decimal("0.01"))
+            if abs(requested - computed_score) >= Decimal("0.005"):
+                final_score, overridden = requested, True
+        if overridden and len(change_reason) < 8:
+            raise ValidationError({"change_reason": "Explicá brevemente por qué modificaste la nota final (al menos 8 caracteres)."})
+        final_result = {
+            **final_result, "criteria": validated_criteria, "demo": bool(correction.proposal.get("demo", False)),
+            "computed_score": float(computed_score), "final_score": float(final_score), "final_score_overridden": overridden,
+        }
         with transaction.atomic():
             revision_number = (correction.revisions.order_by("-revision_number").values_list("revision_number", flat=True).first() or 0) + 1
             CorrectionRevision.objects.create(
                 correction=correction, owner_id=request.user.id, revision_number=revision_number,
                 previous_result=correction.final_result or {}, new_result=final_result,
-                reason=(change_reason if score_changed else "Aprobación docente sin cambios de puntaje")[:250],
+                reason=(change_reason if (score_changed or overridden) else "Aprobación docente sin cambios de puntaje")[:250],
             )
             correction.final_result = final_result
             correction.teacher_feedback = feedback
             correction.status = "approved"
             correction.approved_at = timezone.now()
-            correction.total_score = Decimal(str(final_grade(validated_criteria)))
+            correction.total_score = final_score
             correction.save(update_fields=["final_result", "teacher_feedback", "status", "approved_at", "total_score", "updated_at"])
             correction.criterion_results.all().delete()
             # Una consulta para todas las consignas y una inserción masiva (antes: una consulta
@@ -838,15 +868,28 @@ class CorrectionViewSet(OwnerViewSet):
         correction = self.get_object()
         data = correction.final_result if correction.status == "approved" else correction.proposal
         name = correction.submission.student.name if correction.submission.student else correction.submission.student_name or "Estudiante"
+
+        def number(value):
+            # Formato local, igual que en la interfaz y el CSV de notas: 6,5 en lugar de 6.50.
+            try:
+                return f"{float(value):.2f}".rstrip("0").rstrip(".").replace(".", ",")
+            except (TypeError, ValueError):
+                return "0"
+
+        criteria = data.get("criteria", [])
+        total_max = sum(float(item.get("max_score") or 0) for item in criteria if isinstance(item, dict))
+        total = f"{number(correction.total_score)} / {number(total_max)}" if total_max else number(correction.total_score)
+        if data.get("final_score_overridden"):
+            total += f" (fijada por el docente; calculada: {number(data.get('computed_score'))})"
         lines = [
             f"# Devolución — {correction.submission.assessment.title}", "",
             *(["**ADVERTENCIA: resultado demostrativo/simulado; no utilizar como calificación real.**", ""] if data.get("demo") else []),
             f"**Estudiante:** {name}",
             f"**Estado:** {'Aprobada por el docente' if correction.status == 'approved' else 'Propuesta pendiente de revisión'}",
-            f"**Puntaje total:** {correction.total_score}", "", "## Criterios",
+            f"**Nota:** {total}", "", "## Criterios",
         ]
-        for item in data.get("criteria", []):
-            lines += [f"### {item.get('question_prompt', item.get('criterion', 'Criterio'))}", f"**{item.get('criterion', 'Criterio')}** — Puntaje: {item.get('score', 0)} / {item.get('max_score', 0)}", str(item.get("justification", "")), f"Evidencia: {item.get('evidence', '')}", ""]
+        for item in criteria:
+            lines += [f"### {item.get('question_prompt', item.get('criterion', 'Criterio'))}", f"**{item.get('criterion', 'Criterio')}** — Puntaje: {number(item.get('score', 0))} / {number(item.get('max_score', 0))}", str(item.get("justification", "")), f"Evidencia: {item.get('evidence', '')}", ""]
         lines += ["## Retroalimentación", correction.teacher_feedback or data.get("feedback", "")]
         response = HttpResponse("\n".join(lines), content_type="text/markdown; charset=utf-8")
         response["Content-Disposition"] = 'attachment; filename="devolucion-maestria.md"'

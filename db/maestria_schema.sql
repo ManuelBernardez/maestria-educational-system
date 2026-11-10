@@ -1,9 +1,7 @@
 -- =============================================================================
 -- MaestrIA — esquema `public` de producción (snapshot)
 -- =============================================================================
--- FUENTE ÚNICA para instalaciones nuevas. Reemplaza a
--- db/maestria_schema_v2.sql y db/maestria_schema_v2_contract_alignment.sql,
--- que quedan como historial.
+-- FUENTE ÚNICA para instalaciones nuevas (reemplazó a los scripts v2, ya eliminados).
 --
 -- Origen:  `supabase db dump --schema public` del proyecto de producción,
 --          tomado el 2026-11-09. Incluye las migraciones hasta

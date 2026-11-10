@@ -42,7 +42,7 @@ from ..serializers import (
     StudentOptionSerializer, StudentSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
 )
 from ..client_ip import client_ip
-from ..throttles import AIUserRateThrottle, ContactRateThrottle, ContactUserRateThrottle
+from ..throttles import AIUserRateThrottle, ContactUserRateThrottle
 from ..admin_api import PublicContactMessageSerializer
 
 logger = logging.getLogger(__name__)
@@ -202,14 +202,27 @@ AI_CONFIGURATION_ERROR_CODES = frozenset({
 })
 
 
+def _provider_overloaded(exc):
+    """Falla transitoria del proveedor (sobrecarga, límite de velocidad o error interno)."""
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {429, 500, 502, 503, 504}
+
+
 def ai_error_http_status(exc):
     """Map provider/configuration/deadline failures to actionable HTTP statuses."""
     code = ai_error_code(exc)
-    if code in AI_CONFIGURATION_ERROR_CODES:
+    if code in AI_CONFIGURATION_ERROR_CODES or _provider_overloaded(exc):
         return status.HTTP_503_SERVICE_UNAVAILABLE
     if code == "PROVIDER_TIMEOUT":
         return status.HTTP_504_GATEWAY_TIMEOUT
     return status.HTTP_502_BAD_GATEWAY
+
+
+def ai_error_response(exc, fallback):
+    """Respuesta de error de IA: mensaje accionable y, si es transitorio, Retry-After."""
+    response = Response({"detail": _safe_ai_error_detail(exc, fallback)}, status=ai_error_http_status(exc))
+    if _provider_overloaded(exc):
+        response["Retry-After"] = "20"
+    return response
 
 
 def _safe_ai_error_detail(exc, fallback):
@@ -255,7 +268,11 @@ def _safe_ai_error_detail(exc, fallback):
                 return f"Google rechazó la solicitud (HTTP {code} {provider_state}): {provider_message}.{hint}".replace("..", ".")
             return f"El proveedor rechazó la solicitud (HTTP {code}): {provider_message}. Revisá el modelo y la configuración.".replace("..", ".")
         if code >= 500:
-            return "El proveedor de IA tuvo un error temporal (HTTP %d). Intentá nuevamente en unos instantes." % code
+            provider = "Gemini (Google)" if host == "generativelanguage.googleapis.com" else "El proveedor de IA"
+            return (
+                f"{provider} está saturado o con una falla temporal (HTTP {code}); no es un error de MaestrIA ni de tus datos. "
+                "Se reintentó automáticamente varias veces sin éxito. No se perdió nada de lo cargado: volvé a intentarlo en unos segundos."
+            )
     if isinstance(exc, httpx.TimeoutException):
         return "El proveedor de IA tardó demasiado en responder. Intentá nuevamente; si la entrega es muy larga, dividila."
     if isinstance(exc, httpx.ConnectError):

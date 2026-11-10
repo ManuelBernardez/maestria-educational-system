@@ -315,6 +315,7 @@ class UserProfile(PublicTable):
     user_id = models.UUIDField(unique=True)
     email = models.EmailField(max_length=254, blank=True, default="")
     full_name = models.CharField(max_length=180, blank=True, default="")
+    avatar_data = models.TextField(blank=True, default="")
     role = models.CharField(max_length=16, choices=ROLE_CHOICES, default="teacher")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="active")
     created_at = models.DateTimeField(auto_now_add=True)

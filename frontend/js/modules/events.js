@@ -6,13 +6,13 @@ import { refreshCore, refreshAdmin, loadAssessmentEditor, loadCorrectionForSubmi
 import { errorText, escapeHtml } from './core/utils.js';
 import { courseIdForSubmission, courseIdForCorrection } from './core/utils.js';
 import { courseForm } from './features/courses.js';
-import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsForm, enrollmentForm, submissionForm, generateQuestionsForm, importReferenceForm, newRubricCriterionForm, editCriterionForm, editLevelForm, newLevelForm, adminUserForm, institutionForm, membershipForm, messageForm, providerForm, generateRubric, handleModalSubmit, handleGenerateCorrection, handleApproveCorrection, handleAddSubmissionAnswer, handleQuestionProposal } from './features/forms.js';
+import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsForm, enrollmentForm, submissionForm, generateQuestionsForm, importReferenceForm, newRubricCriterionForm, editCriterionForm, editLevelForm, newLevelForm, adminUserForm, institutionForm, membershipForm, messageForm, providerForm, generateRubric, handleModalSubmit, handleGenerateCorrection, handleApproveCorrection, handleAddSubmissionAnswer, handleQuestionProposal, updateEnrollPicker } from './features/forms.js';
 import { copyCorrection, openCorrectionShareModal, handleShareAction } from './features/share.js';
-import { saveProfilePreferences } from './features/profile.js';
+import { saveProfilePreferences, uploadProfileAvatar, removeProfileAvatar } from './features/profile.js';
 import { GUIDE_STEPS, guideStep, setGuideStep, renderQuickStart, openQuickStart, closeQuickStart } from './features/guide.js';
 import { handleWorkspaceAction, handleWorkspaceSubmit, handleWorkspaceInput, handleWorkspaceChange, bindWorkspaceEvents, openAssessmentInWorkspace } from './features/workspace-feature.js';
 import { COURSE_FILTER_DEFAULTS } from './features/courses.js';
-import { CORRECTION_ASSESSMENT_GROUP } from './features/corrections.js';
+import { CORRECTION_ASSESSMENT_GROUP, refreshCorrectionForm, onCorrectionFinalInput, resetCorrectionFinal } from './features/corrections.js';
 import { bindExclusiveDetails, openExclusive } from './core/disclosure.js';
 
 // Un solo desplegable abierto por grupo en todo el espacio docente (vistas y modales).
@@ -253,6 +253,12 @@ async function clickAction(button) {
       case 'return-assessment': state.view = state.assessmentOrigin === 'course' && state.selectedCourse ? 'course' : 'courses'; render(); break;
       case 'open-correction': await openCorrection(id); break;
       case 'export-correction': await api.download(`corrections/${id}/export/`, `devolucion-maestria-${id}.md`); break;
+      case 'export-course-grades': {
+        const courseName = state.data.courses.find(item => String(item.id) === String(id))?.name || `curso-${id}`;
+        const slug = courseName.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || `curso-${id}`;
+        await api.download(`courses/${id}/grades-export/`, `notas-${slug}.csv`);
+        toast('Planilla de notas descargada. Sólo incluye correcciones aprobadas.'); break;
+      }
       case 'copy-correction': await copyCorrection(); break;
       case 'share-correction': openCorrectionShareModal(); break;
       case 'email-correction': openCorrectionShareModal(); break;
@@ -276,6 +282,8 @@ async function clickAction(button) {
       case 'edit-provider': providerForm(state.data.admin.providers.find(item => String(item.id) === String(id))); break;
       case 'logout':
         api.clearSession(); closeModal(); window.location.replace('../acceso.html'); break;
+      case 'profile-avatar-remove': await removeProfileAvatar(); break;
+      case 'correction-final-reset': { const form = button.closest('#approve-correction-form'); if (form) resetCorrectionFinal(form); break; }
       case 'refresh-resource':
         if (['admin', 'superadmin'].includes(state.profile?.role)) await refreshAdmin(); else await refreshCore(); render(); break;
       case 'help': openQuickStart(); break;
@@ -305,6 +313,12 @@ content?.addEventListener('click', event => {
 
 content?.addEventListener('input', event => {
   if (handleWorkspaceInput(event)) return;
+  const correctionForm = event.target.closest('#approve-correction-form');
+  if (correctionForm) {
+    if (event.target.matches('[data-correction-final]')) onCorrectionFinalInput(correctionForm, event.target);
+    else if (event.target.matches('[data-correction-score]')) refreshCorrectionForm(correctionForm);
+    return;
+  }
   if (event.target.matches('[data-admin-search]')) {
     state.adminSearch = event.target.value;
     const position = event.target.selectionStart; render();
@@ -319,6 +333,7 @@ content?.addEventListener('input', event => {
 
 content?.addEventListener('change', async event => {
   if (await handleWorkspaceChange(event)) return;
+  if (event.target.matches('[data-profile-avatar]')) { await uploadProfileAvatar(event.target); return; }
   if (event.target.matches('[data-filter="student-course"]')) { state.studentCourseFilter = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="course-cycle"]')) { state.courseFilters.cycle = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="course-sort"]')) { state.courseFilters.sort = event.target.value; render(); return; }
@@ -363,7 +378,8 @@ document.addEventListener('submit', async event => {
       const url = new URL(window.location.href); url.searchParams.set('assessment', created.id); url.searchParams.delete('course');
       window.history.replaceState({ ...(window.history.state || {}), view: 'assessment-new' }, '', url.toString());
       state.selectedAssessment = created.id; state.selectedCourse = values.course; state.view = 'assessment-new';
-      navigate('workspace');
+      // Fuerza la recarga: si el espacio de trabajo ya estaba cargado, no conocería la evaluación nueva.
+      openAssessmentInWorkspace(created.id);
       toast('Evaluación creada. Ya podés preparar materiales, consignas y entregas.');
     } catch (error) {
       let alert = form.querySelector('[data-form-error]');
@@ -376,7 +392,10 @@ document.addEventListener('submit', async event => {
   else if (form.id === 'profile-settings-form') { event.preventDefault(); await saveProfilePreferences(form); }
 });
 
+modal?.addEventListener('input', event => { if (event.target.matches('[data-enroll-search]')) updateEnrollPicker(event); });
+
 modal?.addEventListener('change', async event => {
+  if (event.target.closest('.enroll-picker')) { updateEnrollPicker(event); return; }
   if (!event.target.matches('[name="assessment"]')) return;
   const form = event.target.closest('form');
   if (!form || form.id !== 'workspace-modal-form') return;
@@ -403,6 +422,9 @@ document.addEventListener('click', event => {
   }
   const sideLink = event.target.closest('.side-link[data-view]');
   if (sideLink) { event.preventDefault(); navigate(sideLink.dataset.view); return; }
+  // Acciones fuera del contenido principal (p. ej. «＋ Crear materia» de la barra lateral).
+  const sidebarAction = event.target.closest('#sidebar-course-shortcuts [data-action]');
+  if (sidebarAction) { event.preventDefault(); closeSidebar(); clickAction(sidebarAction); return; }
   if (event.target.closest('[data-close-modal]') || event.target.id === 'modal-close') closeModal();
   const shareAction = event.target.closest('[data-share-action]')?.dataset.shareAction;
   if (shareAction) { event.preventDefault(); handleShareAction(shareAction).catch(error => toast(errorText(error), 'error')); return; }

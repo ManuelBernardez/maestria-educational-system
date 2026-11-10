@@ -1,6 +1,6 @@
 import { api } from '../core/api-client.js';
 import { state, content } from '../core/state.js';
-import { escapeHtml, formatNumber, statusPill, toneOf, icon } from '../core/utils.js';
+import { escapeHtml, formatNumber, formatInputNumber, statusPill, toneOf, icon } from '../core/utils.js';
 import { render, navigate } from '../core/router.js';
 import { toast } from '../core/ui.js';
 import { openExclusive } from '../core/disclosure.js';
@@ -13,7 +13,7 @@ import {
 import { MAX_FILE_BYTES, serverFieldErrors, stepTitleId } from './workspace/workspace-markup.js';
 import { contextStep, emptyQuestionDraft, questionDraft } from './workspace/context-step.js';
 import { deliveryStep, queueListMarkup } from './workspace/delivery-step.js';
-import { reviewStep, totals, reviewedCount, findFragment, criterionAnswer, criterionMark, criteriaSummary, fullAnswerText, navigationTarget, restoreCriterion } from './workspace/review-step.js';
+import { reviewStep, totals, reviewedCount, findFragment, criterionAnswer, criterionMark, criteriaSummary, fullAnswerText, navigationTarget, restoreCriterion, finalScoreHint, needsReason } from './workspace/review-step.js';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const HIGHLIGHT_MS = 4000;
@@ -92,7 +92,7 @@ function resetForAssessment(assessment) {
     studentId: '', studentName: '', rubricId: '', answerText: '', answerFile: null, materialFile: null,
     materialConfirmRemove: false, questionEditor: null, questionDeleteId: '', questionDeleteError: '', questionSuggestions: [],
     questionSuggestionDemo: false, suggestError: '', activeSubmission: null, correction: null, proposal: null, feedback: '',
-    changeReason: '', baseline: '', contextJustSaved: false, proposalReady: false, leaveGuard: null, lockedNotice: false,
+    changeReason: '', finalScore: '', baseline: '', contextJustSaved: false, proposalReady: false, leaveGuard: null, lockedNotice: false,
     search: '', statusFilter: 'pending', queueLimit: 50, error: ''
   });
   resetReview();
@@ -107,6 +107,7 @@ function applyCorrection(correction) {
   workspace.proposal = visible ? structuredClone(visible) : null;
   workspace.feedback = correction.teacher_feedback || visible?.feedback || '';
   workspace.changeReason = '';
+  workspace.finalScore = '';
   resetReview();
   const list = criteria();
   if (list.length) workspace.review.open.add(0);
@@ -475,12 +476,18 @@ async function approveCorrection() {
     const maximum = Number(item.max_score);
     if (!Number.isFinite(value) || !Number.isFinite(maximum) || value < 0 || value > maximum) throw new Error('Cada puntaje debe ser un número válido entre 0 y el máximo de su criterio.');
   }
+  const { score, max, minimum, overridden } = totals();
+  if (workspace.finalScore !== '' && !overridden && Math.abs(Number(workspace.finalScore) - score) >= 0.005) {
+    pendingFocus = '#workspace-final-score';
+    throw new Error(`La nota final debe ser un número entre ${formatNumber(minimum)} y ${formatNumber(max)}.`);
+  }
   const reason = workspace.changeReason.trim();
-  if (changed && reason.length < 8) { pendingFocus = '#workspace-change-reason'; throw new Error('Explicá brevemente por qué modificaste el puntaje (al menos 8 caracteres).'); }
+  if ((changed || overridden) && reason.length < 8) { pendingFocus = '#workspace-change-reason'; throw new Error(`Explicá brevemente por qué modificaste ${overridden && !changed ? 'la nota final' : 'el puntaje'} (al menos 8 caracteres).`); }
   workspace.approving = true;
   render();
   try {
-    const result = await api.post(`corrections/${correction.id}/approve/`, { final_result: proposal, teacher_feedback: workspace.feedback, change_reason: reason }, { timeoutMs: 90000 });
+    const payload = { final_result: proposal, teacher_feedback: workspace.feedback, change_reason: reason, ...(overridden ? { final_score: score } : {}) };
+    const result = await api.post(`corrections/${correction.id}/approve/`, payload, { timeoutMs: 90000 });
     const reviewed = workspace.review.reviewed;
     applyCorrection({ ...result, final_result: result.final_result || proposal });
     workspace.review.reviewed = reviewed;
@@ -522,7 +529,7 @@ function goToStep(step, { focusTab = false } = {}) {
 function startNewSubmission() {
   selectionController?.abort();
   Object.assign(workspace, {
-    activeSubmission: null, correction: null, proposal: null, feedback: '', changeReason: '', baseline: '',
+    activeSubmission: null, correction: null, proposal: null, feedback: '', changeReason: '', finalScore: '', baseline: '',
     studentId: '', studentName: '', answerText: '', answerFile: null, proposalReady: false, leaveGuard: null, error: '',
     questionId: defaultQuestionId()
   });
@@ -697,6 +704,22 @@ function refreshSaveStatus() {
   });
 }
 
+/** Nota total de la barra, el campo «Nota final» (si sigue a la calculada) y su ayuda. */
+function refreshTotals() {
+  const { score, computed, overridden } = totals();
+  const totalNode = content.querySelector('[data-review-total]');
+  if (totalNode) totalNode.textContent = formatNumber(score);
+  const totalMeter = content.querySelector('[data-review-meter]');
+  if (totalMeter) totalMeter.value = score;
+  const finalInput = content.querySelector('[data-workspace-final-score]');
+  if (finalInput && workspace.finalScore === '' && document.activeElement !== finalInput) finalInput.value = formatInputNumber(computed);
+  const hint = content.querySelector('[data-final-score-hint]');
+  if (hint) hint.innerHTML = finalScoreHint(computed, overridden);
+  // El motivo sólo aparece cuando cambió un puntaje o la nota final.
+  const reasonField = content.querySelector('[data-reason-field]');
+  if (reasonField) reasonField.hidden = !needsReason();
+}
+
 function refreshCriterion(index) {
   const item = criteria()[index];
   if (!item) return;
@@ -709,11 +732,7 @@ function refreshCriterion(index) {
   if (mark) mark.innerHTML = criterionMark(index);
   const restore = content.querySelector(`[data-action="workspace-restore-criterion"][data-index="${index}"]`);
   if (restore) restore.hidden = !criterionModified(index);
-  const { score, max: total } = totals();
-  const totalNode = content.querySelector('[data-review-total]');
-  if (totalNode) totalNode.textContent = formatNumber(score);
-  const totalMeter = content.querySelector('[data-review-meter]');
-  if (totalMeter) totalMeter.value = score;
+  refreshTotals();
   const progress = content.querySelector('[data-review-progress]');
   if (progress) progress.textContent = `${reviewedCount()} de ${criteria().length} criterios revisados`;
   const sectionSummary = content.querySelector('[data-section-summary="ws-sec-criteria"]');
@@ -879,6 +898,7 @@ export async function handleWorkspaceAction(button) {
       case 'workspace-only-pending': workspace.review.onlyPending = !workspace.review.onlyPending; render(); break;
       case 'workspace-only-unreviewed': workspace.review.onlyUnreviewed = !workspace.review.onlyUnreviewed; render(); break;
       case 'workspace-criterion-toggle': if (workspace.review.open.has(index)) setCriterionOpen(index, false); else openOnlyCriterion(index); break;
+      case 'workspace-final-score-reset': workspace.finalScore = ''; pendingFocus = '#workspace-final-score'; render(); announce('Nota final restablecida a la calculada por criterios.'); break;
       case 'workspace-restore-criterion': restoreCriterion(index); workspace.review.open = new Set([index]); pendingFocus = `#workspace-score-${index}`; render(); announce('Criterio restablecido a la sugerencia de la IA.'); break;
       case 'workspace-evidence-expand': {
         const quote = content.querySelector(`#ws-evidence-${index}`);
@@ -1000,6 +1020,17 @@ export function handleWorkspaceInput(event) {
   }
   if (target.matches('[data-workspace-feedback]')) { workspace.feedback = target.value; updateCharCount(target); refreshSaveStatus(); return true; }
   if (target.matches('[data-workspace-change-reason]')) { workspace.changeReason = target.value; return true; }
+  if (target.matches('[data-workspace-final-score]')) {
+    const { computed, max, minimum } = totals();
+    const value = Number(String(target.value).replace(',', '.'));
+    const valid = target.value !== '' && Number.isFinite(value) && value >= minimum && value <= max;
+    target.setAttribute('aria-invalid', String(!valid && target.value !== ''));
+    // Igual a la calculada = sin ajuste manual: sigue a los criterios si cambian.
+    workspace.finalScore = valid && Math.abs(value - computed) >= 0.005 ? String(value) : (valid ? '' : target.value);
+    refreshTotals();
+    refreshSaveStatus();
+    return true;
+  }
   return false;
 }
 

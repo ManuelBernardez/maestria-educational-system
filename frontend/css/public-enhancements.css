@@ -1205,5 +1205,18 @@ main .process-ethos-copy h2 em {
   .about-learning-illustration { width: min(100%, 410px); }
 }
 
+/* Trama de puntos sutil en las secciones de fondo gris/arena (no en las blancas ni en las verdes). */
+:root {
+  --paper-dots: radial-gradient(rgba(36, 75, 61, .13) 1px, transparent 1.3px) 0 0 / 22px 22px;
+}
+.pain-section,
+.faq-section,
+.evaluation-demo,
+.process-ethos { background: var(--paper-dots), var(--paper); }
+.process-section { background: var(--paper-dots), #f0ede4; }
+.features-section { background: var(--paper-dots), linear-gradient(145deg, #ebe7dc, #f4f1e8 72%); }
+.review-section { background: var(--paper-dots), #e9e6db; }
+.process-section::before { content: none; }
+
 /* Public contact spam trap: present in markup, unavailable to normal users. */
 .contact-honeypot { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }

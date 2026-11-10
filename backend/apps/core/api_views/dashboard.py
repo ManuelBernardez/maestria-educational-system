@@ -5,7 +5,6 @@ from .common import (
     AssessmentWorkspaceSerializer,
     AuditEvent,
     ContactMessage,
-    ContactRateThrottle,
     ContactUserRateThrottle,
     Correction,
     CorrectionCriterionResult,
@@ -498,14 +497,59 @@ def current_user_profile(request):
         "user_id": str(request.user.id),
         "email": getattr(request.user, "email", "") or (profile.email if profile else ""),
         "full_name": profile.full_name,
+        "avatar": profile.avatar_data,
         "role": profile.role,
         "status": profile.status,
         "memberships": memberships,
     })
 
+
+# La imagen llega ya recortada y reducida por el navegador (256x256); el límite deja
+# margen para PNG sin comprimir de más. Debe coincidir con user_profile_avatar_data_valid.
+MAX_AVATAR_CHARS = 200_000
+_AVATAR_SIGNATURES = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/webp": (b"RIFF",),
+}
+
+
+def _validated_avatar(value):
+    """Data URL de imagen válida (tipo declarado = contenido real) o ValidationError."""
+    import base64
+    import binascii
+    from rest_framework.exceptions import ValidationError
+
+    text = str(value or "").strip()
+    if len(text) > MAX_AVATAR_CHARS:
+        raise ValidationError({"avatar": "La imagen es demasiado grande. Probá con otra foto."})
+    header, _, payload = text.partition(",")
+    mime = header[len("data:"):-len(";base64")] if header.startswith("data:") and header.endswith(";base64") else ""
+    if mime not in _AVATAR_SIGNATURES or not payload:
+        raise ValidationError({"avatar": "Formato no admitido. Usá una imagen JPG, PNG o WebP."})
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValidationError({"avatar": "La imagen está dañada. Probá con otra foto."})
+    if not raw.startswith(_AVATAR_SIGNATURES[mime]) or (mime == "image/webp" and raw[8:12] != b"WEBP"):
+        raise ValidationError({"avatar": "El contenido del archivo no corresponde a una imagen válida."})
+    return text
+
+
+@api_view(["PUT", "DELETE"])
+def current_user_avatar(request):
+    """Guarda (PUT {"avatar": data URL}) o quita (DELETE) la foto de perfil propia."""
+    avatar = "" if request.method == "DELETE" else _validated_avatar((request.data or {}).get("avatar"))
+    updated = UserProfile.objects.filter(user_id=request.user.id, status="active").update(avatar_data=avatar)
+    if not updated:
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("La cuenta no tiene un perfil activo en MaestrIA.")
+    record_audit(request.user.id, "profile.avatar_updated" if avatar else "profile.avatar_removed", "user_profile", str(request.user.id), {"chars": len(avatar)}, request=request)
+    return Response({"avatar": avatar})
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@throttle_classes([ContactRateThrottle, ContactUserRateThrottle])
+@throttle_classes([ContactUserRateThrottle])
 def contact(request):
     """Persist public messages; privileged workflow fields are never accepted."""
     serializer = PublicContactMessageSerializer(data=request.data)

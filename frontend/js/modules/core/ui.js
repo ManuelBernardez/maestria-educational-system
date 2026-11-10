@@ -137,7 +137,15 @@ export function updateChrome() {
   const name = state.profile?.full_name || state.profile?.email?.split('@')[0] || (isAdmin ? 'Administrador' : 'Docente');
   const email = state.profile?.email || '';
   const initialsText = initials(name);
-  ['#profile-avatar', '#top-profile'].forEach(selector => { const node = $(selector); if (node) node.textContent = initialsText; });
+  const avatar = state.profile?.avatar || '';
+  ['#profile-avatar', '#top-profile'].forEach(selector => {
+    const node = $(selector);
+    if (!node) return;
+    if (!avatar) { node.textContent = initialsText; node.classList.remove('has-photo'); return; }
+    const image = document.createElement('img');
+    image.src = avatar; image.alt = '';
+    node.replaceChildren(image); node.classList.add('has-photo');
+  });
   if ($('#profile-name')) $('#profile-name').textContent = name;
   if ($('#profile-email')) $('#profile-email').textContent = email;
   if ($('#course-count')) $('#course-count').textContent = String(state.data.courses.filter(item => item.active).length);

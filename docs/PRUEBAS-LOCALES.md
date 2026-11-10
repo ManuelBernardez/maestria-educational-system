@@ -20,22 +20,19 @@ docker exec -i supabase_db_maestria-starter psql -v ON_ERROR_STOP=1 -U postgres 
 URL de la base: `postgresql://postgres:postgres@127.0.0.1:54322/postgres`. Para
 empezar de cero: `npx supabase db reset`. Para apagar: `npx supabase stop`.
 
-### Opción B: PostgreSQL plano (esquema histórico)
+### Opción B: PostgreSQL plano
 
-Más liviana, pero instala el esquema histórico v2: sirve para la suite y el
-verificador, aunque **no** es idéntico a producción (ver
-`docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md` §7).
+Más liviana: el stub crea lo mínimo que Supabase provee (roles, `auth.users`,
+`auth.uid()`) y después se instala el mismo snapshot que usa la Opción A.
 
 ```bash
 docker run -d --name maestria-pg-local -e POSTGRES_PASSWORD=localtest \
-  -e POSTGRES_DB=maestria_local -p 127.0.0.1:55432:5432 postgres:16-alpine
+  -e POSTGRES_DB=maestria_local -p 127.0.0.1:55432:5432 postgres:17-alpine
 docker exec -i maestria-pg-local psql -v ON_ERROR_STOP=1 -U postgres -d maestria_local < db/local_supabase_stub.sql
-docker exec -i maestria-pg-local psql -v ON_ERROR_STOP=1 -U postgres -d maestria_local < db/maestria_schema_v2.sql
-docker exec -i maestria-pg-local psql -v ON_ERROR_STOP=1 -U postgres -d maestria_local < db/maestria_schema_v2_contract_alignment.sql
+docker exec -i maestria-pg-local psql -v ON_ERROR_STOP=1 -U postgres -d maestria_local < db/maestria_schema.sql
+# Luego, en orden, las migraciones de backend/database/migrations/ posteriores
+# a la versión indicada en el encabezado de db/maestria_schema.sql.
 ```
-
-`maestria_schema_v2.sql` sólo no alcanza: sin el script de alineación faltan
-columnas, índices y triggers que usa el backend (la verificación da 68 errores).
 
 ## 2. Variables de entorno
 

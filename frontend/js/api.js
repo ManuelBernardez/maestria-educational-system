@@ -99,7 +99,10 @@
   }
 
   const MESSAGE_KEYS = ['detail', 'error_description', 'msg', 'message', 'error'];
-  const UNLABELED_KEYS = new Set([...MESSAGE_KEYS, 'non_field_errors']);
+  // Claves que el backend usa con frases completas en español: el nombre técnico
+  // del campo («submission: …») no le aporta nada al docente.
+  const SENTENCE_KEYS = ['submission', 'correction', 'final_result', 'final_score', 'change_reason', 'file', 'avatar', 'answers', 'students', 'criteria'];
+  const UNLABELED_KEYS = new Set([...MESSAGE_KEYS, ...SENTENCE_KEYS, 'non_field_errors']);
 
   /**
    * Aplana cualquier forma de error de DRF/Supabase a frases legibles:

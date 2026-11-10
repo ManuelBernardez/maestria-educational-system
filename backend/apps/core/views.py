@@ -20,6 +20,7 @@ from .api_views.dashboard import (
     client_config,
     contact,
     correction_workspace,
+    current_user_avatar,
     current_user_profile,
     dashboard_overview,
     dashboard_summary,

@@ -448,6 +448,17 @@ input[type="checkbox"]:checked, input[type="radio"]:checked { background: var(--
 input[type="checkbox"]:checked::after { content: ""; width: 9px; height: 5px; margin-top: -2px; border: 2px solid var(--on-primary); border-top: 0; border-right: 0; transform: rotate(-45deg); }
 input[type="radio"]:checked::after { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--on-primary); }
 .check { display: inline-flex; align-items: center; gap: 9px; min-height: 36px; cursor: pointer; font: 650 .8rem/1.3 var(--display); }
+/* Selector de matrícula múltiple («Vincular existentes»). */
+.enroll-picker { margin: 0; padding: 0; border: 0; min-width: 0; }
+.enroll-picker legend { margin-bottom: 6px; padding: 0; font: 700 .8rem/1.3 var(--display); }
+.enroll-list { display: grid; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.enroll-option { display: flex; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.enroll-option:last-child { border-bottom: 0; }
+.enroll-option[hidden] { display: none; }
+.enroll-option:hover, .enroll-option:has(input:checked) { background: var(--green-soft); }
+.enroll-option span { display: grid; gap: 2px; min-width: 0; }
+.enroll-option small { color: var(--muted-text); font-weight: 500; }
+.enroll-all { margin-bottom: 4px; }
 
 /* Carga de archivo nativa (formularios de diálogos): botón propio vía ::file-selector-button. */
 :where(input[type="file"]) { width: 100%; padding: 10px; border: 1.5px dashed color-mix(in srgb, var(--green) 35%, var(--line)); border-radius: var(--page-radius); background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--muted-text); font-size: .8rem; }
@@ -774,6 +785,11 @@ details.criterion-review { padding: 0; }
 .criterion-review > summary::-webkit-details-marker { display: none; }
 .criterion-review[open] > summary { border-bottom: 1px dashed var(--line); border-radius: var(--page-radius) var(--page-radius) 0 0; }
 .criterion-review > fieldset { min-width: 0; margin: 0; padding: 14px 16px 16px 20px; border: 0; }
+/* Vista «Corrección»: misma estructura de criterio que el espacio de trabajo. */
+.criterion-review-body { display: grid; gap: 12px; min-width: 0; padding: 14px 16px 16px 20px; }
+.correction-grade { margin: 12px 0 0; font: 600 .95rem/1.3 var(--display); }
+.correction-grade > strong { font: 800 1.6rem/1 var(--display); }
+.correction-closing { margin-top: 16px; }
 .criterion-card .panel-head { padding: 0 0 12px; }
 .criterion-card .panel-body { padding: 12px 0 0; }
 
@@ -803,7 +819,6 @@ details.criterion-review { padding: 0; }
 /* 8. Vistas ================================================================== */
 .today-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 22px; align-items: start; }
 .today-side { display: grid; gap: 18px; }
-.today-side .margin-note { margin-top: 0; }
 .mini-course-list { display: grid; }
 .mini-course {
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; align-items: center; width: 100%; min-height: 54px;
@@ -846,8 +861,17 @@ details.criterion-review { padding: 0; }
 .correction-share-score > strong { font: 800 1.4rem/1 var(--display); font-variant-numeric: tabular-nums; }
 
 .profile-settings-panel { max-width: 860px; }
-.profile-summary { display: flex; align-items: center; gap: 14px; }
-.profile-avatar { display: inline-grid; place-items: center; width: 52px; height: 52px; border-radius: 999px; background: var(--yellow); color: var(--on-yellow); font: 800 1rem/1 var(--display); }
+.profile-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.profile-summary-copy { display: grid; gap: 2px; min-width: 0; }
+.profile-summary-copy strong { font: 800 1.05rem/1.25 var(--display); }
+.profile-summary-copy small { color: var(--muted-text); font-size: .84rem; overflow-wrap: anywhere; }
+.profile-avatar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.profile-avatar-actions .field-hint { flex-basis: 100%; margin: 0; }
+.profile-avatar-actions label.btn { cursor: pointer; }
+.profile-avatar-actions:focus-within label.btn { outline: 2px solid var(--green); outline-offset: 2px; }
+.profile-avatar { display: inline-grid; place-items: center; width: 72px; height: 72px; flex: none; overflow: hidden; border-radius: 999px; background: var(--yellow); color: var(--on-yellow); font: 800 1.2rem/1 var(--display); }
+.profile-avatar img, .avatar.has-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.avatar.has-photo { overflow: hidden; padding: 0; background: var(--surface); }
 .profile-section-title { margin-top: 8px; font: 800 .94rem/1.3 var(--display); }
 .profile-appearance { display: grid; gap: 10px; }
 
@@ -1089,6 +1113,28 @@ details.criterion-review { padding: 0; }
 .evidence.is-clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .evidence-links { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: .78rem; }
 .criterion-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px dashed var(--line); }
+/* Criterio simplificado: enunciado de la consigna, puntaje en una fila, evidencia y justificación. */
+.criterion-prompt { margin: 0; color: var(--muted-text); font-size: .86rem; line-height: 1.5; }
+.criterion-score-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
+.criterion-score-line > label { font: 700 .78rem/1.3 var(--display); }
+.criterion-score-line .stepper { width: auto; }
+.criterion-score-line + .field-error:empty { display: none; }
+.criterion-justification { margin: 0; font-size: .92rem; line-height: 1.6; white-space: pre-wrap; }
+.criterion-body .evidence-links { margin-top: -6px; }
+/* Cierre de la revisión, en la barra de «Aprobar»: nota final en la misma fila y el motivo
+   arriba, sólo cuando cambió un puntaje o la nota. */
+.final-score-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.final-score-row > label { font: 800 .9rem/1.3 var(--display); }
+.final-score-row .stepper input { width: 72px; }
+.final-score-row .field-hint:empty { display: none; }
+.reason-row { flex-basis: 100%; }
+.reason-row[hidden] { display: none; }
+.step-actions--review .save-status { display: none; }
+/* En pantallas angostas la barra de aprobación no queda fija: con la nota y el motivo
+   taparía media pantalla mientras se revisan los criterios. */
+@media (max-width: 760px) {
+  .step-actions.step-actions--review { position: static; }
+}
 .feedback-preview { max-width: 66ch; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: .95rem; line-height: 1.7; white-space: pre-wrap; }
 .review-section-body > .segmented { justify-self: start; width: max-content; margin-bottom: 12px; }
 .review-section-body { display: grid; gap: 12px; }

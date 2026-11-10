@@ -35,9 +35,12 @@ class AIUserRateThrottle(SharedCacheMixin, ClientIPMixin, UserRateThrottle):
     scope = "ai"
 
 
-class ContactRateThrottle(SharedCacheMixin, ClientIPMixin, AnonRateThrottle):
-    scope = "contact"
-
-
 class ContactUserRateThrottle(SharedCacheMixin, ClientIPMixin, UserRateThrottle):
+    """Un único límite de contacto: por usuario con sesión y por IP sin ella.
+
+    No se combina con un AnonRateThrottle del mismo scope: para un visitante ambos
+    generan la misma clave (`throttle_contact_<ip>`) y cada envío contaba dos veces,
+    así que el tercer mensaje ya se rechazaba con un límite de 5 por hora.
+    """
+
     scope = "contact"

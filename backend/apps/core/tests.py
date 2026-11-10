@@ -100,6 +100,112 @@ class AIErrorTelemetryTests(SimpleTestCase):
         self.assertEqual(ai_error_http_status(RuntimeError("Falta GEMINI_API_KEY en el entorno del backend.")), 503)
 
 
+class ProviderOverloadTests(SimpleTestCase):
+    """Gemini 503 «UNAVAILABLE» (modelo saturado): se reintenta y, si persiste, 503 claro."""
+
+    URL = "https://generativelanguage.googleapis.com/v1beta/models/m:generateContent"
+
+    def _client(self, statuses, seen=None):
+        import httpx
+        replies = list(statuses)
+
+        def handler(request):
+            if seen is not None:
+                seen.append(str(request.url))
+            code = replies.pop(0) if replies else 200
+            if code == 200:
+                return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "{\"ok\": true}"}]}}]})
+            return httpx.Response(code, json={"error": {"status": "UNAVAILABLE", "message": "The model is overloaded."}})
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    def _post(self, statuses):
+        from unittest.mock import AsyncMock, patch
+        from .ai import _post_json
+
+        async def run():
+            async with self._client(statuses) as client:
+                return await _post_json(self.URL, payload={}, timeout=5, http_client=client)
+        with patch("apps.core.ai.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            return asyncio.run(run()), sleep
+
+    def test_transient_overload_is_retried_until_it_succeeds(self):
+        response, sleep = self._post([503, 503, 503])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(sleep.await_count, 3)
+
+    def test_persistent_overload_raises_after_all_retries(self):
+        import httpx
+        with self.assertRaises(httpx.HTTPStatusError) as caught:
+            self._post([503, 503, 503, 503])
+        self.assertEqual(caught.exception.response.status_code, 503)
+
+    def test_configuration_errors_are_not_retried(self):
+        """Un 400 (clave o modelo inválidos) no se arregla reintentando."""
+        import httpx
+        from unittest.mock import AsyncMock, patch
+        from .ai import _post_json
+
+        async def run():
+            async with self._client([400]) as client:
+                return await _post_json(self.URL, payload={}, timeout=5, http_client=client)
+        with patch("apps.core.ai.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            with self.assertRaises(httpx.HTTPStatusError):
+                asyncio.run(run())
+        sleep.assert_not_awaited()
+
+    def test_fallback_model_is_used_when_primary_stays_overloaded(self):
+        from unittest.mock import AsyncMock, patch
+        from .ai import _gemini_json
+        seen = []
+
+        async def run():
+            async with self._client([503, 503, 503, 503], seen) as client:
+                return await _gemini_json(system_instruction="s", context={}, model_name="principal", http_client=client)
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "k", "GEMINI_FALLBACK_MODEL": "respaldo"}), \
+                patch("apps.core.ai.asyncio.sleep", new_callable=AsyncMock):
+            raw = asyncio.run(run())
+        self.assertEqual(raw, '{"ok": true}')
+        self.assertIn("/models/respaldo:", seen[-1])
+
+    def test_overload_maps_to_503_with_retry_after_and_clear_message(self):
+        import httpx
+        from .api_views.common import ai_error_response
+        request = httpx.Request("POST", self.URL)
+        error = httpx.HTTPStatusError("x", request=request, response=httpx.Response(503, request=request, json={"error": {"status": "UNAVAILABLE"}}))
+        response = ai_error_response(error, "fallback")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response["Retry-After"], "20")
+        self.assertIn("Gemini (Google) está saturado", response.data["detail"])
+        self.assertIn("no es un error de MaestrIA", response.data["detail"])
+
+
+class GradeScaleTests(SimpleTestCase):
+    """La nota se expresa en la escala de las consignas (10 por defecto), sin números raros."""
+
+    def test_rubric_is_scaled_to_question_points(self):
+        from .ai import scale_rubric_to
+        rubric = [{"name": n, "max_score": 10, "weight": 1, "levels": [{"name": "Logrado", "score": 10}, {"name": "Parcial", "score": 5}]} for n in "ABCD"]
+        scaled = scale_rubric_to(rubric, 2)
+        self.assertEqual([item["max_score"] for item in scaled], [0.5, 0.5, 0.5, 0.5])
+        self.assertEqual([level["score"] for level in scaled[0]["levels"]], [0.5, 0.25])
+
+    def test_uneven_split_closes_exactly_at_two_decimals(self):
+        from .ai import scale_rubric_to
+        scaled = scale_rubric_to([{"name": n, "max_score": 1} for n in "ABC"], 2)
+        self.assertEqual([item["max_score"] for item in scaled], [0.67, 0.67, 0.66])
+
+    def test_rubric_already_in_scale_is_untouched(self):
+        from .ai import scale_rubric_to
+        rubric = [{"name": "A", "max_score": 1.5}, {"name": "B", "max_score": 0.5}]
+        self.assertEqual(scale_rubric_to(rubric, 2), rubric)
+
+    def test_ai_question_suggestions_default_to_ten_point_scale(self):
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"AI_PROVIDER": "mock"}):
+            questions = asyncio.run(generate_questions(title="T", subject="S", level="L", objectives="O", instructions="I", count=5))
+        self.assertEqual(sum(item["max_score"] for item in questions["questions"]), 10)
+
+
 class AIRubricTests(SimpleTestCase):
     def test_mock_rubric_is_marked_as_demo_and_editable(self):
         from unittest.mock import patch

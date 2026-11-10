@@ -9,8 +9,12 @@ Base local: `http://127.0.0.1:8000/api/`. Salvo `/health/` y el formulario públ
 | `GET /dashboard/overview/` | Panel docente compacto en una lectura: cursos, evaluaciones, conteos de correcciones y métricas | Autenticado |
 | `GET /dashboard/summary/` | Contadores y actividad reciente del usuario | Autenticado |
 | `GET /audit-events/` | Últimos eventos del docente | Autenticado |
+| `GET /me/` | Perfil, rol, membresías y foto (`avatar`) del usuario autenticado | Autenticado |
+| `PUT /me/avatar/`, `DELETE /me/avatar/` | Guardar (`{"avatar": "data:image/...;base64,..."}`, JPG/PNG/WebP, máx. 200.000 caracteres) o quitar la foto de perfil; auditado | Autenticado |
 | `/courses/` | Listar, crear, editar y archivar cursos | Propietario |
+| `GET /courses/{id}/grades-export/` | Planilla CSV de notas aprobadas por estudiante y evaluación, con promedio (`;`, coma decimal, UTF-8 con BOM); auditado | Propietario |
 | `/enrollments/` | Matricular/desmatricular estudiantes en cursos | Propietario y relaciones propias |
+| `POST /enrollments/bulk/` | Matricular varios estudiantes existentes (`{"course": id, "students": [ids]}`, hasta 500), todo o nada; omite activos y reactiva bajas; auditado | Propietario y relaciones propias |
 | `/students/` | Listar/crear/editar/desactivar estudiantes | Propietario |
 | `POST /students/import-csv/` | Importar CSV, máximo 2 MB y 500 filas | Propietario, limitado |
 | `/assessments/` | CRUD de evaluaciones | Propietario |
@@ -25,7 +29,7 @@ Base local: `http://127.0.0.1:8000/api/`. Salvo `/health/` y el formulario públ
 | `POST /submissions/{id}/generate-correction/` | Generar propuesta de corrección | Propietario, rate limit IA |
 | `/submission-answers/` | Respuestas a preguntas individuales | Propietario y evaluación propia |
 | `/corrections/` | Consultar correcciones e historial resumido | Propietario |
-| `POST /corrections/{id}/approve/` | Validar/cerrar propuesta con acción explícita | Propietario |
+| `POST /corrections/{id}/approve/` | Validar/cerrar propuesta con acción explícita. Acepta `final_score` opcional (entre 1 y el máximo) para fijar la nota final; si difiere de la calculada exige `change_reason` (mín. 8 caracteres) | Propietario |
 | `GET /corrections/{id}/export/` | Exportar la propuesta o el resultado final en Markdown | Propietario |
 
 `GET /correction-workspace/?summary=1` sin `assessment` devuelve solamente datos de selectores; con `assessment=<id>` devuelve información compacta de esa evaluación. La UI solicita los detalles completos de la entrega/corrección al seleccionarla.

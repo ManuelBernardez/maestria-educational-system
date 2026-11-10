@@ -1,5 +1,5 @@
 -- SÓLO PARA DESARROLLO LOCAL. Nunca ejecutar en Supabase.
--- Crea los objetos mínimos que Supabase provee y que `maestria_schema_v2.sql`
+-- Crea los objetos mínimos que Supabase provee y que `maestria_schema.sql`
 -- necesita (roles anon/authenticated/service_role, auth.users y auth.uid())
 -- para poder instalar el esquema en un PostgreSQL local (por ejemplo, Docker).
 -- Ver docs/PRUEBAS-LOCALES.md.

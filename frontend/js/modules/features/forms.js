@@ -1,14 +1,15 @@
 import { state, modal, modalContent } from '../core/state.js';
 import { api } from '../core/api-client.js';
-import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows, formValues, errorText } from '../core/utils.js';
+import { escapeHtml, formatInputNumber, formatNumber, formField, textField, selectField, optionRows, formValues, errorText } from '../core/utils.js';
 import { openModal, closeModal, modalForm, setModalError, toast } from '../core/ui.js';
+import { correctionClosingState } from './corrections.js';
 import { afterWrite, loadAssessmentEditor } from '../data/repository.js';
 import { render } from '../core/router.js';
 
 export {
   studentForm, assessmentForm, questionForm, rubricForm, importStudentsForm,
   enrollmentForm, submissionForm, generateQuestionsForm, importReferenceForm,
-  newRubricCriterionForm, editCriterionForm, editLevelForm, newLevelForm
+  newRubricCriterionForm, editCriterionForm, editLevelForm, newLevelForm, updateEnrollPicker
 } from './forms/teacher.js';
 
 export {
@@ -67,11 +68,17 @@ export async function handleModalSubmit(form, button) {
       const result = await api.upload('students/import-csv/', payload);
       closeModal(true);
       const skipped = Number(result.skipped || 0);
-      const reasons = (result.errors || []).slice(0, 3).map(item => `fila ${item.row}: ${item.reason}`).join('; ');
-      await afterWrite(`Importación finalizada: ${result.created ?? 0} estudiantes agregados${skipped ? `, ${skipped} omitidos (${reasons})` : ''}.`, ['students', 'enrollments']);
+      const created = Number(result.created ?? 0);
+      const reasons = (result.errors || []).slice(0, 3).map(item => `fila ${item.row}: ${String(item.reason || '').replace(/\.$/, '')}`).join('; ');
+      const createdText = created === 1 ? '1 estudiante agregado' : `${created} estudiantes agregados`;
+      const skippedText = skipped === 1 ? '1 fila omitida' : `${skipped} filas omitidas`;
+      await afterWrite(`Importación finalizada: ${createdText}${skipped ? `; ${skippedText} (${reasons})` : ''}.`, ['students', 'enrollments']);
     } else if (kind === 'enroll-student') {
-      await api.post('enrollments/', { course: Number(modal.dataset.courseId), student: Number(values.student), status: 'active', notes: values.notes.trim() });
-      closeModal(true); await afterWrite('Estudiante matriculado.', ['students', 'enrollments']);
+      const studentIds = [...form.querySelectorAll('input[name="students"]:checked')].map(input => Number(input.value));
+      if (!studentIds.length) throw new Error('Tildá al menos un estudiante.');
+      const result = await api.post('enrollments/bulk/', { course: Number(modal.dataset.courseId), students: studentIds });
+      const total = (result.created ?? 0) + (result.reactivated ?? 0);
+      closeModal(true); await afterWrite(`${total} ${total === 1 ? 'estudiante matriculado' : 'estudiantes matriculados'}${result.skipped ? ` (${result.skipped} ya estaban en el curso)` : ''}.`, ['students', 'enrollments']);
     } else if (kind === 'new-submission') {
       const file = form.querySelector('[name="file"]')?.files?.[0];
       if (file) {
@@ -235,20 +242,18 @@ export async function handleApproveCorrection(form, button) {
   const proposal = correction?.proposal;
   if (!correction || proposal?.demo) return;
   const criteria = Array.isArray(proposal?.criteria) ? proposal.criteria : [];
-  const finalCriteria = criteria.map((item, index) => ({
-    ...item,
-    score: Number(form.querySelector(`[name="score-${index}"]`)?.value),
-    level: form.querySelector(`[name="level-${index}"]`)?.value || '',
-    justification: form.querySelector(`[name="justification-${index}"]`)?.value || '',
-    evidence: form.querySelector(`[name="evidence-${index}"]`)?.value || ''
-  }));
-  const changed = finalCriteria.some((item, index) => Number(item.score) !== Number(criteria[index].score));
+  // Mismas reglas que el espacio de trabajo (nivel y evidencia no se editan: son de la propuesta).
+  const { current, max, minimum, overridden, changed, manualInvalid, final } = correctionClosingState(form, criteria);
+  const finalCriteria = current.map((item, index) => ({ ...item, justification: form.querySelector(`[name="justification-${index}"]`)?.value ?? item.justification ?? '' }));
+  if (finalCriteria.some(item => !Number.isFinite(Number(item.score)) || Number(item.score) < 0 || Number(item.score) > Number(item.max_score))) { toast('Cada puntaje debe ser un número entre 0 y el máximo de su criterio.', 'error'); return; }
+  if (manualInvalid) { toast(`La nota final debe estar entre ${formatNumber(minimum)} y ${formatNumber(max)}.`, 'error'); form.querySelector('[data-correction-final]')?.focus(); return; }
   const changeReason = form.querySelector('[name="change_reason"]')?.value?.trim() || '';
-  if (changed && changeReason.length < 8) { toast('Explicá el motivo del cambio de puntaje (al menos 8 caracteres).', 'error'); return; }
-  if (!window.confirm('¿Confirmás la aprobación de esta devolución?')) return;
+  if ((changed || overridden) && changeReason.length < 8) { toast(`Explicá por qué cambiaste ${overridden && !changed ? 'la nota final' : 'el puntaje'} (al menos 8 caracteres).`, 'error'); form.querySelector('[name="change_reason"]')?.focus(); return; }
+  if (!window.confirm(`¿Confirmás la aprobación con nota ${formatNumber(final)} / ${formatNumber(max)}?`)) return;
   try {
     button.disabled = true; button.textContent = 'Aprobando…';
-    const result = await api.post(`corrections/${correction.id}/approve/`, { final_result: { ...proposal, criteria: finalCriteria }, teacher_feedback: form.querySelector('[name="teacher_feedback"]')?.value || '', change_reason: changeReason }, { timeoutMs: 90000 });
+    const payload = { final_result: { ...proposal, criteria: finalCriteria }, teacher_feedback: form.querySelector('[name="teacher_feedback"]')?.value || '', change_reason: changeReason, ...(overridden ? { final_score: final } : {}) };
+    const result = await api.post(`corrections/${correction.id}/approve/`, payload, { timeoutMs: 90000 });
     // La respuesta de /approve/ ya es la corrección completa; afterWrite la vuelve a leer una sola vez.
     state.currentCorrection = result;
     state.selectedCorrection = result.id;

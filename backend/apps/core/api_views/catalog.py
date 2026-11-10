@@ -39,9 +39,8 @@ from .common import (
     SubmissionAnswer,
     ValidationError,
     _read_document,
-    _safe_ai_error_detail,
     ai_error_code,
-    ai_error_http_status,
+    ai_error_response,
     action,
     active_ai_provider_config,
     async_to_sync,
@@ -81,6 +80,65 @@ class CourseViewSet(OwnerViewSet):
         if self.action == "list" and self.request.query_params.get("nav") == "1":
             return CourseNavigationSerializer
         return super().get_serializer_class()
+
+    @action(detail=True, methods=["get"], url_path="grades-export")
+    def grades_export(self, request, pk=None):
+        """Planilla de notas del curso (CSV para Excel en español).
+
+        Una fila por estudiante con matrícula activa y una columna por evaluación con la
+        nota de la corrección APROBADA (las propuestas sin aprobar no son calificaciones).
+        Separador «;», coma decimal y BOM UTF-8 para que Excel la abra con tildes.
+        """
+        from django.http import HttpResponse
+        from ..models import Correction
+
+        owner_id = request.user.id
+        course = Course.objects.filter(pk=pk, owner_id=owner_id).first()
+        if course is None:
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Curso no disponible.")
+        assessments = list(Assessment.objects.filter(owner_id=owner_id, course=course).order_by("created_at", "id").values("id", "title"))
+        enrollments = list(
+            Enrollment.objects.filter(owner_id=owner_id, course=course, status="active", student__owner_id=owner_id)
+            .select_related("student").order_by("student__name", "student_id")
+        )
+        # La aprobación más reciente por estudiante y evaluación (una entrega puede tener historial).
+        grades = {}
+        approved = (
+            Correction.objects.filter(
+                owner_id=owner_id, status="approved", submission__owner_id=owner_id,
+                submission__assessment__course=course, submission__student__isnull=False,
+            )
+            .order_by("approved_at", "id")
+            .values_list("submission__student_id", "submission__assessment_id", "total_score")
+        )
+        for student_id, assessment_id, total in approved:
+            grades[(student_id, assessment_id)] = total
+
+        def cell(value):
+            # Evita inyección de fórmulas al abrir el CSV en Excel/Sheets (=, +, -, @).
+            text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+            return "'" + text if text[:1] in ("=", "+", "-", "@", "\t") else text
+
+        def number(value):
+            return f"{float(value):.2f}".rstrip("0").rstrip(".").replace(".", ",")
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+        writer.writerow(["Estudiante", "Legajo", "Correo", *(cell(item["title"]) for item in assessments), "Promedio"])
+        for enrollment in enrollments:
+            student = enrollment.student
+            scores = [grades.get((student.pk, item["id"])) for item in assessments]
+            present = [float(score) for score in scores if score is not None]
+            average = number(sum(present) / len(present)) if present else ""
+            writer.writerow([cell(student.name), cell(student.external_code), cell(student.email), *(number(score) if score is not None else "" for score in scores), average])
+
+        slug = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", course.name).encode("ascii", "ignore").decode().lower()).strip("-")[:60] or "curso"
+        record_audit(owner_id, "course.grades_exported", "course", course.pk, {"students": len(enrollments), "assessments": len(assessments)}, request=request)
+        response = HttpResponse("﻿" + buffer.getvalue(), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="notas-{slug}.csv"'
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
     def _save_course(self, serializer, **kwargs):
         owner_id = kwargs.get("owner_id") or self.request.user.id
@@ -164,6 +222,57 @@ class EnrollmentViewSet(OwnerViewSet):
                 if duplicate.exists():
                     raise ValidationError({"student": "El estudiante ya tiene una matrícula activa en este curso."})
             serializer.save()
+
+    MAX_BULK_ENROLLMENTS = 500
+
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk(self, request):
+        """Matricula de una vez varios estudiantes ya cargados en un curso.
+
+        Todo o nada: si algún estudiante no es del docente o está inactivo, no se
+        matricula ninguno. Los ya activos se informan como omitidos y las matrículas
+        inactivas se reactivan (uniq_enrollment_course_student admite una fila por par).
+        """
+        raw_ids = request.data.get("students")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValidationError({"students": "Elegí al menos un estudiante."})
+        if len(raw_ids) > self.MAX_BULK_ENROLLMENTS:
+            raise ValidationError({"students": f"Podés matricular hasta {self.MAX_BULK_ENROLLMENTS} estudiantes por vez."})
+        try:
+            student_ids = list(dict.fromkeys(int(item) for item in raw_ids))
+            course_id = int(request.data.get("course"))
+        except (TypeError, ValueError):
+            raise ValidationError({"students": "La selección contiene identificadores inválidos."})
+        owner_id = request.user.id
+        with transaction.atomic():
+            lock_owner_profile(owner_id)
+            course = Course.objects.select_for_update().filter(pk=course_id, owner_id=owner_id).first()
+            if course is None:
+                raise ValidationError({"course": "Curso no disponible."})
+            if not course.active:
+                raise ValidationError({"course": "No se puede matricular en un curso archivado."})
+            students = Student.objects.select_for_update().filter(owner_id=owner_id, pk__in=student_ids)
+            found = {student.pk: student for student in students}
+            if len(found) != len(student_ids):
+                raise ValidationError({"students": "Algún estudiante seleccionado no está disponible. Recargá la lista e intentá nuevamente."})
+            inactive = [student.name for student in found.values() if not student.active]
+            if inactive:
+                raise ValidationError({"students": "No se puede matricular a estudiantes inactivos: " + ", ".join(sorted(inactive)[:5]) + "."})
+            existing = {
+                enrollment.student_id: enrollment
+                for enrollment in Enrollment.objects.select_for_update().filter(owner_id=owner_id, course_id=course.pk, student_id__in=student_ids)
+            }
+            skipped = sum(1 for enrollment in existing.values() if enrollment.status == "active")
+            to_reactivate = [enrollment.pk for enrollment in existing.values() if enrollment.status != "active"]
+            if to_reactivate:
+                Enrollment.objects.filter(pk__in=to_reactivate).update(status="active")
+            Enrollment.objects.bulk_create([
+                Enrollment(owner_id=owner_id, course=course, student=found[student_id], status="active")
+                for student_id in student_ids if student_id not in existing
+            ])
+            created = len(student_ids) - len(existing)
+            record_audit(owner_id, "enrollments.bulk_created", "course", course.pk, {"created": created, "reactivated": len(to_reactivate), "skipped": skipped}, request=request)
+        return Response({"created": created, "reactivated": len(to_reactivate), "skipped": skipped}, status=status.HTTP_201_CREATED)
 
     def get_queryset(self):
         queryset = super().get_queryset().filter(course__owner_id=self.request.user.id, student__owner_id=self.request.user.id)
@@ -328,7 +437,7 @@ class AssessmentViewSet(OwnerViewSet):
         except Exception as exc:
             record_ai_generation(request.user.id, "generate_questions", started, False, fingerprint(context), ai_error_code(exc), assessment=assessment, provider_config=locals().get("provider_config"))
             logger.warning("AI questions generation failed (%s)", type(exc).__name__)
-            return Response({"detail": _safe_ai_error_detail(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=ai_error_http_status(exc))
+            return ai_error_response(exc, "No se pudieron generar preguntas. Revisá la configuración del proveedor de IA y volvé a intentar.")
         return Response(result, status=status.HTTP_200_OK)
 
 class StudentViewSet(OwnerViewSet):
@@ -402,13 +511,13 @@ class StudentViewSet(OwnerViewSet):
                 email = (row.get("email") or "").strip().lower()[:254]
                 code = (row.get("external_code") or "").strip()[:80]
                 if not name:
-                    skipped += 1; errors.append({"row": row_number, "reason": "Falta name."}); continue
+                    skipped += 1; errors.append({"row": row_number, "reason": "Falta el nombre."}); continue
                 if email:
                     try: validate_email(email)
                     except DjangoValidationError:
                         skipped += 1; errors.append({"row": row_number, "reason": "Correo inválido."}); continue
                 if code and code in seen_codes:
-                    skipped += 1; errors.append({"row": row_number, "reason": "external_code duplicado."}); continue
+                    skipped += 1; errors.append({"row": row_number, "reason": "Legajo repetido."}); continue
                 student = Student.objects.create(owner_id=owner_id, name=name, email=email, phone=(row.get("phone") or "").strip()[:32], external_code=code)
                 Enrollment.objects.create(owner_id=owner_id, course=course, student=student, status="active")
                 if code: seen_codes.add(code)
@@ -528,7 +637,7 @@ class RubricViewSet(OwnerViewSet):
         except Exception as exc:
             record_ai_generation(request.user.id, "generate_rubric", started, False, fingerprint(context), ai_error_code(exc), provider_config=provider_config)
             logger.warning("AI rubric generation failed (%s)", type(exc).__name__)
-            return Response({"detail": _safe_ai_error_detail(exc, "No se pudo proponer la rúbrica. Revisá la configuración del proveedor de IA y volvé a intentar.")}, status=ai_error_http_status(exc))
+            return ai_error_response(exc, "No se pudo proponer la rúbrica. Revisá la configuración del proveedor de IA y volvé a intentar.")
         return Response(result)
 
 class QuestionViewSet(OwnerViewSet):

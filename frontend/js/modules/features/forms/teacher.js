@@ -1,5 +1,5 @@
 import { state, modal } from '../../core/state.js';
-import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows } from '../../core/utils.js';
+import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows, suggestedQuestionScore } from '../../core/utils.js';
 import { openModal, modalForm, toast } from '../../core/ui.js';
 
 export function studentForm(student = null, defaultCourse = '') {
@@ -18,7 +18,7 @@ export function assessmentForm(assessment = null, defaultCourse = '') {
 
 export function questionForm(question = null, assessmentId = state.selectedAssessment) {
   const rubrics = optionRows(state.data.rubrics, item => item.title, true);
-  const fields = `${textField('Consigna', 'prompt', question?.prompt || '', 'maxlength="8000"', true)}${textField('Respuesta esperada / referencia', 'expected_answer', question?.expected_answer || '')}${selectField('Tipo', 'question_type', [{ value: 'open', label: 'Respuesta abierta' }, { value: 'short', label: 'Respuesta breve' }, { value: 'case', label: 'Caso' }], question?.question_type || 'open')}${formField('Puntaje máximo', 'max_score', formatInputNumber(question?.max_score ?? '10'), 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Orden', 'position', formatInputNumber(question?.position ?? '1'), 'number', 'min="0" step="1"')}${selectField('Rúbrica', 'rubric', rubrics, question?.rubric || '', false)}${question ? '' : `<input type="hidden" name="assessment" value="${escapeHtml(assessmentId)}">`}`;
+  const fields = `${textField('Consigna', 'prompt', question?.prompt || '', 'maxlength="8000"', true)}${textField('Respuesta esperada / referencia', 'expected_answer', question?.expected_answer || '')}${selectField('Tipo', 'question_type', [{ value: 'open', label: 'Respuesta abierta' }, { value: 'short', label: 'Respuesta breve' }, { value: 'case', label: 'Caso' }], question?.question_type || 'open')}${formField('Puntaje máximo', 'max_score', formatInputNumber(question?.max_score ?? suggestedQuestionScore(String(state.assessmentEditor?.assessment?.id) === String(assessmentId) ? state.assessmentEditor?.questions : [])), 'number', 'min="0.01" max="1000" step="0.01"', true)}${formField('Orden', 'position', formatInputNumber(question?.position ?? '1'), 'number', 'min="0" step="1"')}${selectField('Rúbrica', 'rubric', rubrics, question?.rubric || '', false)}${question ? '' : `<input type="hidden" name="assessment" value="${escapeHtml(assessmentId)}">`}`;
   openModal(question ? 'Editar consigna' : 'Agregar consigna', modalForm(fields), question ? 'edit-question' : 'new-question', true);
   modal.dataset.recordId = question?.id || '';
   modal.dataset.assessmentId = String(question?.assessment || assessmentId || '');
@@ -35,11 +35,35 @@ export function importStudentsForm(defaultCourse = '') {
   openModal('Importar estudiantes', modalForm(`${selectField('Curso', 'course', courses, defaultCourse || '', true)}<div class="form-field full"><label for="f-file">Archivo CSV</label><input id="f-file" name="file" type="file" accept=".csv,text/csv" required><small>Hasta 2 MB y 500 filas. Columnas: nombre (obligatoria), correo, teléfono y legajo; también se acepta la plantilla en inglés.</small></div>`, 'Importar', '<p class="muted"><a href="../plantilla-estudiantes.csv" download>Descargar plantilla CSV</a></p>'), 'import-students');
 }
 
+/** Búsqueda, «seleccionar todos los visibles» y contador del selector de matrícula. */
+export function updateEnrollPicker(event) {
+  const form = event.target.closest('form');
+  if (!form?.querySelector('.enroll-picker')) return false;
+  const rows = [...form.querySelectorAll('[data-enroll-row]')];
+  if (event.target.matches('[data-enroll-search]')) {
+    const query = event.target.value.trim().toLowerCase();
+    rows.forEach(row => { row.hidden = Boolean(query) && !row.dataset.searchText.includes(query); });
+  }
+  const visible = rows.filter(row => !row.hidden).map(row => row.querySelector('input'));
+  const selectAll = form.querySelector('[data-enroll-all]');
+  if (event.target === selectAll) visible.forEach(input => { input.checked = selectAll.checked; });
+  else if (selectAll) selectAll.checked = visible.length > 0 && visible.every(input => input.checked);
+  const count = form.querySelectorAll('input[name="students"]:checked').length;
+  const status = form.querySelector('[data-enroll-count]');
+  if (status) status.textContent = count ? `${count} ${count === 1 ? 'estudiante seleccionado' : 'estudiantes seleccionados'}.` : 'Ningún estudiante seleccionado.';
+  return true;
+}
+
+/** Vincular estudiantes ya cargados a un curso: se pueden tildar varios a la vez. */
 export function enrollmentForm(courseId) {
-  const already = state.data.enrollments.filter(item => String(item.course) === String(courseId) && item.status === 'active').map(item => String(item.student));
-  const students = state.data.students.filter(item => item.active && !already.includes(String(item.id))).map(item => ({ value: item.id, label: item.name }));
+  const already = new Set(state.data.enrollments.filter(item => String(item.course) === String(courseId) && item.status === 'active').map(item => String(item.student)));
+  const students = state.data.students.filter(item => item.active && !already.has(String(item.id))).sort((a, b) => a.name.localeCompare(b.name, 'es'));
   if (!students.length) { toast('No hay estudiantes activos disponibles para matricular.', 'error'); return; }
-  openModal('Matricular estudiante', modalForm(`${selectField('Estudiante', 'student', students, '', true)}${textField('Notas', 'notes', '')}`), 'enroll-student');
+  const rows = students.map(item => `<label class="check enroll-option" data-enroll-row data-search-text="${escapeHtml(`${item.name} ${item.external_code || ''} ${item.email || ''}`.toLowerCase())}"><input type="checkbox" name="students" value="${escapeHtml(item.id)}"><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml([item.external_code ? `Legajo ${item.external_code}` : '', item.email].filter(Boolean).join(' · ') || 'Sin datos de contacto')}</small></span></label>`).join('');
+  const fields = `<div class="form-field full"><label for="enroll-search">Buscar</label><input id="enroll-search" type="search" data-enroll-search placeholder="Nombre, legajo o correo" autocomplete="off"></div>
+    <fieldset class="form-field full enroll-picker"><legend>Estudiantes (${students.length} disponibles)</legend><label class="check enroll-all"><input type="checkbox" data-enroll-all><span>Seleccionar todos los visibles</span></label><div class="enroll-list">${rows}</div></fieldset>
+    <p class="field-hint full" data-enroll-count role="status" aria-live="polite">Ningún estudiante seleccionado.</p>`;
+  openModal('Vincular estudiantes al curso', modalForm(fields, 'Matricular seleccionados'), 'enroll-student');
   modal.dataset.courseId = courseId;
 }
 

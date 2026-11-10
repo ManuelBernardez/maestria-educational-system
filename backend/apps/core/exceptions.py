@@ -6,10 +6,12 @@ mensaje comprensible, no un 500 opaco. Nunca se expone el nombre del índice ni 
 detalle de PostgreSQL (puede incluir valores de otras filas).
 """
 import logging
+import math
 
 from django.db import DataError, IntegrityError
 from django.db.models import ProtectedError, RestrictedError
 from rest_framework import status
+from rest_framework.exceptions import Throttled
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
@@ -49,9 +51,51 @@ def _with_request_id(response, context):
     return response
 
 
+def _wait_text(wait):
+    if not wait:
+        return "en unos instantes"
+    seconds = int(math.ceil(wait))
+    if seconds < 60:
+        return "en 1 segundo" if seconds == 1 else f"en {seconds} segundos"
+    minutes = int(math.ceil(seconds / 60))
+    return "en 1 minuto" if minutes == 1 else f"en {minutes} minutos"
+
+
+def _throttle_scopes(context):
+    view = context.get("view")
+    return {getattr(cls, "scope", None) for cls in getattr(view, "throttle_classes", ()) or ()}
+
+
+def _throttled_message(wait, scopes):
+    """Explica qué límite se alcanzó, por qué existe y cuándo se puede volver a intentar.
+
+    Reemplaza el texto genérico de DRF («Solicitud fue regulada (throttled)…»).
+    """
+    when = _wait_text(wait)
+    if "contact" in scopes:
+        return (
+            "Ya enviaste varios mensajes en poco tiempo. Para evitar el spam, el formulario "
+            "acepta hasta 5 mensajes por hora desde cada conexión. Tus mensajes anteriores sí "
+            f"se recibieron. Vas a poder enviar uno nuevo {when}."
+        )
+    if "ai" in scopes:
+        return (
+            "Hiciste muchas solicitudes a la IA en poco tiempo. Para cuidar el servicio hay un "
+            f"límite por hora. No se generó nada nuevo: podés volver a intentarlo {when}."
+        )
+    return (
+        "Se hicieron demasiadas solicitudes seguidas desde tu conexión y el servidor las pausó "
+        f"por seguridad. No se guardó ningún cambio. Podés intentarlo de nuevo {when}."
+    )
+
+
 def api_exception_handler(exc, context):
     response = drf_exception_handler(exc, context)
     if response is not None:
+        # Los Throttled con mensaje propio (p. ej. la cuota diaria de IA) se respetan;
+        # sólo se reemplaza el texto genérico de DRF.
+        if isinstance(exc, Throttled) and str(exc.detail).startswith(str(Throttled.default_detail)):
+            response.data["detail"] = _throttled_message(exc.wait, _throttle_scopes(context))
         return response
     view_name = type(context.get("view")).__name__
     if isinstance(exc, IntegrityError):

@@ -672,6 +672,55 @@ class AllQuestionsCorrectionTests(TestCase):
         self.assertEqual([item["criterion"] for item in criteria], ["Consigna 1 · Precisión", "Consigna 2"])
         self.assertEqual([item["question_id"] for item in criteria], [self.q1.pk, self.q2.pk])
 
+    def test_question_rubric_in_another_scale_is_scaled_to_question_points(self):
+        """Rúbrica de 2 criterios × 10 en una consigna de 4 puntos: la nota sigue sobre 10."""
+        rubric = Rubric.objects.create(owner_id=self.owner_id, title="Rúbrica en escala 20")
+        RubricCriterion.objects.create(owner_id=self.owner_id, rubric=rubric, name="Contenido", max_score=10, weight=1, position=1)
+        RubricCriterion.objects.create(owner_id=self.owner_id, rubric=rubric, name="Expresión", max_score=10, weight=1, position=2)
+        self.q1.rubric = rubric
+        self.q1.save(update_fields=["rubric"])
+        criteria = self._generate()
+        self.assertEqual([item["max_score"] for item in criteria], [2.0, 2.0, 6.0])
+        self.assertEqual(sum(item["max_score"] for item in criteria), 10.0)
+
+    def test_whole_submission_rubric_uses_the_sum_of_question_points(self):
+        rubric = Rubric.objects.create(owner_id=self.owner_id, title="Rúbrica general")
+        for position, name in enumerate(("Dominio", "Evidencia", "Expresión"), start=1):
+            RubricCriterion.objects.create(owner_id=self.owner_id, rubric=rubric, name=name, max_score=10, weight=1, position=position)
+        submission = Submission.objects.create(owner_id=self.owner_id, assessment=self.assessment, student_name="Estudiante", answer_text="La fotosíntesis produce glucosa.")
+        response = self.client.post(f"/api/submissions/{submission.id}/generate-correction/", {"rubric_id": rubric.pk}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertAlmostEqual(sum(item["max_score"] for item in response.data["proposal"]["criteria"]), 10.0, places=6)
+
+    def test_teacher_can_set_the_final_grade_with_a_reason(self):
+        from .models import Correction, CorrectionRevision
+        submission = Submission.objects.create(owner_id=self.owner_id, assessment=self.assessment, student_name="Estudiante", answer_text="Respuesta.", question=self.q1)
+        proposal = {"criteria": [{"criterion": "Consigna 1", "score": 3, "max_score": 4, "evidence": "", "question_id": self.q1.pk}]}
+        correction = Correction.objects.create(owner_id=self.owner_id, submission=submission, provider="gemini", proposal=proposal)
+        url = f"/api/corrections/{correction.id}/approve/"
+        no_reason = self.client.post(url, {"final_score": 3.5}, format="json")
+        self.assertEqual(no_reason.status_code, 400)
+        self.assertIn("change_reason", no_reason.data)
+        self.assertEqual(self.client.post(url, {"final_score": 4.5, "change_reason": "Supera el máximo de la evaluación."}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(url, {"final_score": 0.5, "change_reason": "Por debajo de la nota mínima."}, format="json").status_code, 400)
+        approved = self.client.post(url, {"final_score": "3,5", "change_reason": "Muy buena justificación oral en clase."}, format="json")
+        self.assertEqual(approved.status_code, 200, approved.data)
+        correction.refresh_from_db()
+        self.assertEqual(float(correction.total_score), 3.5)
+        self.assertEqual(correction.final_result["computed_score"], 3.0)
+        self.assertTrue(correction.final_result["final_score_overridden"])
+        self.assertIn("justificación oral", CorrectionRevision.objects.get(correction=correction).reason)
+
+    def test_final_grade_equal_to_computed_needs_no_reason(self):
+        from .models import Correction
+        submission = Submission.objects.create(owner_id=self.owner_id, assessment=self.assessment, student_name="Estudiante", answer_text="Respuesta.", question=self.q1)
+        proposal = {"criteria": [{"criterion": "Consigna 1", "score": 3, "max_score": 4, "evidence": "", "question_id": self.q1.pk}]}
+        correction = Correction.objects.create(owner_id=self.owner_id, submission=submission, provider="gemini", proposal=proposal)
+        response = self.client.post(f"/api/corrections/{correction.id}/approve/", {"final_score": 3}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        correction.refresh_from_db()
+        self.assertFalse(correction.final_result["final_score_overridden"])
+
     def test_specific_question_keeps_single_question_correction(self):
         criteria = self._generate(question=self.q2)
         self.assertEqual(len(criteria), 1)
@@ -719,3 +768,90 @@ class AllQuestionsCorrectionTests(TestCase):
             return len(queries.captured_queries)
 
         self.assertEqual(approve_with(3), approve_with(12))
+
+
+class BulkEnrollmentTests(TestCase):
+    """«Vincular existentes»: varios estudiantes ya cargados a un curso en una sola operación."""
+
+    def setUp(self):
+        self.owner_id, self.other_id = uuid4(), uuid4()
+        ensure_auth_users(self.owner_id, self.other_id)
+        self.client = APIClient()
+        self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
+        self.course = Course.objects.create(owner_id=self.owner_id, name="Biología · 3° B")
+        self.students = [Student.objects.create(owner_id=self.owner_id, name=f"Estudiante {n}", external_code=f"L{n}") for n in range(4)]
+
+    def _bulk(self, ids, course=None):
+        return self.client.post("/api/enrollments/bulk/", {"course": (course or self.course).pk, "students": ids}, format="json")
+
+    def test_creates_skips_active_and_reactivates_inactive(self):
+        a, b, c, d = self.students
+        Enrollment.objects.create(owner_id=self.owner_id, course=self.course, student=a, status="active")
+        Enrollment.objects.create(owner_id=self.owner_id, course=self.course, student=b, status="inactive")
+        response = self._bulk([a.pk, b.pk, c.pk, d.pk, d.pk])
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual((response.data["created"], response.data["reactivated"], response.data["skipped"]), (2, 1, 1))
+        self.assertEqual(Enrollment.objects.filter(course=self.course, status="active").count(), 4)
+        self.assertEqual(Enrollment.objects.filter(course=self.course).count(), 4)
+
+    def test_all_or_nothing_with_foreign_or_inactive_students(self):
+        foreign = Student.objects.create(owner_id=self.other_id, name="Ajeno")
+        self.assertEqual(self._bulk([self.students[0].pk, foreign.pk]).status_code, 400)
+        self.students[1].active = False
+        self.students[1].save(update_fields=["active"])
+        self.assertEqual(self._bulk([self.students[0].pk, self.students[1].pk]).status_code, 400)
+        self.assertFalse(Enrollment.objects.filter(course=self.course).exists())
+
+    def test_rejects_archived_foreign_course_and_empty_selection(self):
+        archived = Course.objects.create(owner_id=self.owner_id, name="Archivado", active=False)
+        foreign_course = Course.objects.create(owner_id=self.other_id, name="Ajeno")
+        self.assertEqual(self._bulk([self.students[0].pk], archived).status_code, 400)
+        self.assertEqual(self._bulk([self.students[0].pk], foreign_course).status_code, 400)
+        self.assertEqual(self._bulk([]).status_code, 400)
+        self.assertFalse(Enrollment.objects.filter(student=self.students[0]).exists())
+
+
+class CourseGradesExportTests(TestCase):
+    """Planilla de notas: sólo correcciones aprobadas, formato Excel en español y sin fórmulas."""
+
+    def setUp(self):
+        self.owner_id, self.other_id = uuid4(), uuid4()
+        ensure_auth_users(self.owner_id, self.other_id)
+        self.client = APIClient()
+        self.client.force_authenticate(user=SupabasePrincipal(id=str(self.owner_id)))
+        self.course = Course.objects.create(owner_id=self.owner_id, name="Historia Argentina · 5° A")
+        self.e1 = Assessment.objects.create(owner_id=self.owner_id, course=self.course, title="Revolución de Mayo")
+        self.e2 = Assessment.objects.create(owner_id=self.owner_id, course=self.course, title="=Organización nacional")
+        self.ana = Student.objects.create(owner_id=self.owner_id, name="Ana Pérez", external_code="20417", email="ana@example.com")
+        self.beto = Student.objects.create(owner_id=self.owner_id, name="Beto Díaz", external_code="20433")
+        self.gone = Student.objects.create(owner_id=self.owner_id, name="Dado de baja")
+        for student, status in ((self.ana, "active"), (self.beto, "active"), (self.gone, "inactive")):
+            Enrollment.objects.create(owner_id=self.owner_id, course=self.course, student=student, status=status)
+
+    def _correction(self, student, assessment, score, status="approved"):
+        from django.utils import timezone
+        submission = Submission.objects.create(owner_id=self.owner_id, assessment=assessment, student=student, answer_text="Respuesta.", status="approved" if status == "approved" else "review")
+        return Correction.objects.create(
+            owner_id=self.owner_id, submission=submission, provider="gemini", status=status, total_score=score,
+            proposal={"criteria": []}, approved_at=timezone.now() if status == "approved" else None,
+        )
+
+    def test_exports_only_approved_grades_with_average(self):
+        self._correction(self.ana, self.e1, "8.5")
+        self._correction(self.ana, self.e2, "7")
+        self._correction(self.beto, self.e1, "9", status="pending_review")
+        response = self.client.get(f"/api/courses/{self.course.pk}/grades-export/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn('filename="notas-historia-argentina-5-a.csv"', response["Content-Disposition"])
+        text = response.content.decode("utf-8")
+        self.assertTrue(text.startswith("\ufeff"))
+        lines = text.lstrip("\ufeff").strip().split("\r\n")
+        self.assertEqual(lines[0], "Estudiante;Legajo;Correo;Revolución de Mayo;'=Organización nacional;Promedio")
+        self.assertEqual(lines[1], "Ana Pérez;20417;ana@example.com;8,5;7;7,75")
+        self.assertEqual(lines[2], "Beto Díaz;20433;;;;", "una propuesta sin aprobar no es una nota")
+        self.assertEqual(len(lines), 3, "las matrículas inactivas no aparecen")
+
+    def test_foreign_course_is_not_exported(self):
+        foreign = Course.objects.create(owner_id=self.other_id, name="Ajeno")
+        self.assertEqual(self.client.get(f"/api/courses/{foreign.pk}/grades-export/").status_code, 404)

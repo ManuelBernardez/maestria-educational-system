@@ -56,6 +56,8 @@ export const workspace = {
   proposal: null,
   feedback: '',
   changeReason: '',
+  // Nota final fijada a mano por el docente ('' = la calculada por criterios).
+  finalScore: '',
   baseline: '',
   review: { reviewed: new Set(), open: new Set(), onlyUnreviewed: false, onlyPending: false, approveWarning: false, menuOpen: false },
 
@@ -146,4 +148,4 @@ export function stepDirty(step = workspace.step) {
 }
 
 export const anyDirty = () => [1, 2, 3].some(stepDirty);
-export const reviewSnapshot = () => JSON.stringify([criteria().map(item => [Number(item.score), item.justification || '', item.level || '']), workspace.feedback]);
+export const reviewSnapshot = () => JSON.stringify([criteria().map(item => [Number(item.score), item.justification || '', item.level || '']), workspace.feedback, workspace.finalScore]);

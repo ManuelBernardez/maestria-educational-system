@@ -1,5 +1,5 @@
 import { state } from '../../core/state.js';
-import { escapeHtml, formatNumber, formatInputNumber, icon } from '../../core/utils.js';
+import { escapeHtml, formatNumber, formatInputNumber, icon, suggestedQuestionScore } from '../../core/utils.js';
 import { workspace, assessmentQuestions, questionTotal, selectedRubric, stepDirty } from './workspace-state.js';
 import { stepHeader, saveStatus, actionBar, shortcutsHint, dropzone, scoreStepper, fieldError, REFERENCE_CONTEXT_CHARS } from './workspace-markup.js';
 
@@ -139,6 +139,6 @@ export function contextStep() {
     ${actionBar(saveStatus(1, dirty), `<button class="btn btn-primary" type="submit" form="workspace-context-form" id="ws-save-context">Guardar contexto</button>`)}`;
 }
 
-export const emptyQuestionDraft = () => ({ id: '', prompt: '', max_score: '10', expected_answer: '', question_type: 'open', rubric: '', errors: {}, dirty: false, saving: false, confirmCancel: false });
+export const emptyQuestionDraft = () => ({ id: '', prompt: '', max_score: suggestedQuestionScore(assessmentQuestions()), expected_answer: '', question_type: 'open', rubric: '', errors: {}, dirty: false, saving: false, confirmCancel: false });
 
 export const questionDraft = (item) => ({ id: item.id, prompt: item.prompt || '', max_score: formatInputNumber(item.max_score ?? 10), expected_answer: item.expected_answer || '', question_type: item.question_type || 'open', rubric: item.rubric ?? '', errors: {}, dirty: false, saving: false, confirmCancel: false });

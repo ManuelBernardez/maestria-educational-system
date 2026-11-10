@@ -78,7 +78,6 @@ export function renderDashboard() {
         <div class="today-side">
           ${panel('Tus cursos', '', courseItems ? `<div class="mini-course-list">${courseItems}</div>` : '<p class="muted">Todavía no hay cursos activos.</p>', btn('Ver todos', 'navigate', 'data-view="courses"'))}
           ${resume}
-          <p class="margin-note"><strong>Una nota al margen.</strong> La IA sugiere. Vos decidís: ninguna devolución se aprueba sin tu revisión.</p>
         </div>
       </div>`;
 
