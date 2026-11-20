@@ -140,11 +140,27 @@ const ICON_PATHS = Object.freeze({
   list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
   arrowLeft: '<path d="m15 6-6 6 6 6"/>',
   arrowRight: '<path d="m9 6 6 6-6 6"/>',
-  book: '<path d="M12 6.5C9.5 4.8 6.4 4.6 3.5 5.8v13c3-1.2 6.1-1 8.5.7m0-13c2.5-1.7 5.6-1.9 8.5-.7v13c-2.9-1.2-6-1-8.5.7m0-13v13.7"/>'
+  book: '<path d="M12 6.5C9.5 4.8 6.4 4.6 3.5 5.8v13c3-1.2 6.1-1 8.5.7m0-13c2.5-1.7 5.6-1.9 8.5-.7v13c-2.9-1.2-6-1-8.5.7m0-13v13.7"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>'
 });
 
 /** Ícono decorativo: el control que lo contiene debe tener texto o aria-label. */
 export const icon = (name) => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICON_PATHS[name] || ''}</svg>`;
+
+/**
+ * Observaciones del servidor sobre el contexto de una evaluación (`context_notes`):
+ * qué falta o conviene profundizar para que la IA sea más específica. Nunca bloquean.
+ */
+export function contextNotesPanel(notes) {
+  const list = Array.isArray(notes) ? notes.filter(note => note?.message) : [];
+  if (!list.length) return '';
+  const rows = list.map(note => `<li class="context-note context-note--${note.severity === 'warning' ? 'warning' : 'info'}"><strong>${escapeHtml(note.message)}</strong> <span>${escapeHtml(note.suggestion || '')}</span></li>`).join('');
+  return `<details class="context-notes-panel" ${list.some(note => note.severity === 'warning') ? 'open' : ''}>
+    <summary><span>${icon('info')} Sugerencias para mejorar el contexto (${list.length})</span></summary>
+    <p class="field-hint">Con más contexto, las consignas y las devoluciones de la IA son más específicas. Ninguna es obligatoria.</p>
+    <ul class="plain-list context-note-list">${rows}</ul>
+  </details>`;
+}
 
 /* ---------- Barra de herramientas de listados ---------- */
 

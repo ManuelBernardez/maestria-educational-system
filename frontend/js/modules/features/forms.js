@@ -93,8 +93,10 @@ export async function handleModalSubmit(form, button) {
       }
       closeModal(true); await afterWrite('Entrega registrada.', ['submissions']);
     } else if (kind === 'generate-questions') {
-      const result = await api.post(`assessments/${modal.dataset.recordId}/generate-questions/`, { count: Number(values.count) });
-      state.questionProposal = { assessmentId: Number(modal.dataset.recordId), result };
+      const assessmentId = Number(modal.dataset.recordId);
+      const result = await api.post(`assessments/${assessmentId}/generate-questions/`, { count: Number(values.count), avoid: seenQuestionPrompts(assessmentId) }, { timeoutMs: 180000 });
+      rememberQuestionPrompts(assessmentId, result.questions);
+      state.questionProposal = { assessmentId, result };
       closeModal(true); showQuestionProposal(result, Number(modal.dataset.recordId));
     } else if (kind === 'import-reference') {
       const file = form.querySelector('[name="file"]')?.files?.[0];
@@ -113,10 +115,17 @@ export async function handleModalSubmit(form, button) {
     } else if (kind === 'save-rubric-proposal') {
       const criteriaCount = Number(modal.dataset.criteriaCount || 0);
       const proposal = state.rubricProposal;
-      const criteria = (proposal?.criteria || []).slice(0, criteriaCount).map((item, index) => ({
-        name: String(form.querySelector(`[name=\"criterion-${index}\"]`)?.value || item.name || '').trim(),
-        description: String(form.querySelector(`[name="criterion-description-${index}"]`)?.value ?? item.description ?? '').trim(), max_score: Number(form.querySelector(`[name="criterion-score-${index}"]`)?.value ?? item.max_score ?? 10), weight: Number(form.querySelector(`[name="criterion-weight-${index}"]`)?.value ?? item.weight ?? 1)
-      })).filter(item => item.name);
+      const criteria = (proposal?.criteria || []).slice(0, criteriaCount).map((item, index) => {
+        const maxScore = Number(form.querySelector(`[name="criterion-score-${index}"]`)?.value ?? item.max_score ?? 10);
+        // Los niveles propuestos por la IA se conservan y se reescalan si cambió el máximo.
+        const factor = Number(item.max_score) > 0 ? maxScore / Number(item.max_score) : 1;
+        const levels = Array.isArray(item.levels) ? item.levels.map(level => ({ name: level.name, description: level.description || '', score: Math.min(maxScore, Math.round(Number(level.score || 0) * factor * 100) / 100) })) : [];
+        return {
+          name: String(form.querySelector(`[name="criterion-${index}"]`)?.value || item.name || '').trim(),
+          description: String(form.querySelector(`[name="criterion-description-${index}"]`)?.value ?? item.description ?? '').trim(), max_score: maxScore, weight: Number(form.querySelector(`[name="criterion-weight-${index}"]`)?.value ?? item.weight ?? 1),
+          ...(levels.length ? { levels } : {}),
+        };
+      }).filter(item => item.name);
       if (criteria.length < 2) throw new Error('La rúbrica debe contener al menos dos criterios.');
       if (criteria.some(item => !Number.isFinite(item.max_score) || item.max_score < 0.5 || item.max_score > 1000 || !Number.isFinite(item.weight) || item.weight < 0 || item.weight > 100)) throw new Error('Revisá los puntajes máximos y las ponderaciones de los criterios.');
       await api.post('rubrics/create-with-criteria/', {
@@ -174,11 +183,35 @@ export async function handleModalSubmit(form, button) {
   }
 }
 
+/** Consignas ya propuestas por la IA en esta sesión, por evaluación: se envían para que no las repita. */
+export function seenQuestionPrompts(assessmentId) {
+  return (state.seenQuestionPrompts[String(assessmentId)] || []).slice(-40);
+}
+
+export function rememberQuestionPrompts(assessmentId, questions) {
+  const key = String(assessmentId);
+  const prompts = (Array.isArray(questions) ? questions : []).map(item => String(item.prompt || '').trim()).filter(Boolean);
+  state.seenQuestionPrompts[key] = [...(state.seenQuestionPrompts[key] || []), ...prompts].slice(-40);
+}
+
+/** Avisos de la IA y observaciones sobre el contexto (información faltante o mejorable). */
+export function aiNoticesHtml(result) {
+  const warnings = (result?.warnings || []).filter(Boolean);
+  const observations = (result?.observations || []).filter(Boolean);
+  const notes = (result?.context_notes || []).filter(note => note?.severity === 'warning');
+  const rows = [
+    ...warnings.map(text => `<li>${escapeHtml(text)}</li>`),
+    ...notes.map(note => `<li><strong>${escapeHtml(note.message)}</strong> ${escapeHtml(note.suggestion)}</li>`),
+    ...observations.map(text => `<li>${escapeHtml(text)}</li>`),
+  ];
+  return rows.length ? `<div class="notice notice-warning context-notes" role="note"><strong>Para mejorar las propuestas</strong><ul class="plain-list">${rows.join('')}</ul></div>` : '';
+}
+
 export function showQuestionProposal(result, assessmentId) {
   const questions = Array.isArray(result?.questions) ? result.questions : [];
   if (!questions.length) { toast('El proveedor no devolvió consignas para revisar.', 'error'); return; }
-  const items = questions.map((question, index) => `<label class="proposal-item"><input type="checkbox" name="selected" value="${index}" checked><span><strong>Consigna ${index + 1}</strong><br>${escapeHtml(question.prompt || question.question || '')}</span></label>`).join('');
-  openModal('Revisar consignas propuestas', `<form id="proposal-questions-form"><p>${result.demo ? 'La propuesta proviene del modo MOCK; revisala cuidadosamente antes de incorporarla.' : 'Seleccioná las consignas que querés incorporar a la evaluación.'}</p>${items}<div class="form-error" id="modal-error" role="alert"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" data-close-modal>Descartar</button><button type="submit" class="btn btn-primary">Guardar consignas seleccionadas</button></div></form>`, 'save-question-proposal', true);
+  const items = questions.map((question, index) => `<label class="proposal-item"><input type="checkbox" name="selected" value="${index}" checked><span><strong>Consigna ${index + 1}</strong><br>${escapeHtml(question.prompt || question.question || '')}${question.rationale ? `<br><small class="muted">${escapeHtml(question.rationale)}</small>` : ''}</span></label>`).join('');
+  openModal('Revisar consignas propuestas', `<form id="proposal-questions-form"><p>${result.demo ? 'La propuesta proviene del modo MOCK; revisala cuidadosamente antes de incorporarla.' : 'Seleccioná las consignas que querés incorporar a la evaluación.'}</p>${aiNoticesHtml(result)}${items}<div class="form-error" id="modal-error" role="alert"></div><div class="modal-actions"><button type="button" class="btn btn-secondary" data-close-modal>Descartar</button><button type="submit" class="btn btn-primary">Guardar consignas seleccionadas</button></div></form>`, 'save-question-proposal', true);
   modal.dataset.assessmentId = assessmentId;
   state.questionProposal = { assessmentId, result };
 }
@@ -195,7 +228,8 @@ export async function handleQuestionProposal(form, button) {
       await api.post('questions/', {
         assessment: Number(state.questionProposal.assessmentId), prompt: String(item.prompt || item.question || '').trim(),
         expected_answer: String(item.expected_answer || ''), question_type: ['open', 'short', 'case'].includes(item.question_type) ? item.question_type : 'open',
-        max_score: Number(item.max_score || 10), position: Number(item.position || index + 1), rubric: item.rubric_id ? Number(item.rubric_id) : null
+        // 2 puntos por consigna, igual que el backend y el prompt (una evaluación de 10 puntos).
+        max_score: Number(item.max_score || 2), position: Number(item.position || index + 1), rubric: item.rubric_id ? Number(item.rubric_id) : null
       });
     }
     const id = state.questionProposal.assessmentId;
@@ -244,7 +278,11 @@ export async function handleApproveCorrection(form, button) {
   const criteria = Array.isArray(proposal?.criteria) ? proposal.criteria : [];
   // Mismas reglas que el espacio de trabajo (nivel y evidencia no se editan: son de la propuesta).
   const { current, max, minimum, overridden, changed, manualInvalid, final } = correctionClosingState(form, criteria);
-  const finalCriteria = current.map((item, index) => ({ ...item, justification: form.querySelector(`[name="justification-${index}"]`)?.value ?? item.justification ?? '' }));
+  const finalCriteria = current.map((item, index) => ({
+    ...item,
+    justification: form.querySelector(`[name="justification-${index}"]`)?.value ?? item.justification ?? '',
+    student_feedback: form.querySelector(`[name="student-feedback-${index}"]`)?.value ?? item.student_feedback ?? '',
+  }));
   if (finalCriteria.some(item => !Number.isFinite(Number(item.score)) || Number(item.score) < 0 || Number(item.score) > Number(item.max_score))) { toast('Cada puntaje debe ser un número entre 0 y el máximo de su criterio.', 'error'); return; }
   if (manualInvalid) { toast(`La nota final debe estar entre ${formatNumber(minimum)} y ${formatNumber(max)}.`, 'error'); form.querySelector('[data-correction-final]')?.focus(); return; }
   const changeReason = form.querySelector('[name="change_reason"]')?.value?.trim() || '';

@@ -6,6 +6,7 @@ import { toast } from '../core/ui.js';
 import { openExclusive } from '../core/disclosure.js';
 import { invalidateResources } from '../data/resources.js';
 import { openCorrectionShareModal, copyCorrection } from './share.js';
+import { seenQuestionPrompts, rememberQuestionPrompts } from './forms.js';
 import {
   workspace, STEP_TONES, rememberStep, recalledStep, selectedAssessment, assessmentQuestions, questionTotal,
   assessmentSubmissions, queueStatus, criteria, isApproved, canReview, criterionModified, stepDirty, anyDirty, reviewSnapshot
@@ -91,7 +92,7 @@ function resetForAssessment(assessment) {
   Object.assign(workspace, {
     studentId: '', studentName: '', rubricId: '', answerText: '', answerFile: null, materialFile: null,
     materialConfirmRemove: false, questionEditor: null, questionDeleteId: '', questionDeleteError: '', questionSuggestions: [],
-    questionSuggestionDemo: false, suggestError: '', activeSubmission: null, correction: null, proposal: null, feedback: '',
+    questionSuggestionDemo: false, suggestError: '', suggestNotices: [], contextNotes: [], activeSubmission: null, correction: null, proposal: null, feedback: '',
     changeReason: '', finalScore: '', baseline: '', contextJustSaved: false, proposalReady: false, leaveGuard: null, lockedNotice: false,
     search: '', statusFilter: 'pending', queueLimit: 50, error: ''
   });
@@ -141,6 +142,7 @@ async function loadWorkspaceData(preferredAssessment = null, requestedSubmission
       const exists = state.data.assessments.some(item => String(item.id) === String(selected.id));
       state.data.assessments = exists ? state.data.assessments.map(item => String(item.id) === String(selected.id) ? { ...item, ...selected } : item) : [selected, ...state.data.assessments];
       resetForAssessment({ ...selected, questions: workspace.questions });
+      workspace.contextNotes = Array.isArray(payload.context_notes) ? payload.context_notes : [];
     } else {
       resetForAssessment(null);
     }
@@ -383,12 +385,19 @@ async function suggestQuestions() {
   const count = Math.min(5, Math.max(1, Math.round(Number(workspace.suggestCount) || 3)));
   workspace.generatingQuestions = true;
   workspace.suggestError = '';
+  workspace.suggestNotices = [];
   render();
   try {
     await saveContext();
-    const result = await api.post(`assessments/${assessment.id}/generate-questions/`, { count }, { timeoutMs: 180000 });
+    // Lo ya propuesto en esta sesión (incluidas las sugerencias que siguen en pantalla):
+    // el servidor suma las consignas guardadas y la IA no debe repetir ninguna.
+    const avoid = [...seenQuestionPrompts(assessment.id), ...workspace.questionSuggestions.map(item => item.prompt)];
+    const result = await api.post(`assessments/${assessment.id}/generate-questions/`, { count, avoid }, { timeoutMs: 180000 });
+    rememberQuestionPrompts(assessment.id, result.questions);
     workspace.questionSuggestions = (Array.isArray(result.questions) ? result.questions : []).map(item => ({ ...item, selected: true }));
     workspace.questionSuggestionDemo = Boolean(result.demo);
+    workspace.suggestNotices = [...(result.warnings || []), ...(result.observations || [])].filter(Boolean);
+    if (Array.isArray(result.context_notes)) workspace.contextNotes = result.context_notes;
     if (!workspace.questionSuggestions.length) throw new Error('No recibimos consignas válidas. Revisá la configuración de IA e intentá de nuevo.');
   } catch (error) {
     workspace.suggestError = error?.message || 'No se pudieron proponer consignas.';
@@ -400,18 +409,24 @@ async function suggestQuestions() {
 async function acceptSelectedSuggestions() {
   const selected = workspace.questionSuggestions.filter(item => item.selected);
   const existing = new Set(assessmentQuestions().map(item => String(item.prompt || '').trim().toLocaleLowerCase('es-AR')));
+  let added = 0;
+  let skipped = 0;
   for (const item of selected) {
     const prompt = String(item.prompt || '').trim();
-    const maxScore = Number(item.max_score || 10);
+    // 2 puntos por defecto, como el backend y el prompt (evaluación de 10 puntos).
+    const maxScore = Number(item.max_score || 2);
     if (prompt.length < 4 || !Number.isFinite(maxScore) || maxScore < 0.5 || maxScore > 1000) throw new Error('Revisá el texto y el puntaje de las sugerencias seleccionadas.');
-    if (existing.has(prompt.toLocaleLowerCase('es-AR'))) continue;
-    const created = await api.post('questions/', { assessment: Number(workspace.assessmentId), prompt, max_score: maxScore, position: nextPosition() });
+    workspace.questionSuggestions = workspace.questionSuggestions.filter(row => row !== item);
+    if (existing.has(prompt.toLocaleLowerCase('es-AR'))) { skipped += 1; continue; }
+    // La respuesta esperada que propone la IA queda como referencia editable para corregir.
+    const created = await api.post('questions/', { assessment: Number(workspace.assessmentId), prompt, expected_answer: String(item.expected_answer || '').trim(), max_score: maxScore, position: nextPosition() });
     storeQuestion(created);
     existing.add(prompt.toLocaleLowerCase('es-AR'));
-    workspace.questionSuggestions = workspace.questionSuggestions.filter(row => row !== item);
     workspace.questionHighlight = String(created.id);
+    added += 1;
   }
-  announce(`${selected.length === 1 ? 'Consigna agregada' : 'Consignas agregadas'} a la evaluación.`);
+  const addedText = `${added === 1 ? 'Se agregó 1 consigna' : `Se agregaron ${added} consignas`} a la evaluación.`;
+  announce(skipped ? `${addedText} ${skipped === 1 ? 'Se omitió 1 que ya existía.' : `Se omitieron ${skipped} que ya existían.`}` : addedText);
 }
 
 async function createSubmissionAndCorrection() {

@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { closeSidebar, updateChrome, toast } from './ui.js';
 import { loadResources, missingResources } from '../data/resources.js';
 
-const TEACHER_VIEWS = new Set([
+export const TEACHER_VIEWS = new Set([
   'dashboard', 'workspace', 'courses', 'course', 'students', 'student', 'assessments', 'assessment-new', 'assessment',
   'rubrics', 'rubric', 'submissions', 'submission', 'corrections', 'correction', 'profile'
 ]);

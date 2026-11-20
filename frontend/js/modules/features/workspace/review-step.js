@@ -175,11 +175,13 @@ function criterionCard(item, index, submission) {
   const editable = readonly
     ? `${level ? `<p class="criterion-score-line">${level}</p>` : ''}
        ${evidenceBlock(item, index, submission)}
-       <p class="criterion-justification">${escapeHtml(item.justification || '—')}</p>`
+       <p class="criterion-justification">${escapeHtml(item.justification || '—')}</p>
+       ${item.student_feedback ? `<span class="read-label">Para el estudiante</span><p class="criterion-justification">${escapeHtml(item.student_feedback)}</p>` : ''}`
     : `<div class="criterion-score-line"><label for="workspace-score-${index}">Puntaje</label>${scoreStepper({ id: `workspace-score-${index}`, value: formatInputNumber(item.score), max, attrs: `data-workspace-criterion="${index}" data-field="score" aria-describedby="workspace-score-${index}-error"`, label: name })}<span class="muted">/ ${escapeHtml(formatNumber(max))}</span>${level}</div>
       <p class="field-error" id="workspace-score-${index}-error" role="alert" data-score-error="${index}"></p>
       ${evidenceBlock(item, index, submission)}
-      <div class="form-field"><label for="workspace-justification-${index}">Justificación</label><textarea id="workspace-justification-${index}" class="autogrow" rows="2" data-workspace-criterion="${index}" data-field="justification">${escapeHtml(item.justification || '')}</textarea></div>
+      <div class="form-field"><label for="workspace-justification-${index}">Justificación <small class="ws-block-optional">para vos</small></label><textarea id="workspace-justification-${index}" class="autogrow" rows="2" data-workspace-criterion="${index}" data-field="justification">${escapeHtml(item.justification || '')}</textarea></div>
+      <div class="form-field"><label for="workspace-student-feedback-${index}">Devolución del criterio <small class="ws-block-optional">para el estudiante</small></label><textarea id="workspace-student-feedback-${index}" class="autogrow" rows="3" data-workspace-criterion="${index}" data-field="student_feedback">${escapeHtml(item.student_feedback || '')}</textarea></div>
       <div class="criterion-foot"><label class="check"><input type="checkbox" data-workspace-reviewed="${index}" ${reviewed ? 'checked' : ''}><span>Revisado</span></label><button type="button" class="text-link" data-action="workspace-restore-criterion" data-index="${index}" ${criterionModified(index) ? '' : 'hidden'}>Volver a la sugerencia de la IA</button></div>`;
   return `<article class="criterion" id="ws-criterion-${index}" data-criterion="${index}" ${hidden ? 'hidden' : ''}>
     <h4 class="criterion-heading"><button type="button" class="criterion-toggle" data-action="workspace-criterion-toggle" data-index="${index}" aria-expanded="${open}" aria-controls="ws-criterion-body-${index}">
@@ -332,5 +334,6 @@ export function restoreCriterion(index) {
   if (!original || !current) return;
   current.score = original.score;
   current.justification = original.justification;
+  current.student_feedback = original.student_feedback;
   current.level = original.level;
 }

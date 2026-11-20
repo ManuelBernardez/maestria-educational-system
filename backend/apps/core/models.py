@@ -83,8 +83,9 @@ class RubricCriterion(OwnedTable):
     rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="criteria")
     name = models.CharField(max_length=160)
     description = models.TextField(blank=True, default="")
-    max_score = models.DecimalField(max_digits=38, decimal_places=18, default=10)
-    weight = models.DecimalField(max_digits=38, decimal_places=18, default=1)
+    # Precisión igual a las columnas reales: numeric(7,2) y numeric(6,3).
+    max_score = models.DecimalField(max_digits=7, decimal_places=2, default=10)
+    weight = models.DecimalField(max_digits=6, decimal_places=3, default=1)
     position = models.IntegerField(default=1)
 
     class Meta:
@@ -97,7 +98,7 @@ class RubricLevel(OwnedTable):
     criterion = models.ForeignKey(RubricCriterion, db_constraint=False, on_delete=models.PROTECT, related_name="levels")
     name = models.CharField(max_length=80)
     description = models.TextField(blank=True, default="")
-    score = models.DecimalField(max_digits=38, decimal_places=18)
+    score = models.DecimalField(max_digits=7, decimal_places=2)
     position = models.IntegerField(default=1)
 
     class Meta:
@@ -131,9 +132,9 @@ class Question(OwnedTable):
     prompt = models.TextField()
     expected_answer = models.TextField(blank=True, default="")
     question_type = models.CharField(max_length=16, choices=TYPE_CHOICES, default="open")
-    max_score = models.DecimalField(max_digits=38, decimal_places=18, default=10)
+    max_score = models.DecimalField(max_digits=7, decimal_places=2, default=10)
     position = models.IntegerField(default=1)
-    assessment = models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="questions")
+    assessment =models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="questions")
     rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="questions", null=True, blank=True)
 
     class Meta:
@@ -195,7 +196,7 @@ class Correction(OwnedTable):
     proposal = models.JSONField(default=dict)
     final_result = models.JSONField(default=dict)
     teacher_feedback = models.TextField(blank=True, default="")
-    total_score = models.DecimalField(max_digits=38, decimal_places=18, default=0)
+    total_score = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="pending_review")
     approved_at = models.DateTimeField(null=True, blank=True)
     rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="corrections", null=True, blank=True)
@@ -209,8 +210,8 @@ class Correction(OwnedTable):
 
 class CorrectionCriterionResult(OwnedTable):
     criterion_name = models.CharField(max_length=160)
-    score = models.DecimalField(max_digits=38, decimal_places=18)
-    max_score = models.DecimalField(max_digits=38, decimal_places=18)
+    score = models.DecimalField(max_digits=7, decimal_places=2)
+    max_score = models.DecimalField(max_digits=7, decimal_places=2)
     evidence = models.TextField(blank=True, default="")
     justification = models.TextField(blank=True, default="")
     feedback = models.TextField(blank=True, default="")
@@ -249,7 +250,7 @@ class AIGeneration(PublicTable):
     duration_ms = models.IntegerField(default=0)
     input_tokens = models.IntegerField(default=0)
     output_tokens = models.IntegerField(default=0)
-    estimated_cost_usd = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
+    estimated_cost_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     prompt_fingerprint = models.CharField(max_length=128, blank=True, default="")
     error_code = models.CharField(max_length=80, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -374,8 +375,8 @@ class AIProviderConfig(PublicTable):
     enabled = models.BooleanField(default=False)
     priority = models.SmallIntegerField(default=10)
     timeout_seconds = models.SmallIntegerField(default=60)
-    input_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
-    output_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
+    input_usd_per_1k_tokens = models.DecimalField(max_digits=12, decimal_places=8, null=True, blank=True)
+    output_usd_per_1k_tokens = models.DecimalField(max_digits=12, decimal_places=8, null=True, blank=True)
     updated_by = models.UUIDField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 

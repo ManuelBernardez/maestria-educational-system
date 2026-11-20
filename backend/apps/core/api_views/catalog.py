@@ -1,10 +1,12 @@
 import re
 import unicodedata
 
-from django.db.models import F
+from django.db.models import F, Sum
 from rest_framework.exceptions import APIException
 
+from ..ai import DEFAULT_ASSESSMENT_SCALE
 from ..ai_guard import ai_slot, run_with_deadline
+from ..context_quality import context_notes_for
 
 from .common import (
     AIUserRateThrottle,
@@ -16,7 +18,9 @@ from .common import (
     CourseNavigationSerializer,
     CourseOptionSerializer,
     CourseSerializer,
+    Decimal,
     DjangoValidationError,
+    InvalidOperation,
     Enrollment,
     EnrollmentSerializer,
     FormParser,
@@ -97,12 +101,22 @@ class CourseViewSet(OwnerViewSet):
         if course is None:
             from rest_framework.exceptions import NotFound
             raise NotFound("Curso no disponible.")
-        assessments = list(Assessment.objects.filter(owner_id=owner_id, course=course).order_by("created_at", "id").values("id", "title"))
+        assessments = list(
+            Assessment.objects.filter(owner_id=owner_id, course=course).order_by("created_at", "id")
+            .annotate(points=Sum("questions__max_score")).values("id", "title", "points")
+        )
+        # Máximo de cada evaluación (suma de sus consignas; 10 si no tiene), para
+        # correcciones cuyo resultado no detalla los máximos por criterio.
+        assessment_max = {item["id"]: float(item["points"] or DEFAULT_ASSESSMENT_SCALE) for item in assessments}
         enrollments = list(
-            Enrollment.objects.filter(owner_id=owner_id, course=course, status="active", student__owner_id=owner_id)
+            Enrollment.objects.filter(
+                owner_id=owner_id, course=course, status="active",
+                student__owner_id=owner_id, student__active=True,
+            )
             .select_related("student").order_by("student__name", "student_id")
         )
         # La aprobación más reciente por estudiante y evaluación (una entrega puede tener historial).
+        # Se guarda también el máximo de esa corrección para promediar en una escala común.
         grades = {}
         approved = (
             Correction.objects.filter(
@@ -110,10 +124,12 @@ class CourseViewSet(OwnerViewSet):
                 submission__assessment__course=course, submission__student__isnull=False,
             )
             .order_by("approved_at", "id")
-            .values_list("submission__student_id", "submission__assessment_id", "total_score")
+            .values_list("submission__student_id", "submission__assessment_id", "total_score", "final_result")
         )
-        for student_id, assessment_id, total in approved:
-            grades[(student_id, assessment_id)] = total
+        for student_id, assessment_id, total, final_result in approved:
+            criteria = (final_result or {}).get("criteria") if isinstance(final_result, dict) else None
+            maximum = sum(float(item.get("max_score") or 0) for item in criteria if isinstance(item, dict)) if isinstance(criteria, list) else 0.0
+            grades[(student_id, assessment_id)] = (total, maximum or assessment_max.get(assessment_id, DEFAULT_ASSESSMENT_SCALE))
 
         def cell(value):
             # Evita inyección de fórmulas al abrir el CSV en Excel/Sheets (=, +, -, @).
@@ -125,13 +141,15 @@ class CourseViewSet(OwnerViewSet):
 
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
-        writer.writerow(["Estudiante", "Legajo", "Correo", *(cell(item["title"]) for item in assessments), "Promedio"])
+        writer.writerow(["Estudiante", "Legajo", "Correo", *(cell(item["title"]) for item in assessments), "Promedio (sobre 10)"])
         for enrollment in enrollments:
             student = enrollment.student
             scores = [grades.get((student.pk, item["id"])) for item in assessments]
-            present = [float(score) for score in scores if score is not None]
-            average = number(sum(present) / len(present)) if present else ""
-            writer.writerow([cell(student.name), cell(student.external_code), cell(student.email), *(number(score) if score is not None else "" for score in scores), average])
+            # Cada evaluación puede tener otro puntaje máximo (10, 20, 100…): el promedio
+            # normaliza cada nota a 10 en lugar de mezclar escalas.
+            normalized = [float(total) / maximum * 10 for total, maximum in (s for s in scores if s is not None) if maximum > 0]
+            average = number(sum(normalized) / len(normalized)) if normalized else ""
+            writer.writerow([cell(student.name), cell(student.external_code), cell(student.email), *(number(score[0]) if score is not None else "" for score in scores), average])
 
         slug = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", course.name).encode("ascii", "ignore").decode().lower()).strip("-")[:60] or "curso"
         record_audit(owner_id, "course.grades_exported", "course", course.pk, {"students": len(enrollments), "assessments": len(assessments)}, request=request)
@@ -330,12 +348,13 @@ class AssessmentViewSet(OwnerViewSet):
         """Small payload for preparing an evaluation without loading submissions or rubrics."""
         assessment = self.get_object()
         owner_id = request.user.id
-        questions = Question.objects.filter(owner_id=owner_id, assessment=assessment).order_by("position", "id")
+        questions = list(Question.objects.filter(owner_id=owner_id, assessment=assessment).order_by("position", "id"))
         courses = CourseOptionSerializer(Course.objects.filter(owner_id=owner_id, active=True).order_by("name"), many=True).data
         return Response({
             "assessment": AssessmentEditorSerializer(assessment, context={"request": request}).data,
             "questions": QuestionSerializer(questions, many=True, context={"request": request}).data,
             "courses": courses,
+            "context_notes": context_notes_for(assessment, questions),
         })
 
     @action(detail=True, methods=["post"], url_path="reorder-questions")
@@ -369,8 +388,10 @@ class AssessmentViewSet(OwnerViewSet):
                 raise ValidationError({"order": "La lista no coincide con las consignas actuales. Recargá la evaluación e intentá nuevamente."})
             offset = max(question.position for question in questions.values()) + len(order) + 1
             Question.objects.filter(pk__in=order).update(position=F("position") + offset)
+            # Un solo UPDATE … CASE para las posiciones definitivas (antes, uno por consigna).
             for position, question_id in enumerate(order, start=1):
-                Question.objects.filter(pk=question_id).update(position=position)
+                questions[question_id].position = position
+            Question.objects.bulk_update(list(questions.values()), ["position"])
             # Cambiar el orden altera el contexto de corrección: invalida snapshots en curso.
             assessment.save(update_fields=["updated_at"])
             record_audit(request.user.id, "questions.reordered", "assessment", assessment.id, {"count": len(order)}, request=request)
@@ -421,14 +442,23 @@ class AssessmentViewSet(OwnerViewSet):
                 raise ValidationError({"count": "La cantidad debe ser un número entero entre 1 y 5."}) from exc
             if not 1 <= count <= 5:
                 raise ValidationError({"count": "Solicitá entre 1 y 5 preguntas por vez."})
+            # Lo que la IA no debe repetir: las consignas guardadas más las propuestas que
+            # el docente ya vio en esta sesión (aceptadas o descartadas), enviadas en `avoid`.
+            raw_avoid = request.data.get("avoid", [])
+            if not isinstance(raw_avoid, list):
+                raise ValidationError({"avoid": "Debe ser una lista de consignas."})
+            saved = list(Question.objects.filter(owner_id=request.user.id, assessment=assessment).order_by("position", "id"))
+            existing = [question.prompt for question in saved] + [str(item)[:300] for item in raw_avoid[:40] if str(item).strip()]
             provider_config = active_ai_provider_config()
             with ai_slot(request.user.id):
                 result = run_with_deadline(
                     generate_questions,
                     title=assessment.title, subject=assessment.subject, level=assessment.level,
                     objectives=assessment.objectives, instructions=assessment.instructions,
-                    reference_material=assessment.reference_material, count=count, provider_config=provider_config,
+                    reference_material=assessment.reference_material, count=count,
+                    existing_questions=existing, provider_config=provider_config,
                 )
+            result["context_notes"] = context_notes_for(assessment, saved)
             record_ai_generation(request.user.id, "generate_questions", started, True, fingerprint(context), assessment=assessment, provider_config=provider_config)
             record_audit(request.user.id, "questions.proposed", "assessment", assessment.id, {"count": len(result.get("questions", [])), "demo": bool(result.get("demo"))}, request=request)
         except APIException:
@@ -503,6 +533,9 @@ class StudentViewSet(OwnerViewSet):
             lock_owner_profile(owner_id)
             course = Course.objects.select_for_update().get(pk=course.pk, owner_id=owner_id, active=True)
             seen_codes = set(Student.objects.filter(owner_id=owner_id).exclude(external_code="").values_list("external_code", flat=True))
+            # Se valida todo en memoria y se inserta en dos INSERT masivos (antes, dos
+            # INSERT por fila: ~1000 viajes a la base para 500 estudiantes).
+            new_students = []
             for row_number, row in enumerate(reader, start=2):
                 if row_number > 501:
                     errors.append({"row": row_number, "reason": "Límite de 500 filas por importación."})
@@ -518,10 +551,15 @@ class StudentViewSet(OwnerViewSet):
                         skipped += 1; errors.append({"row": row_number, "reason": "Correo inválido."}); continue
                 if code and code in seen_codes:
                     skipped += 1; errors.append({"row": row_number, "reason": "Legajo repetido."}); continue
-                student = Student.objects.create(owner_id=owner_id, name=name, email=email, phone=(row.get("phone") or "").strip()[:32], external_code=code)
-                Enrollment.objects.create(owner_id=owner_id, course=course, student=student, status="active")
+                new_students.append(Student(owner_id=owner_id, name=name, email=email, phone=(row.get("phone") or "").strip()[:32], external_code=code))
                 if code: seen_codes.add(code)
-                created += 1
+            if new_students:
+                Student.objects.bulk_create(new_students)
+                Enrollment.objects.bulk_create([
+                    Enrollment(owner_id=owner_id, course=course, student=student, status="active")
+                    for student in new_students
+                ])
+            created = len(new_students)
             record_audit(owner_id, "students.imported", "student_import", "csv", {"created": created, "skipped": skipped}, request=request)
             return Response({"created": created, "skipped": skipped, "errors": errors[:100]}, status=status.HTTP_200_OK)
         except UnicodeDecodeError as exc:
@@ -543,6 +581,65 @@ def _student_csv_column(header):
     return _STUDENT_CSV_ALIASES.get(key, key)
 
 
+# Niveles de respaldo cuando ni el docente ni la IA proponen descriptores propios.
+_DEFAULT_RUBRIC_LEVELS = (
+    ("Inicial", "Requiere apoyo para demostrar el criterio.", 0),
+    ("En desarrollo", "Demuestra parte de lo esperado.", 1 / 3),
+    ("Logrado", "Cumple el criterio esperado.", 2 / 3),
+    ("Destacado", "Demuestra el criterio con profundidad o transferencia.", 1),
+)
+
+
+def _decimal_in_range(value, *, places, minimum, maximum, inclusive_min, error):
+    try:
+        number = Decimal(str(value).replace(",", "."))
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValidationError({"criteria": error})
+    if not number.is_finite() or number > maximum or (number < minimum if inclusive_min else number <= minimum):
+        raise ValidationError({"criteria": error})
+    return number.quantize(Decimal(1).scaleb(-places))
+
+
+def _validated_rubric_criteria(raw_criteria, scale_type):
+    """Valida criterios y niveles de una rúbrica nueva sin tocar la base.
+
+    Devuelve `[{"fields": {...}, "levels": [{...}]}]` listo para `bulk_create`. Usa
+    los niveles propuestos (por el docente o la IA) y recurre a los genéricos sólo si faltan.
+    """
+    rows = []
+    for index, raw in enumerate(raw_criteria, start=1):
+        if not isinstance(raw, dict):
+            raise ValidationError({"criteria": f"El criterio {index} no tiene un formato válido."})
+        name = str(raw.get("name", "")).strip()[:160]
+        if not name:
+            raise ValidationError({"criteria": f"El criterio {index} necesita un nombre."})
+        max_score = _decimal_in_range(raw.get("max_score", 10), places=2, minimum=Decimal(0), maximum=Decimal(1000), inclusive_min=False,
+                                      error=f"El puntaje máximo del criterio {index} debe ser mayor que 0 y no superar 1000.")
+        weight = _decimal_in_range(raw.get("weight", 1), places=3, minimum=Decimal(0), maximum=Decimal(100), inclusive_min=True,
+                                   error=f"La ponderación del criterio {index} debe estar entre 0 y 100.")
+        levels = []
+        if scale_type in {"levels", "both"}:
+            supplied = raw.get("levels")
+            if not isinstance(supplied, list) or not supplied:
+                supplied = [
+                    {"name": level_name, "description": description, "score": float(max_score) * fraction}
+                    for level_name, description, fraction in _DEFAULT_RUBRIC_LEVELS
+                ]
+            if len(supplied) > 8:
+                raise ValidationError({"criteria": f"El criterio {index} no puede tener más de 8 niveles."})
+            for raw_level in supplied:
+                if not isinstance(raw_level, dict) or not str(raw_level.get("name", "")).strip():
+                    raise ValidationError({"criteria": f"Un nivel del criterio {index} no tiene un formato válido."})
+                score = _decimal_in_range(raw_level.get("score", 0), places=2, minimum=Decimal(0), maximum=max_score, inclusive_min=True,
+                                          error=f"El puntaje de cada nivel del criterio {index} debe estar entre 0 y su máximo.")
+                levels.append({"name": str(raw_level["name"]).strip()[:80], "description": str(raw_level.get("description", ""))[:2000], "score": score})
+        rows.append({
+            "fields": {"name": name, "description": str(raw.get("description", ""))[:4000], "max_score": max_score, "weight": weight},
+            "levels": levels,
+        })
+    return rows
+
+
 class RubricViewSet(OwnerViewSet):
     queryset = Rubric.objects.all().prefetch_related("criteria__levels").order_by("-updated_at")
     serializer_class = RubricSerializer
@@ -560,48 +657,20 @@ class RubricViewSet(OwnerViewSet):
             "scale_type": request.data.get("scale_type", "both"),
         }, context={"request": request})
         rubric_serializer.is_valid(raise_exception=True)
-        rubric = rubric_serializer.save(owner_id=request.user.id)
-
-        for index, raw in enumerate(raw_criteria, start=1):
-            if not isinstance(raw, dict):
-                raise ValidationError({"criteria": f"El criterio {index} no tiene un formato válido."})
-            criterion_serializer = RubricCriterionSerializer(data={
-                "rubric": rubric.pk,
-                "name": raw.get("name", ""),
-                "description": raw.get("description", ""),
-                "max_score": raw.get("max_score", 10),
-                "weight": raw.get("weight", 1),
-                "position": index,
-            }, context={"request": request})
-            criterion_serializer.is_valid(raise_exception=True)
-            criterion = criterion_serializer.save(owner_id=request.user.id)
-            if rubric.scale_type in {"levels", "both"}:
-                default_levels = [
-                    ("Inicial", "Requiere apoyo para demostrar el criterio.", 0),
-                    ("En desarrollo", "Demuestra parte de lo esperado.", 1 / 3),
-                    ("Logrado", "Cumple el criterio esperado.", 2 / 3),
-                    ("Destacado", "Demuestra el criterio con profundidad o transferencia.", 1),
-                ]
-                supplied_levels = raw.get("levels")
-                if not isinstance(supplied_levels, list) or len(supplied_levels) == 0:
-                    supplied_levels = [
-                        {"name": name, "description": desc, "score": round(float(criterion.max_score) * fraction, 2)}
-                        for name, desc, fraction in default_levels
-                    ]
-                if len(supplied_levels) > 8:
-                    raise ValidationError({"criteria": f"El criterio {index} no puede tener más de 8 niveles."})
-                for level_index, raw_level in enumerate(supplied_levels, start=1):
-                    if not isinstance(raw_level, dict):
-                        raise ValidationError({"criteria": f"Un nivel del criterio {index} no tiene un formato válido."})
-                    level_serializer = RubricLevelSerializer(data={
-                        "criterion": criterion.pk,
-                        "name": raw_level.get("name", ""),
-                        "description": raw_level.get("description", ""),
-                        "score": raw_level.get("score", 0),
-                        "position": level_index,
-                    }, context={"request": request})
-                    level_serializer.is_valid(raise_exception=True)
-                    level_serializer.save(owner_id=request.user.id)
+        owner_id = request.user.id
+        criteria_rows = _validated_rubric_criteria(raw_criteria, rubric_serializer.validated_data.get("scale_type", "both"))
+        rubric = rubric_serializer.save(owner_id=owner_id)
+        # Validación completa en memoria y dos INSERT masivos (antes, una validación con
+        # consulta y un INSERT por criterio y por nivel: hasta 180 viajes a la base).
+        criteria = RubricCriterion.objects.bulk_create([
+            RubricCriterion(owner_id=owner_id, rubric=rubric, position=index, **row["fields"])
+            for index, row in enumerate(criteria_rows, start=1)
+        ])
+        RubricLevel.objects.bulk_create([
+            RubricLevel(owner_id=owner_id, criterion=criterion, position=level_index, **level)
+            for criterion, row in zip(criteria, criteria_rows)
+            for level_index, level in enumerate(row["levels"], start=1)
+        ])
 
         record_audit(request.user.id, "rubric.created", "rubric", rubric.id, {"criteria_count": len(raw_criteria), "scale_type": rubric.scale_type}, request=request)
         rubric = Rubric.objects.prefetch_related("criteria__levels").get(pk=rubric.pk, owner_id=request.user.id)

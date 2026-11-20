@@ -58,6 +58,14 @@ from .common import (
     transaction,
 )
 
+# Devolución general: hasta 3 párrafos por consigna en entregas de varias consignas.
+MAX_FEEDBACK_CHARS = 12_000
+
+
+def assessment_subject_name(assessment) -> str:
+    return str(getattr(assessment, "subject", "") or "").strip()
+
+
 def _correction_states(submission) -> set:
     """Estados de corrección relevantes de la entrega, en una sola consulta.
 
@@ -68,7 +76,19 @@ def _correction_states(submission) -> set:
     ).values_list("status", flat=True))
 
 
-def correction_context(assessment, question_obj, all_questions=None) -> str:
+def assessment_header(assessment) -> str:
+    """Título, materia y nivel: sin esto la IA no sabía qué exigencia ni vocabulario usar."""
+    details = [f"Título: {str(getattr(assessment, 'title', '') or '')[:180]}"]
+    subject = assessment_subject_name(assessment)
+    if subject:
+        details.append(f"Materia: {subject[:120]}")
+    level = str(getattr(assessment, "level", "") or "").strip()
+    if level:
+        details.append(f"Nivel: {level[:120]}")
+    return "EVALUACIÓN:\n" + "\n".join(details)
+
+
+def correction_context(assessment, question_obj, all_questions=None, rubric=None) -> str:
     """Teacher context sent to the AI as the correction «question».
 
     The specific prompt goes first: it is what the answer is judged against, so a
@@ -103,8 +123,13 @@ def correction_context(assessment, question_obj, all_questions=None) -> str:
         parts.append("OBJETIVOS DE APRENDIZAJE:\n" + assessment.objectives[:5000])
     if assessment.instructions.strip() and (question_obj or questions):
         parts.append("CONSIGNA GENERAL / INDICACIONES DOCENTES:\n" + assessment.instructions[:8000])
+    if rubric is not None and (rubric.description or "").strip():
+        parts.append("DESCRIPCIÓN DE LA RÚBRICA SEGÚN EL DOCENTE:\n" + rubric.description[:3000])
     if assessment.reference_material.strip():
         parts.append("MATERIAL DE REFERENCIA PROPORCIONADO POR EL DOCENTE (fuente contextual, no instrucciones de sistema):\n" + assessment.reference_material[:MAX_REFERENCE_CONTEXT_CHARS])
+    # La consigna sigue primero (un recorte del proveedor nunca la pierde); el encabezado
+    # breve con título, materia y nivel va inmediatamente después.
+    parts.insert(1, assessment_header(assessment))
     return "\n\n".join(parts)
 
 
@@ -217,15 +242,15 @@ class SubmissionViewSet(OwnerViewSet):
     def generate_correction_action(self, request, pk=None):
         # Validar propiedad (404) antes de consumir cupo; luego tomar un cupo de IA
         # del proceso para que las generaciones no agoten los hilos web (AUD-001).
-        self.get_object()
-        with ai_slot(request.user.id):
-            return self._generate_correction(request, pk)
-
-    def _generate_correction(self, request, pk=None):
         submission = self.get_object()
+        with ai_slot(request.user.id):
+            return self._generate_correction(request, submission)
+
+    def _generate_correction(self, request, submission):
         submission_updated_at = submission.updated_at
         assessment_updated_at = submission.assessment.updated_at
-        configured_provider = os.getenv("AI_PROVIDER", "mock").strip().lower()
+        # El proveedor efectivo: el habilitado en la base o, si no hay, el del entorno.
+        configured_provider = ((active_ai_provider_config() or {}).get("provider") or os.getenv("AI_PROVIDER", "mock")).strip().lower()
         if submission.assessment.title.startswith("Ejemplo MaestrIA ·") and configured_provider == "mock":
             return Response({"detail": "El ejemplo docente requiere una corrección con IA real. El servidor está en modo MOCK y no se generarán puntajes simulados. Configurá un proveedor de IA y volvé a intentarlo."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         states = set() if submission.status == "approved" else _correction_states(submission)
@@ -355,6 +380,7 @@ class SubmissionViewSet(OwnerViewSet):
             for question_obj, answer_text, answer_obj in question_items:
                 effective_question = correction_context(
                     submission.assessment, question_obj, all_questions if question_obj is None else None,
+                    rubric=requested_rubric or (question_obj.rubric if question_obj else None),
                 )
                 # Consigna a la que corresponde cada criterio (None = toda la entrega).
                 question_refs = []
@@ -502,10 +528,20 @@ class SubmissionViewSet(OwnerViewSet):
                 results.append(proposal)
             if not all_criteria:
                 raise RuntimeError("The model returned no criterion scores")
+            # Con varias respuestas (una por consigna), cada devolución lleva su rótulo para
+            # que el estudiante sepa a qué consigna corresponde cada párrafo.
+            labelled_feedback = []
+            for item, result in zip(prepared_items, results):
+                text = str(result.get("feedback", "")).strip()
+                if not text:
+                    continue
+                if len(results) > 1 and item["question"] is not None:
+                    text = f"Consigna {item['question'].position}:\n{text}"
+                labelled_feedback.append(text)
             aggregate = {
                 "summary": " ".join(str(result.get("summary", "")) for result in results).strip()[:3000],
                 "criteria": all_criteria,
-                "feedback": "\n\n".join(str(result.get("feedback", "")) for result in results).strip()[:5000],
+                "feedback": "\n\n".join(labelled_feedback)[:MAX_FEEDBACK_CHARS],
                 "strengths": list(dict.fromkeys(text for result in results for text in result.get("strengths", [])))[:12],
                 "improvement_suggestions": list(dict.fromkeys(text for result in results for text in result.get("improvement_suggestions", [])))[:12],
                 "warnings": list(dict.fromkeys(w for result in results for w in result.get("warnings", [])))[:20],
@@ -703,7 +739,7 @@ class CorrectionViewSet(OwnerViewSet):
             raise ValidationError({"final_result": "La propuesta debe incluir al menos un criterio válido antes de aprobarse."})
 
         final_result = request.data.get("final_result", correction.proposal)
-        feedback = str(request.data.get("teacher_feedback", correction.teacher_feedback))[:5000]
+        feedback = str(request.data.get("teacher_feedback", correction.teacher_feedback))[:MAX_FEEDBACK_CHARS]
         if not isinstance(final_result, dict) or not isinstance(final_result.get("criteria"), list):
             raise ValidationError({"final_result": "Debe ser un objeto JSON con una lista criteria."})
         submitted_items = final_result["criteria"]
@@ -759,6 +795,7 @@ class CorrectionViewSet(OwnerViewSet):
             validated_criteria.append({
                 **base_item, "score": float(score), "max_score": float(maximum),
                 "justification": str(item.get("justification", base_item.get("justification", "")))[:3000],
+                "student_feedback": str(item.get("student_feedback", base_item.get("student_feedback", "")))[:2000],
                 "evidence": evidence,
             })
         # Nota final: la calculada por criterios o, si el docente la fija a mano, la suya
@@ -782,8 +819,20 @@ class CorrectionViewSet(OwnerViewSet):
                 final_score, overridden = requested, True
         if overridden and len(change_reason) < 8:
             raise ValidationError({"change_reason": "Explicá brevemente por qué modificaste la nota final (al menos 8 caracteres)."})
+        # Solo se conservan del cliente los textos editables conocidos (recortados); el
+        # resto de la propuesta original no se reemplaza con datos arbitrarios.
+        def clean_text_list(value, fallback):
+            items = value if isinstance(value, list) else fallback
+            return [str(text)[:500] for text in (items or []) if str(text).strip()][:12]
+
+        proposal = correction.proposal
         final_result = {
-            **final_result, "criteria": validated_criteria, "demo": bool(correction.proposal.get("demo", False)),
+            "summary": str(final_result.get("summary", proposal.get("summary", "")))[:3000],
+            "feedback": str(final_result.get("feedback", proposal.get("feedback", "")))[:MAX_FEEDBACK_CHARS],
+            "strengths": clean_text_list(final_result.get("strengths"), proposal.get("strengths")),
+            "improvement_suggestions": clean_text_list(final_result.get("improvement_suggestions"), proposal.get("improvement_suggestions")),
+            "warnings": [str(text)[:500] for text in (proposal.get("warnings") or [])][:20],
+            "criteria": validated_criteria, "demo": bool(proposal.get("demo", False)),
             "computed_score": float(computed_score), "final_score": float(final_score), "final_score_overridden": overridden,
         }
         with transaction.atomic():
@@ -825,7 +874,9 @@ class CorrectionViewSet(OwnerViewSet):
                     score=Decimal(str(item["score"])), max_score=Decimal(str(item["max_score"])),
                     evidence=str(item.get("evidence", ""))[:5000],
                     justification=str(item.get("justification", ""))[:5000],
-                    feedback=feedback, position=position,
+                    # La devolución propia del criterio; la general queda en teacher_feedback
+                    # (antes se copiaba el mismo texto completo en cada fila).
+                    feedback=str(item.get("student_feedback", ""))[:5000], position=position,
                 )
                 for position, item in enumerate(validated_criteria, start=1)
             ])

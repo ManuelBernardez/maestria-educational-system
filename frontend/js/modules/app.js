@@ -1,8 +1,8 @@
 import { api } from './core/api-client.js';
 import { state, content, $$ } from './core/state.js';
 import { loadProfile, refreshCore, refreshAdmin, readOverviewCache } from './data/repository.js';
-import { listFrom } from './core/utils.js';
-import { render, navigate } from './core/router.js';
+import { listFrom, escapeHtml } from './core/utils.js';
+import { render, navigate, TEACHER_VIEWS } from './core/router.js';
 import { restoreSidebarPreference, applyTheme, updateChrome } from './core/ui.js';
 import { maybeOpenQuickStart, bindQuickStartEvents } from './features/guide.js';
 
@@ -110,9 +110,9 @@ async function runInit() {
       state.view = 'admin';
       await refreshAdmin();
     } else {
-      const allowedViews = new Set(['dashboard', 'workspace', 'courses', 'course', 'students', 'assessments', 'assessment-new', 'assessment', 'rubrics', 'rubric', 'submissions', 'submission', 'corrections', 'correction', 'profile']);
+      // Una sola lista de vistas docentes (la del router): antes esta copia omitía 'student'.
       const requestedView = new URLSearchParams(window.location.search).get('view');
-      state.view = allowedViews.has(requestedView) ? requestedView : 'dashboard';
+      state.view = TEACHER_VIEWS.has(requestedView) ? requestedView : 'dashboard';
       // Pintado inmediato con el último resumen de esta sesión mientras se actualiza en segundo plano.
       const cached = readOverviewCache();
       if (cached) {
@@ -133,7 +133,7 @@ async function runInit() {
           <div class="empty-state">
             <h2>No se pudo iniciar MaestrIA</h2>
             <p>Ocurrió un error inesperado al preparar el espacio docente.</p>
-            <p class="form-error">${String(error?.message || 'Error inesperado').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}</p>
+            <p class="form-error">${escapeHtml(error?.message || 'Error inesperado')}</p>
             <button class="btn btn-primary" id="retry-workspace-init" type="button">Reintentar</button>
           </div>
         </div>

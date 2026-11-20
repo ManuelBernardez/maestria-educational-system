@@ -21,6 +21,8 @@ export const state = {
   correctionDetailLoading: false,
   rubricProposal: null,
   questionProposal: null,
+  // Consignas que la IA ya propuso en esta sesión, por evaluación ({ [id]: [prompt] }).
+  seenQuestionPrompts: {},
   search: '',
   selectedStudent: null,
   // Filtros de listados: viven en memoria mientras dura la sesión de la vista.

@@ -1,3 +1,4 @@
+from ..context_quality import context_notes_for
 from .common import (
     AllowAny,
     Assessment,
@@ -339,6 +340,7 @@ def correction_workspace(request):
     submissions = []
     corrections = []
     enrollments = []
+    context_notes = []
     if selected is not None:
         student_qs = Student.objects.filter(owner_id=owner_id, active=True)
         if selected.course_id:
@@ -447,6 +449,7 @@ def correction_workspace(request):
                 )
             )
             corrections = CorrectionSerializer(corrections_qs, many=True, context={"request": request}).data
+        context_notes = context_notes_for(selected, selected_questions)
         if selected.course_id and not summary_mode:
             enrollments = EnrollmentSerializer(
                 Enrollment.objects.filter(owner_id=owner_id, course_id=selected.course_id, status="active")
@@ -464,6 +467,7 @@ def correction_workspace(request):
         "submissions": submissions,
         "corrections": corrections,
         "enrollments": enrollments,
+        "context_notes": context_notes,
         "ai_provider": (active_ai_provider_config() or {}).get("provider") or os.getenv("AI_PROVIDER", "mock").strip().lower(),
     })
 

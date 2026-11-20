@@ -17,7 +17,7 @@ from .models import (
     InstitutionMembership, UserProfile,
 )
 from .client_ip import client_ip
-from .permissions import IsGlobalAdmin, active_memberships, active_profile, global_role
+from .permissions import IsGlobalAdmin, IsWorkspaceUser, active_memberships, active_profile, global_role
 
 SUPERADMIN_GUARD_LOCK = (1297303908, 1)
 
@@ -320,7 +320,8 @@ class InstitutionSerializer(serializers.ModelSerializer):
 class InstitutionViewSet(viewsets.ModelViewSet):
     serializer_class = InstitutionSerializer
     queryset = Institution.objects.all()
-    permission_classes = [IsAuthenticated]
+    # Mismo piso que el resto del espacio docente: un rol `student` no entra acá.
+    permission_classes = [IsAuthenticated, IsWorkspaceUser]
 
     def _manager_memberships(self):
         return active_memberships(self.request.user, ["institution_admin", "department_admin"])
@@ -418,7 +419,7 @@ class InstitutionMembershipSerializer(serializers.ModelSerializer):
 class InstitutionMembershipViewSet(viewsets.ModelViewSet):
     queryset = InstitutionMembership.objects.select_related("institution")
     serializer_class = InstitutionMembershipSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsWorkspaceUser]
     # Disallow PUT: the update contract deliberately uses the guarded PATCH path.
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
@@ -611,7 +612,9 @@ class AdminAuditEventViewSet(viewsets.ReadOnlyModelViewSet):
             except (TypeError, ValueError):
                 raise ValidationError({"owner": "El filtro owner debe ser un UUID válido."})
             qs = qs.filter(owner_id=owner)
-        return qs[:500]
+        # Sin recorte previo: la paginación acotada ya limita cada página y permite
+        # llegar a los eventos más antiguos (antes se perdían los posteriores al 500).
+        return qs
 
     def get_serializer_class(self):
         return AuditEventSerializer
