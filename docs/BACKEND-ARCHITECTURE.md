@@ -39,7 +39,7 @@ backend/
 
 El SQL es dueño del esquema: no hay migraciones Django (`MIGRATION_MODULES = {"core": None}` y todos los modelos son `managed=False`). El contrato es `db/maestria_schema.sql` (snapshot de producción) más las migraciones SQL de `backend/database/migrations/` posteriores a la versión que declara su encabezado; pytest instala exactamente eso en su base desechable y `python manage.py verify_public_schema` compara la base con el ORM.
 
-### Materias y comisiones (fase 1, migración `20261120120000`)
+### Materias y comisiones (fase 1, migración `20261120214005`)
 
 - `subject`: materia del docente. `course.subject_id` agrupa sus cursos o comisiones; `course.name` es el nombre de la comisión y `course.shift`, su turno.
 - La evaluación pertenece a la materia (`assessment.subject_id`) y se asigna a una o más comisiones en `assessment_course`. `assessment.course_id` queda como comisión principal heredada (la primera asignada).

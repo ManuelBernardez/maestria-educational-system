@@ -1,4 +1,4 @@
--- Migration 20261120120000 / maestria_subjects_and_sections
+-- Migration 20261120214005 / maestria_subjects_and_sections
 -- Fase 1: Materias y comisiones.
 --
 -- Hasta ahora `course` mezclaba la materia (texto libre en course.subject, repetido en

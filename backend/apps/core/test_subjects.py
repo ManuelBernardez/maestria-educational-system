@@ -12,7 +12,7 @@ from .models import (
 )
 from .test_support import ensure_auth_users
 
-MIGRATION = Path(__file__).resolve().parents[2] / "database" / "migrations" / "20261120120000_maestria_subjects_and_sections.sql"
+MIGRATION = Path(__file__).resolve().parents[2] / "database" / "migrations" / "20261120214005_maestria_subjects_and_sections.sql"
 
 
 class SubjectsAndSectionsTests(TestCase):

@@ -2,15 +2,12 @@
 
 Estado al 2026-11-20, al cerrar la **Fase 1** (rama `feat/fase1-consolidacion`): correcciones de consistencia, IA (consignas sin repetición, observaciones de contexto, devoluciones por criterio), tipografía y Materias/Comisiones. Ordenado por prioridad.
 
-## 1. Despliegue de la Fase 1 (bloqueante, en este orden)
+## 1. Despliegue de la Fase 1
 
-1. Revisar la rama y fusionarla a `main`.
-2. **Antes o junto con el deploy**, aplicar en producción `backend/database/migrations/20261120120000_maestria_subjects_and_sections.sql`. El usuario autorizó aplicarla con el MCP de Supabase (`apply_migration`) en ese momento. Después:
-   - `apply_migration` asigna la versión con la hora actual: renombrar el archivo del repo a esa versión.
-   - Verificar con lecturas: cantidad de `subject` creadas, ningún `course` con `subject_id` nulo, `assessment_course` = evaluaciones con `course_id`, `submission.course_id` completo donde la evaluación tenía curso.
-   - `python manage.py verify_public_schema` contra producción.
-3. **Importante:** el `runserver` local usa la base de producción (`backend/.env`). Con el código nuevo y la migración sin aplicar, `/api/` responde 500 (columnas `subject_id`, `shift`, `course_id` inexistentes).
-4. Opcional: `AI_GEMINI_THINKING_LEVEL=low` en Render si las propuestas de Gemini se truncan (ver `backend/.env.example`).
+Hecho el 2026-11-20: migración aplicada en producción como `20261120214005_maestria_subjects_and_sections` (12 materias creadas; ningún curso, evaluación ni entrega quedó sin completar; 16 filas en `assessment_course`), `verify_public_schema` en verde y rama fusionada a `main`.
+
+1. Comprobar en https://maestria-amcn.onrender.com/ que Render desplegó el último commit de `main` y que «Mis materias» agrupa las comisiones.
+2. Opcional: `AI_GEMINI_THINKING_LEVEL=low` en Render si las propuestas de Gemini se truncan (ver `backend/.env.example`).
 
 ## 2. Portales nuevos (planes separados, ya acordados)
 
