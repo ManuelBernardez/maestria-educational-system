@@ -1,4 +1,14 @@
 :root {
+  /* Escala tipográfica (fase 1). Pisos de legibilidad en responsive-refinements.css. */
+  --fs-mock: .62rem;   /* rótulos dentro de maquetas ilustrativas */
+  --fs-3xs: .7rem;     /* etiquetas compactas del encabezado */
+  --fs-2xs: .75rem;    /* metadatos, pies y rótulos en mayúsculas */
+  --fs-xs: .8125rem;   /* ayudas de formulario y notas legales */
+  --fs-sm: .875rem;
+  --fs-base: 1rem;
+  --fs-md: 1.125rem;
+  --fs-lg: 1.375rem;
+  --fs-xl: 1.75rem;
   --paper: #f4f1e8;
   --paper-soft: #ebe6da;
   --ink: #202d28;
