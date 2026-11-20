@@ -101,7 +101,7 @@ class CorrectionWorkspaceApiTests(TestCase):
         self.assertNotIn("Evaluación ajena", titles)
 
     def test_workspace_summary_without_assessment_returns_selector_only(self):
-        with self.assertNumQueries(3):  # evaluaciones, cursos activos y proveedor de IA
+        with self.assertNumQueries(4):  # evaluaciones, sus comisiones asignadas, cursos activos y proveedor de IA
             response = self.client.get("/api/correction-workspace/?summary=1")
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.data["selected_assessment"])
@@ -151,7 +151,8 @@ class CorrectionWorkspaceApiTests(TestCase):
         rows = response.data["results"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["id"], course.id)
-        self.assertEqual(set(rows[0].keys()), {"id", "name", "subject", "level", "academic_year", "active"})
+        self.assertEqual(set(rows[0].keys()), {"id", "name", "subject_id", "subject", "shift", "level", "academic_year", "active"})
+        self.assertEqual(rows[0]["subject"], "Ciencias", "sin materia vinculada se muestra el texto heredado")
 
     def test_course_filters_limit_assessments_and_correction_summaries(self):
         course_a = Course.objects.create(owner_id=self.owner_id, name="Curso A")
@@ -847,10 +848,21 @@ class CourseGradesExportTests(TestCase):
         text = response.content.decode("utf-8")
         self.assertTrue(text.startswith("\ufeff"))
         lines = text.lstrip("\ufeff").strip().split("\r\n")
-        self.assertEqual(lines[0], "Estudiante;Legajo;Correo;Revolución de Mayo;'=Organización nacional;Promedio")
+        self.assertEqual(lines[0], "Estudiante;Legajo;Correo;Revolución de Mayo;'=Organización nacional;Promedio (sobre 10)")
         self.assertEqual(lines[1], "Ana Pérez;20417;ana@example.com;8,5;7;7,75")
         self.assertEqual(lines[2], "Beto Díaz;20433;;;;", "una propuesta sin aprobar no es una nota")
         self.assertEqual(len(lines), 3, "las matrículas inactivas no aparecen")
+
+    def test_average_normalizes_assessments_with_different_maximums(self):
+        # 8/10 y 50/100 son 8 y 5 sobre 10: el promedio es 6,5, no (8+50)/2 = 29.
+        ten = self._correction(self.ana, self.e1, "8")
+        ten.final_result = {"criteria": [{"max_score": 10}]}; ten.save(update_fields=["final_result"])
+        hundred = self._correction(self.ana, self.e2, "50")
+        hundred.final_result = {"criteria": [{"max_score": 60}, {"max_score": 40}]}; hundred.save(update_fields=["final_result"])
+        Student.objects.filter(pk=self.beto.pk).update(active=False)
+        lines = self.client.get(f"/api/courses/{self.course.pk}/grades-export/").content.decode("utf-8").lstrip("﻿").strip().split("\r\n")
+        self.assertEqual(lines[1], "Ana Pérez;20417;ana@example.com;8;50;6,5")
+        self.assertEqual(len(lines), 2, "un estudiante inactivo no figura aunque su matrícula siga activa")
 
     def test_foreign_course_is_not_exported(self):
         foreign = Course.objects.create(owner_id=self.other_id, name="Ajeno")

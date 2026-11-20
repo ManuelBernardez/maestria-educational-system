@@ -14,7 +14,8 @@ html {
 body {
   min-width: 0;
   overflow-x: clip;
-  font-size: clamp(14px, .22vw + 13.5px, 16px);
+  /* Antes 14–16 px; un punto más en todo el rango, sin cambiar la relación con los títulos. */
+  font-size: clamp(15px, .25vw + 14.2px, 17px);
 }
 
 main,
@@ -1163,4 +1164,83 @@ textarea {
   .site-header .menu-toggle span {
     transition: none !important;
   }
+}
+
+/* =============================================================================
+ * Pisos de legibilidad (fase 1)
+ * Las hojas anteriores redefinían estos textos hasta .39rem (≈ 6 px) en pantallas
+ * chicas. Este bloque va último y sin media query: fija un mínimo único para cada
+ * tipo de texto en todos los anchos, en lugar de seguir sumando excepciones.
+ * ========================================================================== */
+
+/* Metadatos, pies, rótulos y etiquetas de texto real: 12 px. */
+.copyright,
+.site-footer .copyright,
+.hero-bottom,
+.trust-foot,
+.page-hero-index,
+.about-note span,
+.mission-meta span,
+.demo-tag,
+.team-label,
+.process-tag,
+.review-card-label,
+.process-step-tag,
+.about-art-caption,
+.about-visual-caption,
+.about-visual-card > span,
+.process-art-note,
+.context-map-caption,
+.intro-strip .eyebrow {
+  font-size: var(--fs-2xs);
+}
+
+/* Etiquetas compactas del encabezado: crecen sin desbordar la barra en 375 px. */
+.brand small,
+.hero-kicker,
+.hero-home .hero-kicker,
+.site-header .nav-cta {
+  font-size: max(var(--fs-3xs), min(.78rem, 2.9vw));
+}
+
+/* Textos que se leen dentro de la demostración interactiva de una corrección. */
+.evaluation-panel-heading p,
+.evaluation-score-disclaimer,
+.evaluation-feedback-hint,
+.evaluation-answer-status,
+.evaluation-app-breadcrumb {
+  font-size: var(--fs-3xs);
+}
+
+/* Rótulos de maquetas ilustrativas: más legibles sin romper su composición. */
+.evaluation-app-status,
+.evaluation-editable-tag,
+.evaluation-app-brand small,
+.evaluation-assisted-label,
+.evaluation-overline,
+.window-top small,
+.window-caption,
+.mini-course-head,
+.mini-rubric-head,
+.mini-course-row small,
+.mini-course-foot,
+.mini-rubric-head b,
+.mini-rubric-note,
+.mini-feedback-label,
+.process-window-title b,
+.context-map-center span {
+  font-size: var(--fs-mock);
+}
+
+/* Acceso: rótulos sobre la ilustración. */
+.art-bottom,
+.art-kicker {
+  font-size: max(var(--fs-3xs), min(.75rem, 2.8vw));
+}
+
+/* Acceso: ayudas, aviso legal y botón de mostrar contraseña. */
+.form-hint,
+.auth-legal,
+.toggle-password {
+  font-size: var(--fs-xs);
 }

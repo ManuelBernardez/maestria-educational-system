@@ -1,5 +1,5 @@
 import { state } from '../../core/state.js';
-import { escapeHtml, formatNumber, formatInputNumber, icon, suggestedQuestionScore } from '../../core/utils.js';
+import { escapeHtml, formatNumber, formatInputNumber, icon, suggestedQuestionScore, contextNotesPanel } from '../../core/utils.js';
 import { workspace, assessmentQuestions, questionTotal, selectedRubric, stepDirty } from './workspace-state.js';
 import { stepHeader, saveStatus, actionBar, shortcutsHint, dropzone, scoreStepper, fieldError, REFERENCE_CONTEXT_CHARS } from './workspace-markup.js';
 
@@ -81,6 +81,7 @@ function suggestionNote() {
       <form id="workspace-suggest-form" class="suggest-form" novalidate><div class="form-field"><label for="ws-suggest-count">Cantidad</label><input id="ws-suggest-count" type="number" min="1" max="5" step="1" value="${escapeHtml(workspace.suggestCount)}" data-workspace-suggest-count></div><button type="submit" class="btn btn-secondary btn-small" ${busy ? 'disabled aria-busy="true"' : ''}>${busy ? 'Preparando ideas…' : 'Proponer consignas'}</button></form>
       ${workspace.suggestError ? `<p class="field-error" role="alert">${escapeHtml(workspace.suggestError)} <button type="button" class="text-link" data-action="workspace-suggest-retry">Reintentar</button></p>` : ''}
       ${workspace.questionSuggestionDemo ? '<p class="field-hint">Modo demostración: estas consignas son ejemplos editables; no fueron generadas por un modelo real.</p>' : ''}
+      ${workspace.suggestNotices.length ? `<ul class="plain-list suggest-notices" role="note">${workspace.suggestNotices.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul>` : ''}
       ${cards ? `<div class="suggestion-list" aria-label="Consignas propuestas">${cards}</div><div class="editor-actions"><button type="button" class="btn btn-secondary btn-small" data-action="workspace-accept-selected" ${selected ? '' : 'disabled title="Marcá al menos una sugerencia"'}>Agregar seleccionadas${selected ? ` (${selected})` : ''}</button><button type="button" class="text-link" data-action="workspace-discard-suggestions">Descartar</button></div>` : ''}
     </div>
   </section>`;
@@ -124,6 +125,17 @@ function rubricField() {
     <p class="field-hint"><button class="text-link" type="button" data-action="workspace-manage-rubrics">${rubric ? 'Editar rúbricas' : 'Ver rúbricas'}</button></p></div>`;
 }
 
+// Avisos de «falta» que ya no aplican si el docente completó el campo en esta pantalla.
+const RESOLVED_WHEN_FILLED = { objectives_missing: 'objectives', instructions_missing: 'instructions', reference_missing: 'referenceMaterial' };
+
+/** Observaciones sobre el contexto (información faltante o que conviene profundizar). */
+function contextNotes() {
+  return contextNotesPanel((workspace.contextNotes || []).filter(note => {
+    const field = RESOLVED_WHEN_FILLED[note.code];
+    return !(field && String(workspace[field] || '').trim());
+  }));
+}
+
 export function contextStep() {
   const dirty = stepDirty(1);
   return `${stepHeader(1, 'Qué evaluar y con qué criterios', 'MaestrIA usa este contexto para proponer cada corrección.', shortcutsHint('ws-shortcuts-1'))}
@@ -136,6 +148,7 @@ export function contextStep() {
       </form>
       <div class="step-col">${questionList()}${suggestionNote()}</div>
     </div>
+    ${contextNotes()}
     ${actionBar(saveStatus(1, dirty), `<button class="btn btn-primary" type="submit" form="workspace-context-form" id="ws-save-context">Guardar contexto</button>`)}`;
 }
 

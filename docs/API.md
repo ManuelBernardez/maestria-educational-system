@@ -11,20 +11,22 @@ Base local: `http://127.0.0.1:8000/api/`. Salvo `/health/` y el formulario públ
 | `GET /audit-events/` | Últimos eventos del docente | Autenticado |
 | `GET /me/` | Perfil, rol, membresías y foto (`avatar`) del usuario autenticado | Autenticado |
 | `PUT /me/avatar/`, `DELETE /me/avatar/` | Guardar (`{"avatar": "data:image/...;base64,..."}`, JPG/PNG/WebP, máx. 200.000 caracteres) o quitar la foto de perfil; auditado | Autenticado |
-| `/courses/` | Listar, crear, editar y archivar cursos | Propietario |
-| `GET /courses/{id}/grades-export/` | Planilla CSV de notas aprobadas por estudiante y evaluación, con promedio (`;`, coma decimal, UTF-8 con BOM); auditado | Propietario |
+| `/subjects/` | Materias del docente (`name`, `level`, `description`, `active`, `course_count`, `assessment_count`). `?nav=1` devuelve cada materia con sus comisiones y las comisiones sin materia (`unassigned_courses`). DELETE archiva la materia y sus comisiones | Propietario |
+| `/courses/` | Cursos o comisiones de una materia: `subject_id`, `subject` (nombre, sólo lectura), `shift` (`manana`, `tarde`, `noche`, `virtual`, `mixto` o vacío), `academic_year`. Sin `subject_id` se acepta `subject` como texto (reutiliza o crea la materia; si falta, usa el nombre del curso). El nombre no se repite dentro de la misma materia y ciclo. `?subject=` filtra | Propietario |
+| `GET /courses/{id}/grades-export/` | Planilla CSV de notas aprobadas de esa comisión por estudiante y evaluación, con promedio normalizado a 10 (`;`, coma decimal, UTF-8 con BOM); excluye estudiantes inactivos; auditado | Propietario |
 | `/enrollments/` | Matricular/desmatricular estudiantes en cursos | Propietario y relaciones propias |
 | `POST /enrollments/bulk/` | Matricular varios estudiantes existentes (`{"course": id, "students": [ids]}`, hasta 500), todo o nada; omite activos y reactiva bajas; auditado | Propietario y relaciones propias |
 | `/students/` | Listar/crear/editar/desactivar estudiantes | Propietario |
 | `POST /students/import-csv/` | Importar CSV, máximo 2 MB y 500 filas | Propietario, limitado |
-| `/assessments/` | CRUD de evaluaciones | Propietario |
+| `/assessments/` | CRUD de evaluaciones de una materia: escritura con `subject_id` y `course_ids` (comisiones de esa materia); lectura con `subject`, `course_ids` y `course` (comisión principal heredada). Por compatibilidad acepta `course` (una comisión). `?course=` y `?subject=` filtran | Propietario |
+| `GET /assessments/{id}/editor/` | Evaluación, consignas, comisiones y `context_notes` (observaciones sobre información faltante o mejorable: objetivos, criterios, material, respuestas esperadas) | Propietario |
 | `POST /assessments/{id}/import-reference/` | Extraer texto de PDF/DOCX/TXT/MD para usarlo como material de referencia | Propietario, límite de tamaño y texto |
-| `POST /assessments/{id}/generate-questions/` | Proponer preguntas editables, entre 1 y 10 | Propietario, rate limit IA |
-| `/rubrics/` | CRUD de rúbricas | Propietario |
-| `POST /rubrics/generate/` | Proponer criterios de rúbrica | Propietario, rate limit IA |
+| `POST /assessments/{id}/generate-questions/` | Proponer entre 1 y 5 consignas editables. `avoid` (lista) suma las ya vistas en la sesión a las guardadas para que la IA no las repita; el servidor descarta las muy parecidas y reintenta una vez. Devuelve `questions` (con `expected_answer`), `observations`, `warnings` y `context_notes` | Propietario, rate limit IA |
+| `/rubrics/` | CRUD de rúbricas (`subject_id` opcional) | Propietario |
+| `POST /rubrics/generate/` | Proponer criterios de rúbrica con descriptores de nivel propios y `observations` | Propietario, rate limit IA |
 | `/rubric-criteria/`, `/rubric-levels/` | Criterios y niveles de desempeño | Propietario y relaciones propias |
 | `/questions/` | CRUD de preguntas | Propietario y evaluación propia |
-| `/submissions/` | Crear/listar/editar entregas | Propietario y evaluación propia |
+| `/submissions/` | Crear/listar/editar entregas. `course` es la comisión: si no se indica, se deduce de la matrícula del estudiante entre las comisiones asignadas; con varias posibles hay que elegirla. No se puede cambiar después | Propietario y evaluación propia |
 | `POST /submissions/import-file/` | TXT/MD/DOCX/PDF con texto extraíble; 5 MB, 50 páginas PDF, 50.000 caracteres | Propietario, autenticado |
 | `POST /submissions/{id}/generate-correction/` | Generar propuesta de corrección | Propietario, rate limit IA |
 | `/submission-answers/` | Respuestas a preguntas individuales | Propietario y evaluación propia |
@@ -32,7 +34,9 @@ Base local: `http://127.0.0.1:8000/api/`. Salvo `/health/` y el formulario públ
 | `POST /corrections/{id}/approve/` | Validar/cerrar propuesta con acción explícita. Acepta `final_score` opcional (entre 1 y el máximo) para fijar la nota final; si difiere de la calculada exige `change_reason` (mín. 8 caracteres) | Propietario |
 | `GET /corrections/{id}/export/` | Exportar la propuesta o el resultado final en Markdown | Propietario |
 
-`GET /correction-workspace/?summary=1` sin `assessment` devuelve solamente datos de selectores; con `assessment=<id>` devuelve información compacta de esa evaluación. La UI solicita los detalles completos de la entrega/corrección al seleccionarla.
+`GET /correction-workspace/?summary=1` sin `assessment` devuelve solamente datos de selectores; con `assessment=<id>` devuelve información compacta de esa evaluación (estudiantes de todas sus comisiones y `context_notes`).
+
+Cada criterio de una propuesta de corrección incluye `justification` (para el docente) y `student_feedback` (devolución del criterio para el estudiante). Al aprobar, sólo se conservan de `final_result` los campos conocidos (`summary`, `feedback`, `strengths`, `improvement_suggestions` y los criterios validados). La UI solicita los detalles completos de la entrega/corrección al seleccionarla.
 
 El endpoint de generación de rúbrica acepta `instructions`, `question_prompts` (lista de hasta 10 consignas) y `reference_material`; estos campos aportan contexto para una propuesta editable. El cliente debe revisar los criterios antes de persistirlos.
 
@@ -42,9 +46,9 @@ Los IDs son internos. El backend nunca confía en un `owner_id` provisto en el c
 
 ## Flujo recomendado
 
-1. Crear un curso (`POST /courses/`).
+1. Crear una materia (`POST /subjects/`) y sus cursos o comisiones (`POST /courses/` con `subject_id`).
 2. Registrar estudiantes (`POST /students/`) y asociarlos (`POST /enrollments/`).
-3. Crear evaluación incluyendo `course` (`POST /assessments/`).
+3. Crear la evaluación en la materia y asignarla a sus comisiones (`POST /assessments/` con `subject_id` y `course_ids`).
 4. Proponer preguntas (`POST /assessments/{id}/generate-questions/`) y persistir las aceptadas vía `/questions/`.
 5. Crear rúbrica/criterios/niveles; asociar la rúbrica a las preguntas.
 6. Crear entrega con texto o importar un archivo; crear respuestas por pregunta si el examen tiene múltiples consignas.

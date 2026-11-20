@@ -1,3 +1,7 @@
-name,email,phone,external_code
-Ana Pérez,ana.perez@ejemplo.com,1155550001,A-001
-Bruno Díaz,bruno.diaz@ejemplo.com,,A-002
+nombre,correo,telefono,legajo
+Valentina Gómez,valentina.gomez@alumnos.ejemplo.edu.ar,1155550101,20417
+Tomás Fernández,tomas.fernandez@alumnos.ejemplo.edu.ar,1155550102,20433
+Camila Rodríguez,camila.rodriguez@alumnos.ejemplo.edu.ar,,20441
+Joaquín López,joaquin.lopez@alumnos.ejemplo.edu.ar,1155550104,20458
+Martina Sosa,,1155550105,20462
+Lautaro Romero,lautaro.romero@alumnos.ejemplo.edu.ar,1155550106,20479

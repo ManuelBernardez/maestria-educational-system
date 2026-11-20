@@ -474,6 +474,7 @@ Checklist antes de habilitar un despliegue: login, logout, recuperación de cont
 | [`docs/PRUEBAS-LOCALES.md`](docs/PRUEBAS-LOCALES.md) | Entorno local con Docker, sin tocar producción. |
 | [`docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md`](docs/auditoria/AUDITORIA-SUPABASE-2026-11-09.md) | Auditoría y alineación del esquema de producción. |
 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Historial de versiones. |
+| [`docs/auditoria/GUIA-DE-ESTUDIO-MAESTRIA.md`](docs/auditoria/GUIA-DE-ESTUDIO-MAESTRIA.md) | Guía de estudio: cada funcionalidad, la base de datos y la seguridad explicadas en lenguaje simple. |
 | [`docs/presentacion/`](docs/presentacion/) | Guion del video de presentación. |
 
 Las auditorías técnicas de cada etapa están en [`docs/`](docs/) y [`docs/auditoria/`](docs/auditoria/).

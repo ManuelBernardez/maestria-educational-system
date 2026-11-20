@@ -31,9 +31,31 @@ class OwnedTable(PublicTable):
         managed = False
 
 
-class Course(OwnedTable):
+class Subject(OwnedTable):
+    """Materia del docente (p. ej. Programación I); agrupa sus cursos o comisiones."""
     name = models.CharField(max_length=160)
+    level = models.CharField(max_length=120, blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        managed = False
+        db_table = "subject"
+        ordering = ["name", "id"]
+
+    def __str__(self):
+        return self.name
+
+
+class Course(OwnedTable):
+    """Curso o comisión de una materia (1K1, turno noche…). `name` es el de la comisión."""
+    SHIFT_CHOICES = [("", "Sin indicar"), ("manana", "Mañana"), ("tarde", "Tarde"), ("noche", "Noche"), ("virtual", "Virtual"), ("mixto", "Mixto")]
+    name = models.CharField(max_length=160)
+    # Texto heredado (antes de existir Subject): se sigue escribiendo con el nombre de la
+    # materia para la versión anterior desplegada; el código nuevo lee subject_ref.
     subject = models.CharField(max_length=120, blank=True, default="")
+    subject_ref = models.ForeignKey(Subject, db_column="subject_id", db_constraint=False, on_delete=models.PROTECT, related_name="courses", null=True, blank=True)
+    shift = models.CharField(max_length=16, choices=SHIFT_CHOICES, blank=True, default="")
     level = models.CharField(max_length=120, blank=True, default="")
     academic_year = models.CharField(max_length=20, blank=True, default="")
     description = models.TextField(blank=True, default="")
@@ -46,6 +68,10 @@ class Course(OwnedTable):
 
     def __str__(self):
         return self.name
+
+    @property
+    def subject_name(self):
+        return self.subject_ref.name if self.subject_ref_id and self.subject_ref else self.subject
 
 
 class Student(OwnedTable):
@@ -70,6 +96,7 @@ class Rubric(OwnedTable):
     title = models.CharField(max_length=180)
     description = models.TextField(blank=True, default="")
     scale_type = models.CharField(max_length=16, choices=SCALE_CHOICES, default="both")
+    subject_ref = models.ForeignKey(Subject, db_column="subject_id", db_constraint=False, on_delete=models.PROTECT, related_name="rubrics", null=True, blank=True)
 
     class Meta:
         managed = False
@@ -83,8 +110,9 @@ class RubricCriterion(OwnedTable):
     rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="criteria")
     name = models.CharField(max_length=160)
     description = models.TextField(blank=True, default="")
-    max_score = models.DecimalField(max_digits=38, decimal_places=18, default=10)
-    weight = models.DecimalField(max_digits=38, decimal_places=18, default=1)
+    # Precisión igual a las columnas reales: numeric(7,2) y numeric(6,3).
+    max_score = models.DecimalField(max_digits=7, decimal_places=2, default=10)
+    weight = models.DecimalField(max_digits=6, decimal_places=3, default=1)
     position = models.IntegerField(default=1)
 
     class Meta:
@@ -97,7 +125,7 @@ class RubricLevel(OwnedTable):
     criterion = models.ForeignKey(RubricCriterion, db_constraint=False, on_delete=models.PROTECT, related_name="levels")
     name = models.CharField(max_length=80)
     description = models.TextField(blank=True, default="")
-    score = models.DecimalField(max_digits=38, decimal_places=18)
+    score = models.DecimalField(max_digits=7, decimal_places=2)
     position = models.IntegerField(default=1)
 
     class Meta:
@@ -115,7 +143,10 @@ class Assessment(OwnedTable):
     instructions = models.TextField(blank=True, default="")
     reference_material = models.TextField(blank=True, default="")
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="draft")
+    # Comisión principal (heredada): la primera de las asignadas. Las asignaciones
+    # completas están en AssessmentCourse.
     course = models.ForeignKey(Course, db_constraint=False, on_delete=models.PROTECT, related_name="assessments", null=True, blank=True)
+    subject_ref = models.ForeignKey(Subject, db_column="subject_id", db_constraint=False, on_delete=models.PROTECT, related_name="assessments", null=True, blank=True)
 
     class Meta:
         managed = False
@@ -125,15 +156,49 @@ class Assessment(OwnedTable):
     def __str__(self):
         return self.title
 
+    @property
+    def subject_name(self):
+        return self.subject_ref.name if self.subject_ref_id and self.subject_ref else self.subject
+
+
+class AssessmentCourse(OwnedTable):
+    """Comisión a la que se asignó una evaluación de la materia."""
+    updated_at = None
+    assessment = models.ForeignKey(Assessment, db_constraint=False, on_delete=models.CASCADE, related_name="course_links")
+    course = models.ForeignKey(Course, db_constraint=False, on_delete=models.PROTECT, related_name="assessment_links")
+
+    class Meta:
+        managed = False
+        db_table = "assessment_course"
+        ordering = ["id"]
+
+
+class ExternalLink(OwnedTable):
+    """Identificador de una entidad en una plataforma externa (para las integraciones)."""
+    ENTITY_CHOICES = [(value, value) for value in ("subject", "course", "student", "assessment", "submission", "rubric")]
+    PROVIDER_CHOICES = [("moodle", "Moodle"), ("google_classroom", "Google Classroom"), ("siu_guarani", "SIU Guaraní"), ("csv", "CSV"), ("google_drive", "Google Drive")]
+    entity_type = models.CharField(max_length=24, choices=ENTITY_CHOICES)
+    entity_id = models.BigIntegerField()
+    provider = models.CharField(max_length=32, choices=PROVIDER_CHOICES)
+    external_id = models.CharField(max_length=255)
+    external_url = models.TextField(blank=True, default="")
+    metadata = models.JSONField(default=dict)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "external_link"
+        ordering = ["-updated_at"]
+
 
 class Question(OwnedTable):
     TYPE_CHOICES = [("open", "Respuesta abierta"), ("short", "Respuesta breve"), ("case", "Caso")]
     prompt = models.TextField()
     expected_answer = models.TextField(blank=True, default="")
     question_type = models.CharField(max_length=16, choices=TYPE_CHOICES, default="open")
-    max_score = models.DecimalField(max_digits=38, decimal_places=18, default=10)
+    max_score = models.DecimalField(max_digits=7, decimal_places=2, default=10)
     position = models.IntegerField(default=1)
-    assessment = models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="questions")
+    assessment =models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="questions")
     rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="questions", null=True, blank=True)
 
     class Meta:
@@ -170,6 +235,8 @@ class Submission(OwnedTable):
     assessment = models.ForeignKey(Assessment, db_constraint=False, on_delete=models.PROTECT, related_name="submissions")
     question = models.ForeignKey(Question, db_constraint=False, on_delete=models.PROTECT, related_name="submissions", null=True, blank=True)
     student = models.ForeignKey(Student, db_constraint=False, on_delete=models.PROTECT, related_name="submissions", null=True, blank=True)
+    # Comisión en la que se entregó: las notas y los listados por comisión salen de acá.
+    course = models.ForeignKey(Course, db_constraint=False, on_delete=models.PROTECT, related_name="submissions", null=True, blank=True)
 
     class Meta:
         managed = False
@@ -195,7 +262,7 @@ class Correction(OwnedTable):
     proposal = models.JSONField(default=dict)
     final_result = models.JSONField(default=dict)
     teacher_feedback = models.TextField(blank=True, default="")
-    total_score = models.DecimalField(max_digits=38, decimal_places=18, default=0)
+    total_score = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="pending_review")
     approved_at = models.DateTimeField(null=True, blank=True)
     rubric = models.ForeignKey(Rubric, db_constraint=False, on_delete=models.PROTECT, related_name="corrections", null=True, blank=True)
@@ -209,8 +276,8 @@ class Correction(OwnedTable):
 
 class CorrectionCriterionResult(OwnedTable):
     criterion_name = models.CharField(max_length=160)
-    score = models.DecimalField(max_digits=38, decimal_places=18)
-    max_score = models.DecimalField(max_digits=38, decimal_places=18)
+    score = models.DecimalField(max_digits=7, decimal_places=2)
+    max_score = models.DecimalField(max_digits=7, decimal_places=2)
     evidence = models.TextField(blank=True, default="")
     justification = models.TextField(blank=True, default="")
     feedback = models.TextField(blank=True, default="")
@@ -249,7 +316,7 @@ class AIGeneration(PublicTable):
     duration_ms = models.IntegerField(default=0)
     input_tokens = models.IntegerField(default=0)
     output_tokens = models.IntegerField(default=0)
-    estimated_cost_usd = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
+    estimated_cost_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     prompt_fingerprint = models.CharField(max_length=128, blank=True, default="")
     error_code = models.CharField(max_length=80, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -374,8 +441,8 @@ class AIProviderConfig(PublicTable):
     enabled = models.BooleanField(default=False)
     priority = models.SmallIntegerField(default=10)
     timeout_seconds = models.SmallIntegerField(default=60)
-    input_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
-    output_usd_per_1k_tokens = models.DecimalField(max_digits=38, decimal_places=18, null=True, blank=True)
+    input_usd_per_1k_tokens = models.DecimalField(max_digits=12, decimal_places=8, null=True, blank=True)
+    output_usd_per_1k_tokens = models.DecimalField(max_digits=12, decimal_places=8, null=True, blank=True)
     updated_by = models.UUIDField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 

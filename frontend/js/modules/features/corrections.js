@@ -142,11 +142,17 @@ export function renderCorrection() {
       : `<div class="criterion-score-line"><label for="score-${index}">Puntaje</label>${scoreStepper({ id: `score-${index}`, value: formatInputNumber(item.score), max: Number(item.max_score || 0), attrs: `name="score-${index}" data-correction-score="${index}" required`, label: name })}<span class="muted">/ ${escapeHtml(formatNumber(item.max_score))}</span>${level}</div>`;
     const justification = readonly
       ? `<p class="criterion-justification">${escapeHtml(item.justification || '—')}</p>`
-      : `<div class="form-field"><label for="justification-${index}">Justificación</label><textarea id="justification-${index}" name="justification-${index}" rows="2">${escapeHtml(item.justification || '')}</textarea></div>`;
+      : `<div class="form-field"><label for="justification-${index}">Justificación <small class="ws-block-optional">para vos</small></label><textarea id="justification-${index}" name="justification-${index}" rows="2">${escapeHtml(item.justification || '')}</textarea></div>`;
+    // Devolución del criterio dirigida al estudiante (propuestas anteriores no la tienen).
+    const studentFeedback = readonly
+      ? (item.student_feedback ? `<span class="read-label">Para el estudiante</span><p class="criterion-justification">${escapeHtml(item.student_feedback)}</p>` : '')
+      : `<div class="form-field"><label for="student-feedback-${index}">Devolución del criterio <small class="ws-block-optional">para el estudiante</small></label><textarea id="student-feedback-${index}" name="student-feedback-${index}" rows="3">${escapeHtml(item.student_feedback || '')}</textarea></div>`;
     // Plegable (acordeón, el primero abierto). Un campo inválido dentro de uno plegado se
     // abre solo al enviar (ver el listener «invalid» en events.js).
-    return `<details class="criterion-review" id="criterion-review-${index}" ${index === 0 ? 'open' : ''}><summary><span class="fold-copy"><strong>${escapeHtml(name)}</strong><small data-correction-score-label="${index}">${escapeHtml(formatNumber(item.score))} / ${escapeHtml(formatNumber(item.max_score))}</small></span>${icon('chevron')}</summary><div class="criterion-review-body">${prompt}${score}${evidence}${justification}</div></details>`;
+    return `<details class="criterion-review" id="criterion-review-${index}" ${index === 0 ? 'open' : ''}><summary><span class="fold-copy"><strong>${escapeHtml(name)}</strong><small data-correction-score-label="${index}">${escapeHtml(formatNumber(item.score))} / ${escapeHtml(formatNumber(item.max_score))}</small></span>${icon('chevron')}</summary><div class="criterion-review-body">${prompt}${score}${evidence}${justification}${studentFeedback}</div></details>`;
   }).join('');
+  const list = (title, items) => Array.isArray(items) && items.length ? `<div><span class="read-label">${escapeHtml(title)}</span><ul class="plain-list">${items.map(text => `<li>${escapeHtml(text)}</li>`).join('')}</ul></div>` : '';
+  const strengths = `${list('Fortalezas', proposal?.strengths)}${list('Próximos pasos sugeridos', proposal?.improvement_suggestions)}`;
 
   const feedbackText = correction.teacher_feedback || proposal?.feedback || '';
   const feedback = readonly
@@ -164,7 +170,7 @@ export function renderCorrection() {
     ${panel('Síntesis', '', `<p>${escapeHtml(proposal?.summary || 'La IA no incluyó una síntesis.')}</p><p class="correction-grade"><strong>${escapeHtml(formatNumber(shown))}</strong> / ${escapeHtml(formatNumber(max))}${approved ? '' : ' <small class="muted">propuesta</small>'}${scoreNote}</p>`)}
     <form id="approve-correction-form" novalidate>
       ${panel('Criterios', 'Puntaje, evidencia literal y justificación de cada criterio.', cards || '<p class="muted">La propuesta no incluye criterios.</p>')}
-      ${panel('Devolución al estudiante', approved ? 'Devolución final' : 'Editable antes de aprobar', `${feedback}`)}
+      ${panel('Devolución al estudiante', approved ? 'Devolución final' : 'Editable antes de aprobar', `${feedback}${strengths ? `<div class="feedback-lists">${strengths}</div>` : ''}`)}
       ${approved ? `<div class="notice"><strong>Envíos registrados</strong><div id="correction-delivery-log"><small class="muted">Cargando…</small></div></div><div class="notice notice-success">Aprobada el ${date(correction.approved_at, true)} · el historial permanece inmutable</div>${btn('Exportar Markdown', 'export-correction', `data-id="${correction.id}"`)}` : ''}
       ${proposal?.demo ? '<p class="form-error">Las propuestas MOCK no pueden aprobarse.</p>' : ''}
       ${closing}

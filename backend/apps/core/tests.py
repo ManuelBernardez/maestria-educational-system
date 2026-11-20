@@ -333,7 +333,10 @@ class TenantIsolationTests(TestCase):
     def test_course_name_duplicate_ignoring_case_is_rejected(self):
         from .authentication import SupabasePrincipal
         self.client.force_authenticate(user=SupabasePrincipal(id=self.owner_a))
-        response = self.client.post("/api/courses/", {"name": "curso a"}, format="json")
+        # Dentro de la misma materia y ciclo, el nombre de la comisión no se repite.
+        first = self.client.post("/api/courses/", {"name": "1K1", "subject": "Programación I"}, format="json")
+        self.assertEqual(first.status_code, 201, first.data)
+        response = self.client.post("/api/courses/", {"name": "1k1", "subject_id": first.data["subject_id"]}, format="json")
         self.assertEqual(response.status_code, 400)
         self.assertIn("name", response.data)
 

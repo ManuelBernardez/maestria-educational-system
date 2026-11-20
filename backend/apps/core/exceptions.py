@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 # Mensajes por restricción conocida de producción. Las no listadas usan el genérico.
 CONSTRAINT_MESSAGES = {
     "uniq_course_owner_name_ci": "Ya existe un curso con ese nombre en tu cuenta.",
+    "uniq_course_owner_subject_name_year_ci": "Esa materia ya tiene un curso o comisión con ese nombre en el mismo ciclo lectivo.",
+    "uniq_subject_owner_name_ci": "Ya tenés una materia con ese nombre.",
+    "uniq_assessment_course": "La evaluación ya está asignada a esa comisión.",
+    "uniq_external_link_owner_provider_entity": "Ese identificador externo ya está vinculado.",
     "uniq_enrollment_course_student": "El estudiante ya tiene una matrícula en este curso.",
     "uniq_student_external_code_per_owner": "Ya existe un estudiante con ese código externo.",
     "uniq_question_position_per_assessment": "Otra consigna ya ocupa esa posición. Recargá la evaluación e intentá nuevamente.",

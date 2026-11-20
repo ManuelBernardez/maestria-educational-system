@@ -36,6 +36,10 @@ export const workspace = {
   suggestOpen: false,
   generatingQuestions: false,
   suggestError: '',
+  // Avisos de la última propuesta de consignas (repetidas descartadas, información faltante).
+  suggestNotices: [],
+  // Observaciones del servidor sobre el contexto de la evaluación (objetivos, criterios…).
+  contextNotes: [],
 
   // Paso 2 · entrega
   questionId: '',
@@ -131,7 +135,7 @@ export function criterionModified(index) {
   const current = criteria()[index];
   const original = originalCriteria()[index];
   if (!current || !original) return false;
-  return Number(current.score) !== Number(original.score) || String(current.justification || '') !== String(original.justification || '') || String(current.level || '') !== String(original.level || '');
+  return Number(current.score) !== Number(original.score) || String(current.justification || '') !== String(original.justification || '') || String(current.student_feedback || '') !== String(original.student_feedback || '') || String(current.level || '') !== String(original.level || '');
 }
 
 /* ---------- Cambios sin guardar ---------- */
@@ -148,4 +152,4 @@ export function stepDirty(step = workspace.step) {
 }
 
 export const anyDirty = () => [1, 2, 3].some(stepDirty);
-export const reviewSnapshot = () => JSON.stringify([criteria().map(item => [Number(item.score), item.justification || '', item.level || '']), workspace.feedback, workspace.finalScore]);
+export const reviewSnapshot = () => JSON.stringify([criteria().map(item => [Number(item.score), item.justification || '', item.student_feedback || '', item.level || '']), workspace.feedback, workspace.finalScore]);

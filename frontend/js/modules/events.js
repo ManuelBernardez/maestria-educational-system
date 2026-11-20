@@ -4,8 +4,8 @@ import { toast, openModal, closeModal, setSidebarCollapsed, openSidebar, closeSi
 import { navigate, render } from './core/router.js';
 import { refreshCore, refreshAdmin, loadAssessmentEditor, loadCorrectionForSubmission, afterWrite } from './data/repository.js';
 import { errorText, escapeHtml } from './core/utils.js';
-import { courseIdForSubmission, courseIdForCorrection } from './core/utils.js';
-import { courseForm } from './features/courses.js';
+import { courseIdForSubmission, courseIdForCorrection, assessmentCourseIds, knownSubjects, syncSubjectFields } from './core/utils.js';
+import { courseForm, subjectForm } from './features/courses.js';
 import { studentForm, assessmentForm, questionForm, rubricForm, importStudentsForm, enrollmentForm, submissionForm, generateQuestionsForm, importReferenceForm, newRubricCriterionForm, editCriterionForm, editLevelForm, newLevelForm, adminUserForm, institutionForm, membershipForm, messageForm, providerForm, generateRubric, handleModalSubmit, handleGenerateCorrection, handleApproveCorrection, handleAddSubmissionAnswer, handleQuestionProposal, updateEnrollPicker } from './features/forms.js';
 import { copyCorrection, openCorrectionShareModal, handleShareAction } from './features/share.js';
 import { saveProfilePreferences, uploadProfileAvatar, removeProfileAvatar } from './features/profile.js';
@@ -157,7 +157,14 @@ async function clickAction(button) {
         if (!window.confirm('Se creará un conjunto de práctica con datos ficticios. ¿Continuar?')) break;
         const result = await api.post('demo/seed/', {}); await refreshCore(); state.selectedCourse = result.course_id; state.selectedAssessment = result.assessment_id; state.view = 'assessment'; state.assessmentEditor = await loadAssessmentEditor(result.assessment_id); render(); toast(result.message || 'Ejemplo de práctica disponible.'); break;
       }
-      case 'new-course': courseForm(); break;
+      case 'new-course': courseForm(null, button.dataset.subject || ''); break;
+      case 'new-subject': subjectForm(); break;
+      case 'edit-subject': subjectForm(knownSubjects().find(item => String(item.id) === String(id))); break;
+      case 'archive-subject': {
+        const subject = knownSubjects().find(item => String(item.id) === String(id));
+        if (!subject || !window.confirm(`¿Archivar la materia «${subject.name}»? También se archivan sus cursos y comisiones; el historial se conserva.`)) break;
+        await api.delete(`subjects/${id}/`); await afterWrite('Materia archivada.', ['subjects', 'courses']); break;
+      }
       case 'edit-course': courseForm(state.data.courses.find(item => String(item.id) === String(id))); break;
       case 'open-course': state.selectedCourse = id; navigate('course'); break;
       case 'open-student': state.selectedStudent = id; navigate('student'); break;
@@ -197,8 +204,9 @@ async function clickAction(button) {
       case 'open-assessment': {
         const item = state.data.assessments.find(row => String(row.id) === String(id));
         state.assessmentOrigin = state.view === 'course' ? 'course' : 'courses';
-        const assessmentCourse = item?.course ?? item?.course_id;
-        if (assessmentCourse != null) state.selectedCourse = assessmentCourse;
+        // Se conserva la comisión desde la que se abrió si la evaluación está asignada a ella.
+        const assessmentCourses = assessmentCourseIds(item);
+        if (assessmentCourses.length && !assessmentCourses.includes(String(state.selectedCourse))) state.selectedCourse = assessmentCourses[0];
         state.selectedAssessment = id;
         state.assessmentEditor = await loadAssessmentEditor(id);
         state.view = 'assessment'; render(); break;
@@ -335,6 +343,7 @@ content?.addEventListener('change', async event => {
   if (await handleWorkspaceChange(event)) return;
   if (event.target.matches('[data-profile-avatar]')) { await uploadProfileAvatar(event.target); return; }
   if (event.target.matches('[data-filter="student-course"]')) { state.studentCourseFilter = event.target.value; render(); return; }
+  if (event.target.matches('[data-filter="course-subject"]')) { state.courseFilters.subject = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="course-cycle"]')) { state.courseFilters.cycle = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="course-sort"]')) { state.courseFilters.sort = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="exam-course"]')) { state.examFilters.course = event.target.value; state.examFilters.limit = 50; render(); return; }
@@ -372,9 +381,11 @@ document.addEventListener('submit', async event => {
     if (form.dataset.busy === 'true' || !form.reportValidity()) return;
     const submit = form.querySelector('[type=submit]');
     const values = Object.fromEntries(new FormData(form).entries());
+    const courseIds = [...form.querySelectorAll('input[name="course_ids"]:checked')].filter(input => !input.closest('[hidden]')).map(input => Number(input.value));
+    values.course = courseIds[0] || '';
     form.dataset.busy = 'true'; if (submit) { submit.disabled = true; submit.textContent = 'Creando…'; }
     try {
-      const created = await api.post('assessments/', { title: String(values.title || '').trim(), course: Number(values.course), subject: String(values.subject || '').trim(), level: String(values.level || '').trim(), objectives: String(values.objectives || '').trim(), instructions: String(values.instructions || '').trim(), reference_material: '', status: 'draft' });
+      const created = await api.post('assessments/', { title: String(values.title || '').trim(), subject_id: values.subject_id ? Number(values.subject_id) : null, course_ids: courseIds, level: String(values.level || '').trim(), objectives: String(values.objectives || '').trim(), instructions: String(values.instructions || '').trim(), reference_material: '', status: 'draft' });
       const url = new URL(window.location.href); url.searchParams.set('assessment', created.id); url.searchParams.delete('course');
       window.history.replaceState({ ...(window.history.state || {}), view: 'assessment-new' }, '', url.toString());
       state.selectedAssessment = created.id; state.selectedCourse = values.course; state.view = 'assessment-new';
@@ -393,6 +404,10 @@ document.addEventListener('submit', async event => {
 });
 
 modal?.addEventListener('input', event => { if (event.target.matches('[data-enroll-search]')) updateEnrollPicker(event); });
+// Selector de materia: muestra el campo de materia nueva y sólo las comisiones de esa materia.
+document.addEventListener('change', event => {
+  if (event.target.matches('[name="subject_id"]')) syncSubjectFields(event.target.closest('form'));
+});
 
 modal?.addEventListener('change', async event => {
   if (event.target.closest('.enroll-picker')) { updateEnrollPicker(event); return; }

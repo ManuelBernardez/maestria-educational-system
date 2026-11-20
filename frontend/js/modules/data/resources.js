@@ -5,7 +5,7 @@ import { errorText } from '../core/utils.js';
 // Listas completas que el docente carga bajo demanda. El resumen (dashboard/overview)
 // ya trae cursos y evaluaciones compactos, así que el inicio no necesita ninguna de estas.
 const RESOURCES = Object.freeze({
-  courses: 'courses/', students: 'students/', enrollments: 'enrollments/',
+  subjects: 'subjects/', courses: 'courses/', students: 'students/', enrollments: 'enrollments/',
   assessments: 'assessments/', rubrics: 'rubrics/', submissions: 'submissions/',
   corrections: 'corrections/?summary=1'
 });
@@ -16,13 +16,13 @@ const REVIEW = ['courses', 'assessments', 'submissions', 'corrections', 'rubrics
 // Datos que cada vista necesita antes de dibujarse (hard) y los que completan el panel sin bloquearlo (soft).
 const VIEW_RESOURCES = Object.freeze({
   dashboard: { hard: [], soft: ['corrections', 'submissions', 'assessments'] },
-  courses: { hard: ['courses'], soft: ['enrollments', 'assessments', 'submissions', 'corrections'] },
+  courses: { hard: ['subjects', 'courses'], soft: ['enrollments', 'assessments', 'submissions', 'corrections'] },
   course: { hard: COURSE_WORK },
   students: { hard: ['courses', 'students', 'enrollments'] },
   student: { hard: ['courses', 'students', 'enrollments', 'assessments', 'submissions', 'corrections'] },
-  assessments: { hard: ['courses', 'assessments', 'submissions', 'corrections'] },
-  'assessment-new': { hard: ['courses'] },
-  assessment: { hard: ['courses', 'assessments', 'rubrics'] },
+  assessments: { hard: ['subjects', 'courses', 'assessments', 'submissions', 'corrections'] },
+  'assessment-new': { hard: ['subjects', 'courses'] },
+  assessment: { hard: ['subjects', 'courses', 'assessments', 'rubrics'] },
   rubrics: { hard: ['rubrics'] },
   rubric: { hard: ['rubrics'] },
   submissions: { hard: REVIEW },

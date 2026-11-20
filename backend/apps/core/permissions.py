@@ -33,11 +33,6 @@ def active_memberships(user, roles=None):
     return qs.filter(role__in=roles) if roles else qs
 
 
-class IsOwner(BasePermission):
-    def has_object_permission(self, request, view, obj):
-        return str(getattr(obj, "owner_id", "")) == str(request.user.id)
-
-
 class IsWorkspaceUser(BasePermission):
     message = "Tu rol no tiene acceso al espacio docente."
 

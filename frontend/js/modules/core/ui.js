@@ -155,10 +155,12 @@ export function updateChrome() {
   if (shortcuts) {
     const activeCourses = state.data.courses.filter(item => item.active).slice(0, 5);
     shortcuts.hidden = isAdmin || activeCourses.length === 0;
-    shortcuts.innerHTML = shortcuts.hidden ? '' : `<div class="sidebar-shortcut-heading"><span>MIS MATERIAS</span><button type="button" data-action="new-course" aria-label="Crear materia" title="Crear materia">＋</button></div>${activeCourses.map(course => {
+    shortcuts.innerHTML = shortcuts.hidden ? '' : `<div class="sidebar-shortcut-heading"><span>MIS MATERIAS</span><button type="button" data-action="new-subject" aria-label="Crear materia" title="Crear materia">＋</button></div>${activeCourses.map(course => {
       const selected = state.view === 'course' && String(state.selectedCourse) === String(course.id);
       const letter = String(course.subject || course.name || 'M').trim().slice(0, 1).toLocaleUpperCase('es-AR');
-      return `<button class="side-link side-link--course${selected ? ' active' : ''}" type="button" data-open-course="${escapeHtml(course.id)}" title="${escapeHtml(course.name)}" ${selected ? 'aria-current="page"' : ''}><span class="side-icon" aria-hidden="true">${escapeHtml(letter)}</span><span class="side-text">${escapeHtml(course.name)}</span></button>`;
+      // «Materia · comisión»: varias materias pueden tener una comisión con el mismo nombre.
+      const label = course.subject && course.subject !== course.name ? `${course.subject} · ${course.name}` : course.name;
+      return `<button class="side-link side-link--course${selected ? ' active' : ''}" type="button" data-open-course="${escapeHtml(course.id)}" title="${escapeHtml(label)}" ${selected ? 'aria-current="page"' : ''}><span class="side-icon" aria-hidden="true">${escapeHtml(letter)}</span><span class="side-text">${escapeHtml(label)}</span></button>`;
     }).join('')}`;
   }
   $$('[data-teacher-nav]').forEach(link => { link.hidden = isAdmin; });

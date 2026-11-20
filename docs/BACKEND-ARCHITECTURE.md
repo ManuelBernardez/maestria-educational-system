@@ -37,7 +37,15 @@ backend/
 
 ## Persistencia y esquema
 
-El esquema `public.*` existente no se modifica desde esta refactorización. No se agregaron migraciones Django, tablas, columnas, índices ni triggers. `db/maestria_schema_v2.sql` y el SQL de test mantienen su función de contrato; `backend/database/test_schema.sql` sólo se carga en la base efímera de pruebas.
+El SQL es dueño del esquema: no hay migraciones Django (`MIGRATION_MODULES = {"core": None}` y todos los modelos son `managed=False`). El contrato es `db/maestria_schema.sql` (snapshot de producción) más las migraciones SQL de `backend/database/migrations/` posteriores a la versión que declara su encabezado; pytest instala exactamente eso en su base desechable y `python manage.py verify_public_schema` compara la base con el ORM.
+
+### Materias y comisiones (fase 1, migración `20261120214005`)
+
+- `subject`: materia del docente. `course.subject_id` agrupa sus cursos o comisiones; `course.name` es el nombre de la comisión y `course.shift`, su turno.
+- La evaluación pertenece a la materia (`assessment.subject_id`) y se asigna a una o más comisiones en `assessment_course`. `assessment.course_id` queda como comisión principal heredada (la primera asignada).
+- `submission.course_id` es la comisión de la entrega: listados, filtros `?course=` y la planilla de notas se calculan por comisión. Las filas anteriores sin `course_id` usan la comisión de la evaluación (`corrections_in_course`).
+- `external_link` guarda identificadores en plataformas externas (Moodle, Google Classroom, SIU Guaraní/CSV, Google Drive) para las integraciones siguientes.
+- Las columnas de texto `course.subject` y `assessment.subject` se siguen escribiendo con el nombre de la materia para que la versión anterior desplegada funcione durante la transición; se podrán eliminar en una migración posterior.
 
 No introducir un repositorio que duplique el ORM sin una necesidad concreta. Para este MVP, los querysets explícitos son el adaptador de persistencia. Mantener:
 

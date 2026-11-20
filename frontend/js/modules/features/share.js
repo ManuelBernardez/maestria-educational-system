@@ -23,6 +23,10 @@ export async function loadDeliveries() {
   } catch { node.textContent = ''; }
 }
 
+// La devolución por criterio está escrita para el estudiante (segunda persona); la
+// justificación es para el docente y sólo se usa en propuestas anteriores que no la tienen.
+const criterionTextForStudent = item => (item.student_feedback || '').trim() || (item.justification || '').trim();
+
 export function correctionShareText() {
   const correction = state.currentCorrection;
   if (!correction) return '';
@@ -32,7 +36,9 @@ export function correctionShareText() {
     `Estudiante: ${state.currentSubmission?.student_display_name || state.currentSubmission?.student_name || 'Estudiante'}`,
     `Estado: ${statusLabel(correction.status)}`,
     '', result?.summary || '', '',
-    ...(result?.criteria || []).map(item => `${item.criterion}: ${formatNumber(item.score)}/${formatNumber(item.max_score)}\n${item.justification || ''}${item.evidence ? `\nEvidencia: ${item.evidence}` : ''}`),
+    ...(result?.criteria || []).map(item => `${item.criterion}: ${formatNumber(item.score)}/${formatNumber(item.max_score)}\n${criterionTextForStudent(item)}${item.evidence ? `\nEvidencia: ${item.evidence}` : ''}`),
+    ...(result?.strengths?.length ? ['', 'Fortalezas', ...result.strengths.map(text => `• ${text}`)] : []),
+    ...(result?.improvement_suggestions?.length ? ['', 'Próximos pasos', ...result.improvement_suggestions.map(text => `• ${text}`)] : []),
     '', correction.teacher_feedback || result?.feedback || ''
   ];
   return lines.join('\n').trim();
@@ -77,7 +83,7 @@ export function approvedCorrectionShareText() {
     '', 'Resumen', proposal.summary?.trim() || 'Sin resumen adicional.', '', 'Criterios de evaluación',
     ...criteria.flatMap(item => [
       `• ${item.criterion || 'Criterio'}: ${formatScore(item.score || 0)} / ${formatScore(item.max_score || 0)} puntos${item.level ? ` · ${item.level}` : ''}`,
-      ...(item.justification?.trim() ? [`  ${item.justification.trim()}`] : [])
+      ...(criterionTextForStudent(item) ? [`  ${criterionTextForStudent(item)}`] : [])
     ])
   ];
   if (Array.isArray(proposal.strengths) && proposal.strengths.length) lines.push('', 'Fortalezas observadas', ...proposal.strengths.map(item => `• ${item}`));

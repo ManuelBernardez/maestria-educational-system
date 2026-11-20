@@ -6,12 +6,13 @@ from .admin_api import (
 )
 from .views import (
     AssessmentViewSet, CourseViewSet, EnrollmentViewSet, QuestionViewSet,
-    RubricCriterionViewSet, RubricLevelViewSet, RubricViewSet, StudentViewSet,
+    RubricCriterionViewSet, RubricLevelViewSet, RubricViewSet, StudentViewSet, SubjectViewSet,
     SubmissionAnswerViewSet, SubmissionViewSet, CorrectionViewSet,
     audit_events, client_config, contact, correction_workspace, current_user_avatar, current_user_profile, dashboard_overview, dashboard_summary, seed_demo_dataset,
 )
 
 router = DefaultRouter()
+router.register("subjects", SubjectViewSet)
 router.register("courses", CourseViewSet)
 router.register("enrollments", EnrollmentViewSet)
 router.register("assessments", AssessmentViewSet)

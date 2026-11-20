@@ -3,15 +3,18 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 EXPECTED_TABLES = {
-    "course": {"id", "owner_id", "created_at", "updated_at", "name", "subject", "level", "academic_year", "description", "active"},
+    "subject": {"id", "owner_id", "created_at", "updated_at", "name", "level", "description", "active"},
+    "course": {"id", "owner_id", "created_at", "updated_at", "name", "subject", "subject_id", "shift", "level", "academic_year", "description", "active"},
+    "assessment_course": {"id", "owner_id", "created_at", "assessment_id", "course_id"},
+    "external_link": {"id", "owner_id", "created_at", "updated_at", "entity_type", "entity_id", "provider", "external_id", "external_url", "metadata", "last_synced_at"},
     "student": {"id", "owner_id", "created_at", "updated_at", "name", "email", "phone", "external_code", "account_user_id", "active"},
-    "rubric": {"id", "owner_id", "created_at", "updated_at", "title", "description", "scale_type"},
+    "rubric": {"id", "owner_id", "created_at", "updated_at", "title", "description", "scale_type", "subject_id"},
     "rubric_criterion": {"id", "owner_id", "created_at", "updated_at", "name", "description", "max_score", "weight", "position", "rubric_id"},
     "rubric_level": {"id", "owner_id", "created_at", "updated_at", "name", "description", "score", "position", "criterion_id"},
-    "assessment": {"id", "owner_id", "created_at", "updated_at", "title", "subject", "level", "objectives", "instructions", "reference_material", "status", "course_id"},
+    "assessment": {"id", "owner_id", "created_at", "updated_at", "title", "subject", "subject_id", "level", "objectives", "instructions", "reference_material", "status", "course_id"},
     "question": {"id", "owner_id", "created_at", "updated_at", "prompt", "expected_answer", "question_type", "max_score", "position", "assessment_id", "rubric_id"},
     "enrollment": {"id", "owner_id", "created_at", "updated_at", "status", "enrolled_at", "notes", "course_id", "student_id"},
-    "submission": {"id", "owner_id", "created_at", "updated_at", "student_name", "answer_text", "source_type", "source_filename", "status", "assessment_id", "question_id", "student_id"},
+    "submission": {"id", "owner_id", "created_at", "updated_at", "student_name", "answer_text", "source_type", "source_filename", "status", "assessment_id", "question_id", "student_id", "course_id"},
     "submission_answer": {"id", "owner_id", "created_at", "updated_at", "answer_text", "source_filename", "submission_id", "question_id"},
     "correction": {"id", "owner_id", "created_at", "updated_at", "provider", "proposal", "final_result", "teacher_feedback", "total_score", "status", "approved_at", "rubric_id", "submission_id"},
     "correction_criterion_result": {"id", "owner_id", "created_at", "updated_at", "criterion_name", "score", "max_score", "evidence", "justification", "feedback", "position", "correction_id", "question_id"},
@@ -46,6 +49,13 @@ COMPOSITE_FKS = [
     ("fk_revision_correction_owner", "correction_revision", ("correction_id", "owner_id"), "correction", ("id", "owner_id")),
     ("fk_ai_assessment_owner", "ai_generation", ("assessment_id", "owner_id"), "assessment", ("id", "owner_id")),
     ("fk_ai_submission_owner", "ai_generation", ("submission_id", "owner_id"), "submission", ("id", "owner_id")),
+    # Fase 1: materias y comisiones.
+    ("fk_course_subject_owner", "course", ("subject_id", "owner_id"), "subject", ("id", "owner_id")),
+    ("fk_assessment_subject_owner", "assessment", ("subject_id", "owner_id"), "subject", ("id", "owner_id")),
+    ("fk_rubric_subject_owner", "rubric", ("subject_id", "owner_id"), "subject", ("id", "owner_id")),
+    ("fk_submission_course_owner", "submission", ("course_id", "owner_id"), "course", ("id", "owner_id")),
+    ("fk_assessment_course_assessment_owner", "assessment_course", ("assessment_id", "owner_id"), "assessment", ("id", "owner_id")),
+    ("fk_assessment_course_course_owner", "assessment_course", ("course_id", "owner_id"), "course", ("id", "owner_id")),
 ]
 
 REQUIRED_UNIQUE_INDEXES = {
@@ -63,7 +73,11 @@ REQUIRED_UNIQUE_INDEXES = {
     "institution_slug_key": ("institution", "(slug)"),
     "ai_provider_config_provider_key": ("ai_provider_config", "(provider)"),
     # Reglas de negocio que la API traduce a 409 (apps/core/exceptions.py, AUD-003/AUD-004).
-    "uniq_course_owner_name_ci": ("course", "owner_id"),
+    "uq_subject_id_owner": ("subject", "(id,owner_id)"),
+    "uniq_subject_owner_name_ci": ("subject", "owner_id"),
+    "uniq_course_owner_subject_name_year_ci": ("course", "owner_id"),
+    "uniq_assessment_course": ("assessment_course", "(assessment_id,course_id)"),
+    "uniq_external_link_owner_provider_entity": ("external_link", "(owner_id,provider,entity_type,external_id)"),
     "uniq_enrollment_course_student": ("enrollment", "(course_id,student_id)"),
     "uniq_student_external_code_per_owner": ("student", "(owner_id,external_code)"),
     "uniq_question_position_per_assessment": ("question", "(assessment_id,\"position\")"),

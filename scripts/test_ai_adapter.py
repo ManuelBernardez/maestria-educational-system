@@ -33,7 +33,13 @@ SAMPLE_ANSWER = "La luz aporta energía y el agua participa en el proceso."
 
 
 def _gemini_payload(system: str) -> dict:
-    if "Sos un asistente pedagógico que ayuda" in system:
+    # Las consignas van primero: su prompt también empieza con «Sos un asistente pedagógico…».
+    if "diseñar consignas de evaluación" in system:
+        return {"questions": [{
+            "prompt": "¿Qué función cumple la luz?", "max_score": 5,
+            "rationale": "Evalúa comprensión conceptual.",
+        }]}
+    if "revisar la respuesta escrita de un estudiante" in system:
         return {
             "summary": "Reconoce la función energética de la luz.",
             "criteria": [{
@@ -46,11 +52,6 @@ def _gemini_payload(system: str) -> dict:
             "improvement_suggestions": ["Ampliar la función del agua."],
             "warnings": [],
         }
-    if "Generá preguntas claras" in system:
-        return {"questions": [{
-            "prompt": "¿Qué función cumple la luz?", "max_score": 5,
-            "rationale": "Evalúa comprensión conceptual.",
-        }]}
     if "Sos especialista en evaluación educativa" in system:
         return {
             "rubric_title": "Rúbrica de fotosíntesis", "description": "Criterios observables.",
@@ -113,7 +114,8 @@ class GeminiProviderTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 3)
         self.assertEqual(correction["suggested_total"], 4)
-        self.assertEqual(correction["criteria"][0]["evidence"], "La luz aporta energía")
+        # La cita se extiende a la oración completa que la contiene (sentence_evidence).
+        self.assertEqual(correction["criteria"][0]["evidence"], SAMPLE_ANSWER)
         self.assertFalse(correction["demo"])
         self.assertEqual(len(questions["questions"]), 1)
         self.assertFalse(questions["demo"])

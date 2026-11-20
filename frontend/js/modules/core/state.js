@@ -21,10 +21,12 @@ export const state = {
   correctionDetailLoading: false,
   rubricProposal: null,
   questionProposal: null,
+  // Consignas que la IA ya propuso en esta sesión, por evaluación ({ [id]: [prompt] }).
+  seenQuestionPrompts: {},
   search: '',
   selectedStudent: null,
   // Filtros de listados: viven en memoria mientras dura la sesión de la vista.
-  courseFilters: { status: 'active', cycle: 'all', sort: 'pending', layout: 'list' },
+  courseFilters: { status: 'active', subject: 'all', cycle: 'all', sort: 'pending', layout: 'list' },
   examFilters: { course: 'all', status: 'all', limit: 50 },
   dashboardCourseFilter: 'all',
   studentCourseFilter: 'all',
@@ -43,7 +45,7 @@ export const state = {
   adminMessageStatus: '',
   adminTab: 'users',
   data: {
-    overview: null, courses: [], students: [], enrollments: [], assessments: [],
+    overview: null, subjects: [], courses: [], students: [], enrollments: [], assessments: [],
     rubrics: [], submissions: [], corrections: [],
     admin: { users: [], institutions: [], memberships: [], messages: [], audit: [], providers: [] }
   },

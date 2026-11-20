@@ -14,6 +14,8 @@
 const parentDetails = node => node.parentElement?.closest('details') ?? null;
 
 function groupOf(details) {
+  // Excepción: listas que la persona pliega por su cuenta (p. ej. las materias).
+  if (details.hasAttribute('data-independent')) return [];
   const root = details.closest('[data-accordion]') || details.parentElement;
   if (!root) return [];
   const level = parentDetails(details);
