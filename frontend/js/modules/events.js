@@ -343,6 +343,7 @@ content?.addEventListener('change', async event => {
   if (await handleWorkspaceChange(event)) return;
   if (event.target.matches('[data-profile-avatar]')) { await uploadProfileAvatar(event.target); return; }
   if (event.target.matches('[data-filter="student-course"]')) { state.studentCourseFilter = event.target.value; render(); return; }
+  if (event.target.matches('[data-filter="course-subject"]')) { state.courseFilters.subject = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="course-cycle"]')) { state.courseFilters.cycle = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="course-sort"]')) { state.courseFilters.sort = event.target.value; render(); return; }
   if (event.target.matches('[data-filter="exam-course"]')) { state.examFilters.course = event.target.value; state.examFilters.limit = 50; render(); return; }

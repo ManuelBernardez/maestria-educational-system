@@ -3,7 +3,7 @@ import { escapeHtml, formatNumber, toneOf, statusPill, btn, date, heading, empty
 import { openModal, modalForm } from '../core/ui.js';
 
 /** La vista por defecto de «Mis materias» es la lista compacta. */
-export const COURSE_FILTER_DEFAULTS = Object.freeze({ status: 'active', cycle: 'all', sort: 'pending', layout: 'list' });
+export const COURSE_FILTER_DEFAULTS = Object.freeze({ status: 'active', subject: 'all', cycle: 'all', sort: 'pending', layout: 'list' });
 const ROW_FILTER_THRESHOLD = 4;
 /** Tono fijo por sección del curso: cada plegable (y su paso del recorrido) se distingue por color. */
 const FOLD_TONES = Object.freeze({ students: 0, assessments: 3, submissions: 2, corrections: 1 });
@@ -28,12 +28,17 @@ const SORTERS = Object.freeze({
   name: (a, b) => String(a.course.name).localeCompare(String(b.course.name), 'es-AR')
 });
 
+/** Botón discreto de sólo ícono (con nombre accesible y tooltip). */
+const toolButton = (glyph, label, action, id) => `<button type="button" class="icon-button icon-button--quiet" data-action="${action}" data-id="${escapeHtml(id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${icon(glyph)}</button>`;
+
 function courseCard(course, metrics) {
   const id = escapeHtml(course.id);
+  // Sólo se marca lo excepcional (archivado); «Activo» en cada fila era ruido visual.
+  const archived = course.active ? '' : statusPill('archived', 'Archivado');
   return `<article class="entity-card course-card${course.active ? '' : ' is-archived'}" data-tone="${toneOf(course.id)}">
-    <div class="entity-card-main"><span class="entity-symbol" aria-hidden="true">${icon('book')}</span><div class="entity-card-copy"><button class="entity-link entity-link--title" type="button" data-action="open-course" data-id="${id}">${escapeHtml(course.name)}</button><p>${escapeHtml([shiftLabel(course.shift) && `Turno ${shiftLabel(course.shift).toLocaleLowerCase('es-AR')}`, course.academic_year, course.level].filter(Boolean).join(' · ') || 'Curso o comisión')}</p></div>${statusPill(course.active ? 'active' : 'archived', course.active ? 'Activo' : 'Archivado')}</div>
-    <dl class="entity-metrics"><div><dt>estudiantes</dt><dd>${metrics.students}</dd></div><div><dt>evaluaciones</dt><dd>${metrics.assessments}</dd></div><div><dt>entregas</dt><dd>${metrics.submissions}</dd></div><div class="${metrics.pending ? 'is-pending' : ''}"><dt>por revisar</dt><dd>${metrics.pending}</dd></div></dl>
-    <footer class="entity-actions"><button type="button" class="btn btn-primary btn-small" data-action="open-course" data-id="${id}">Abrir curso</button><button type="button" class="btn btn-secondary btn-small" data-action="edit-course" data-id="${id}">Editar</button><button type="button" class="btn btn-secondary btn-small" data-action="toggle-course" data-id="${id}">${course.active ? 'Archivar' : 'Reactivar'}</button></footer>
+    <div class="entity-card-main"><span class="entity-symbol" aria-hidden="true">${icon('book')}</span><div class="entity-card-copy"><button class="entity-link entity-link--title" type="button" data-action="open-course" data-id="${id}">${escapeHtml(course.name)}</button><p>${escapeHtml([shiftLabel(course.shift) && `Turno ${shiftLabel(course.shift).toLocaleLowerCase('es-AR')}`, course.academic_year, course.level].filter(Boolean).join(' · ') || 'Curso o comisión')}</p></div>${archived}</div>
+    <dl class="entity-metrics"><div><dt>estudiantes</dt><dd>${metrics.students}</dd></div><div><dt>evaluaciones</dt><dd>${metrics.assessments}</dd></div><div class="${metrics.pending ? 'is-pending' : ''}"><dt>por revisar</dt><dd>${metrics.pending}</dd></div></dl>
+    <footer class="entity-actions"><button type="button" class="btn btn-secondary btn-small" data-action="open-course" data-id="${id}">Abrir</button>${toolButton('pencil', `Editar ${course.name}`, 'edit-course', course.id)}${toolButton('archive', `${course.active ? 'Archivar' : 'Reactivar'} ${course.name}`, 'toggle-course', course.id)}</footer>
   </article>`;
 }
 
@@ -59,6 +64,7 @@ export function renderCourses() {
       { value: 'archived', label: 'Archivados', count: counts.archived, active: filters.status === 'archived' },
       { value: 'all', label: 'Todos', count: counts.all, active: filters.status === 'all' }
     ])}
+    ${knownSubjects().length > 1 ? toolbarSelect('Filtrar por materia', 'data-filter="course-subject" id="course-subject"', [{ value: 'all', label: 'Todas las materias' }, ...knownSubjects().map(item => ({ value: String(item.id), label: item.name }))], filters.subject || 'all') : ''}
     ${cycles.length > 1 ? toolbarSelect('Filtrar por ciclo lectivo', 'data-filter="course-cycle" id="course-cycle"', [{ value: 'all', label: 'Todos los ciclos' }, ...cycles.map(value => ({ value, label: value }))], filters.cycle) : ''}
     ${toolbarSelect('Ordenar cursos', 'data-filter="course-sort" id="course-sort"', [{ value: 'pending', label: 'Con más pendientes' }, { value: 'students', label: 'Más estudiantes' }, { value: 'name', label: 'Nombre A–Z' }], filters.sort)}
     <div class="segmented" role="group" aria-label="Vista del listado">${[['cards', 'grid', 'Ver como tarjetas'], ['list', 'list', 'Ver como lista compacta']].map(([value, glyph, label]) => `<button type="button" class="chip" id="course-layout-${value}" data-chip-group="course-layout" data-chip-value="${value}" aria-pressed="${filters.layout === value}" aria-label="${label}" title="${label}">${icon(glyph)}</button>`).join('')}</div>
@@ -73,18 +79,27 @@ export function renderCourses() {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   });
-  const subjects = knownSubjects().filter(subject => groups.has(String(subject.id)) || (!filtered && subject.active !== false && !subject.course_count));
+  const subjectFilter = filters.subject || 'all';
+  const allSubjects = knownSubjects();
+  const subjects = allSubjects
+    .filter(subject => subjectFilter === 'all' || String(subject.id) === subjectFilter)
+    .filter(subject => groups.has(String(subject.id)) || (!filtered && subject.active !== false && !subject.course_count));
+  // Cada materia es un plegable independiente (abierto por defecto; se recuerda tras re-render por su id).
   const subjectSection = subject => {
     const rows = groups.get(String(subject.id)) || [];
-    const meta = [subject.level, `${rows.length} ${rows.length === 1 ? 'curso o comisión' : 'cursos o comisiones'}`].filter(Boolean).join(' · ');
-    return `<section class="subject-group" data-tone="${toneOf(subject.id)}" aria-labelledby="subject-title-${escapeHtml(subject.id)}">
-      <header class="subject-group-head"><div><h3 id="subject-title-${escapeHtml(subject.id)}">${escapeHtml(subject.name)}</h3><p class="muted">${escapeHtml(meta)}</p></div>
-        <div class="view-actions">${btn('Nueva comisión', 'new-course', `data-subject="${escapeHtml(subject.id)}"`, 'primary')}${btn('Editar materia', 'edit-subject', `data-id="${escapeHtml(subject.id)}"`)}${btn('Archivar materia', 'archive-subject', `data-id="${escapeHtml(subject.id)}"`)}</div></header>
-      ${rows.length ? grid(rows) : '<p class="muted">Todavía no tiene cursos ni comisiones. Creá la primera para cargar estudiantes y asignarle evaluaciones.</p>'}
-    </section>`;
+    const pending = rows.reduce((sum, item) => sum + item.metrics.pending, 0);
+    const meta = [subject.level, `${rows.length} ${rows.length === 1 ? 'comisión' : 'comisiones'}`].filter(Boolean).join(' · ');
+    return `<details class="subject-group" id="subject-group-${escapeHtml(subject.id)}" data-independent data-tone="${toneOf(subject.id)}" open>
+      <summary class="subject-group-head">
+        <span class="subject-group-title">${icon('chevron')}<span><strong>${escapeHtml(subject.name)}</strong><small>${escapeHtml(meta)}</small></span></span>
+        ${pending ? `<span class="subject-pending">${pending} por revisar</span>` : ''}
+        <span class="subject-group-actions"><button type="button" class="btn btn-ghost btn-small" data-action="new-course" data-subject="${escapeHtml(subject.id)}">${icon('plus')} Comisión</button>${toolButton('pencil', `Editar la materia ${subject.name}`, 'edit-subject', subject.id)}${toolButton('archive', `Archivar la materia ${subject.name}`, 'archive-subject', subject.id)}</span>
+      </summary>
+      <div class="subject-group-body">${rows.length ? grid(rows) : '<p class="muted subject-empty">Todavía no tiene cursos ni comisiones. Creá la primera para cargar estudiantes y asignarle evaluaciones.</p>'}</div>
+    </details>`;
   };
-  const orphan = groups.get('none') || [];
-  const sections = [...subjects.map(subjectSection), orphan.length ? `<section class="subject-group"><header class="subject-group-head"><div><h3>Sin materia asignada</h3><p class="muted">Editá cada curso para elegir su materia.</p></div></header>${grid(orphan)}</section>` : ''].join('');
+  const orphan = subjectFilter === 'all' ? groups.get('none') || [] : [];
+  const sections = [...subjects.map(subjectSection), orphan.length ? `<details class="subject-group" id="subject-group-none" data-independent open><summary class="subject-group-head"><span class="subject-group-title">${icon('chevron')}<span><strong>Sin materia asignada</strong><small>Editá cada curso para elegir su materia.</small></span></span></summary><div class="subject-group-body">${grid(orphan)}</div></details>` : ''].join('');
 
   const list = sections
     ? `<div class="subject-groups">${sections}</div>`
@@ -92,7 +107,7 @@ export function renderCourses() {
       ? filteredEmpty('cursos', 'clear-course-filters')
       : emptyState('Todavía no hay materias', 'Creá una materia (por ejemplo, Programación I) y dentro de ella sus cursos o comisiones.', btn('Crear primera materia', 'new-subject', '', 'primary'));
 
-  return `${heading('Materias y comisiones', 'Cada materia agrupa sus cursos o comisiones; las evaluaciones se crean una vez y se asignan a las comisiones que correspondan.', `${btn('Nueva materia', 'new-subject', '', 'primary')}${btn('Nuevo curso o comisión', 'new-course')}`)}${resourceError('subjects', 'las materias')}${resourceError('courses', 'los cursos')}${toolbar}${list}`;
+  return `${heading('Materias y comisiones', 'Cada materia agrupa sus cursos o comisiones; las evaluaciones se crean una vez y se asignan a las comisiones que correspondan.', btn('Nueva materia', 'new-subject', '', 'primary'))}${resourceError('subjects', 'las materias')}${resourceError('courses', 'los cursos')}${toolbar}${list}`;
 }
 
 /** Fila de lista de trabajo; `status` alimenta el filtro en el cliente. */

@@ -139,7 +139,6 @@ function contextNotes() {
 export function contextStep() {
   const dirty = stepDirty(1);
   return `${stepHeader(1, 'Qué evaluar y con qué criterios', 'MaestrIA usa este contexto para proponer cada corrección.', shortcutsHint('ws-shortcuts-1'))}
-    ${contextNotes()}
     <div class="step-grid step-grid--context">
       <form id="workspace-context-form" class="step-col" novalidate>
         <div class="form-field form-field--lead"><label for="workspace-instructions">¿Qué querés evaluar?</label><textarea id="workspace-instructions" class="lined lined--lead" name="instructions" maxlength="8000" data-workspace-field="instructions" placeholder="Describí el tema, la consigna o qué debería resolver el estudiante.">${escapeHtml(workspace.instructions)}</textarea></div>
@@ -149,6 +148,7 @@ export function contextStep() {
       </form>
       <div class="step-col">${questionList()}${suggestionNote()}</div>
     </div>
+    ${contextNotes()}
     ${actionBar(saveStatus(1, dirty), `<button class="btn btn-primary" type="submit" form="workspace-context-form" id="ws-save-context">Guardar contexto</button>`)}`;
 }
 

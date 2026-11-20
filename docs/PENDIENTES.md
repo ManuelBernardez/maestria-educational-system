@@ -10,8 +10,7 @@ Estado al 2026-11-20, al cerrar la **Fase 1** (rama `feat/fase1-consolidacion`):
    - Verificar con lecturas: cantidad de `subject` creadas, ningún `course` con `subject_id` nulo, `assessment_course` = evaluaciones con `course_id`, `submission.course_id` completo donde la evaluación tenía curso.
    - `python manage.py verify_public_schema` contra producción.
 3. **Importante:** el `runserver` local usa la base de producción (`backend/.env`). Con el código nuevo y la migración sin aplicar, `/api/` responde 500 (columnas `subject_id`, `shift`, `course_id` inexistentes).
-4. `frontend/html/plantilla-estudiantes.csv` está borrado en el árbol de trabajo (cambio del usuario, sin commitear). El enlace «Descargar plantilla CSV» del modal de importación apunta a ese archivo y el test `test_frontend_file_view_is_confined_to_html_directory` falla. Restaurarlo o actualizar el enlace y el test.
-5. Opcional: `AI_GEMINI_THINKING_LEVEL=low` en Render si las propuestas de Gemini se truncan (ver `backend/.env.example`).
+4. Opcional: `AI_GEMINI_THINKING_LEVEL=low` en Render si las propuestas de Gemini se truncan (ver `backend/.env.example`).
 
 ## 2. Portales nuevos (planes separados, ya acordados)
 
@@ -50,7 +49,23 @@ Prioridad: docentes y superadministrador; después estudiantes e instituciones. 
 - Volumen de evaluaciones y tiempos de devolución por departamento.
 - Uso de la IA y porcentaje de propuestas aprobadas sin cambios.
 
-## 4. Mejoras detectadas que quedaron fuera de la Fase 1
+## 4. Diseño y personalización (pedidos del usuario, 2026-11-20)
+
+- **Aire y jerarquía en todo el espacio docente.** Tomar como referencia la vista «Mis materias» rediseñada. Al usuario le gustó que «los elementos pueden respirar, tienen lugar y cada uno su protagonismo, sin pisarse ni verse todo exactamente igual». Aplicar lo mismo a:
+  - paso 1 del espacio de trabajo;
+  - panel docente;
+  - Evaluaciones, Estudiantes, Correcciones y detalle de curso.
+
+  Qué falta hoy en esas vistas:
+  - más espacio entre bloques;
+  - paneles con fondo propio y franja de color por grupo;
+  - un único botón principal por zona, con las acciones secundarias como botones sin relleno o íconos con tooltip;
+  - menos etiquetas repetidas (marcar sólo lo excepcional);
+  - variar color y peso tipográfico entre título, metadatos y acciones.
+- **Colores e imágenes personalizables** para materias, cursos y evaluaciones: que el docente elija el color (hoy `toneOf(id)` lo asigna automáticamente) y opcionalmente una imagen o ícono, para que los desplegables no sean todos iguales. Requiere columnas nuevas (p. ej. `subject.color`, `subject.cover`, igual en `course` y `assessment`) y validar la imagen como en `user_profile.avatar_data`.
+- **Sugerencias de contexto en el detalle de evaluación** (`features/assessments.js`): moverlas al pie como en el paso 1 del espacio de trabajo.
+
+## 5. Mejoras detectadas que quedaron fuera de la Fase 1
 
 - **Validaciones duplicadas en serializer y vista** (nombre de curso, `external_code`, matrícula): se mantuvieron a propósito. La de la vista corre con el perfil bloqueado (`lock_owner_profile`) y evita carreras; la del serializer da el error temprano. Si se unifican, que quede la que corre con bloqueo.
 - **Ampliar `fixtures/ai_eval_cases.json` y `evaluate_ai`** con controles de especificidad: cada criterio con `student_feedback` y la devolución con citas de la respuesta.

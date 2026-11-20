@@ -26,7 +26,7 @@ export const state = {
   search: '',
   selectedStudent: null,
   // Filtros de listados: viven en memoria mientras dura la sesión de la vista.
-  courseFilters: { status: 'active', cycle: 'all', sort: 'pending', layout: 'list' },
+  courseFilters: { status: 'active', subject: 'all', cycle: 'all', sort: 'pending', layout: 'list' },
   examFilters: { course: 'all', status: 'all', limit: 50 },
   dashboardCourseFilter: 'all',
   studentCourseFilter: 'all',

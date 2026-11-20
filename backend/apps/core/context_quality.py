@@ -62,7 +62,7 @@ def assess_context(assessment, questions=None, rubrics=None) -> list[dict]:
     if not objectives:
         notes.append(_note(
             "objectives_missing", "warning", "objectives",
-            "Faltan los objetivos de aprendizaje.",
+            "Agregá los objetivos de aprendizaje",
             "Sin objetivos, la IA no sabe qué priorizar y las consignas y devoluciones salen genéricas. "
             "Escribí 2 o 3 objetivos con verbos observables, por ejemplo: «Que el estudiante compare… y justifique… con ejemplos del material».",
         ))
@@ -70,14 +70,14 @@ def assess_context(assessment, questions=None, rubrics=None) -> list[dict]:
         if len(_words(objectives)) < MIN_OBJECTIVE_WORDS:
             notes.append(_note(
                 "objectives_short", "info", "objectives",
-                "Los objetivos son muy breves.",
+                "Ampliá los objetivos",
                 "Detallá qué tiene que poder hacer el estudiante y con qué contenidos: "
                 "«Que el estudiante explique las causas de…, relacione… y lo aplique a un caso».",
             ))
         if not _has_observable_verb(objectives):
             notes.append(_note(
                 "objectives_not_observable", "info", "objectives",
-                "Los objetivos parecen una lista de temas, no de desempeños.",
+                "Redactá los objetivos como desempeños observables",
                 "Redactalos con verbos que se puedan observar en una respuesta escrita (explicar, comparar, justificar, resolver, analizar) "
                 "en lugar de «conocer» o «entender».",
             ))
@@ -85,20 +85,20 @@ def assess_context(assessment, questions=None, rubrics=None) -> list[dict]:
     if not instructions and not questions:
         notes.append(_note(
             "instructions_missing", "warning", "instructions",
-            "No hay consignas ni indicaciones generales.",
+            "Sumá una consigna o las indicaciones de la evaluación",
             "Agregá al menos una consigna o las indicaciones de la evaluación: es lo que la IA usa para saber qué se le pidió al estudiante.",
         ))
     elif instructions and not questions and len(_words(instructions)) < MIN_INSTRUCTION_WORDS:
         notes.append(_note(
             "instructions_short", "info", "instructions",
-            "Las indicaciones son muy escuetas.",
+            "Detallá las indicaciones",
             "Indicá qué se espera en la respuesta (extensión, tipo de justificación, si debe incluir ejemplos o un procedimiento).",
         ))
 
     if not material:
         notes.append(_note(
             "reference_missing", "info", "reference_material",
-            "No hay material de referencia.",
+            "Importá el material de referencia",
             "Importá el apunte, la clase o la bibliografía (PDF, DOCX o TXT): las consignas y las correcciones se basan en lo que se trabajó y no en conocimiento general.",
         ))
 
@@ -107,7 +107,7 @@ def assess_context(assessment, questions=None, rubrics=None) -> list[dict]:
         positions = ", ".join(str(getattr(question, "position", "?")) for question in without_expected[:6])
         notes.append(_note(
             "expected_answers_missing", "info", "questions",
-            f"{len(without_expected)} de {len(questions)} consignas no tienen respuesta esperada (consigna {positions}).",
+            f"Anotá la respuesta esperada de {'la consigna' if len(without_expected) == 1 else 'las consignas'} {positions}",
             "Anotá en 2 o 3 oraciones qué debería incluir una respuesta completa: la corrección compara mejor y la devolución señala con precisión qué faltó.",
         ))
 
@@ -116,7 +116,7 @@ def assess_context(assessment, questions=None, rubrics=None) -> list[dict]:
         if not rubrics and not has_question_rubric:
             notes.append(_note(
                 "criteria_missing", "warning", "rubric",
-                "No hay criterios de evaluación (rúbrica).",
+                "Elegí o creá una rúbrica con los criterios de evaluación",
                 "Sin rúbrica, la IA evalúa con un único criterio global y la devolución es menos específica. "
                 "Creá una rúbrica con 3 a 5 criterios (podés pedírsela a la IA y editarla).",
             ))
@@ -128,20 +128,20 @@ def assess_context(assessment, questions=None, rubrics=None) -> list[dict]:
             if vague:
                 notes.append(_note(
                     "rubric_criteria_vague", "info", "rubric",
-                    f"La rúbrica «{rubric.title}» tiene criterios sin una descripción clara ({', '.join(vague[:3])}).",
+                    f"Describí los criterios {', '.join(vague[:3])} de «{rubric.title}»",
                     "Describí en una oración qué se observa en la respuesta para valorar cada criterio, sin adjetivos vagos como «adecuado».",
                 ))
             levels = [level for criterion in criteria for level in getattr(criterion, "prefetched_levels", [])]
             if levels and all(_plain(level.description).strip() in _GENERIC_LEVEL_TEXTS for level in levels):
                 notes.append(_note(
                     "rubric_levels_generic", "info", "rubric",
-                    f"Los niveles de «{rubric.title}» usan descripciones genéricas.",
+                    f"Personalizá los niveles de «{rubric.title}»",
                     "Escribí qué distingue a cada nivel en cada criterio (qué hace la respuesta «En desarrollo» y qué la hace «Destacada»): la IA elige mejor el nivel y lo explica.",
                 ))
             if criteria and sum(float(criterion.weight or 0) for criterion in criteria) <= 0:
                 notes.append(_note(
                     "rubric_weights_zero", "warning", "rubric",
-                    f"Todos los criterios de «{rubric.title}» tienen ponderación 0.",
+                    f"Asigná ponderaciones a los criterios de «{rubric.title}»",
                     "Asigná un peso a cada criterio según su importancia en los objetivos.",
                 ))
 
