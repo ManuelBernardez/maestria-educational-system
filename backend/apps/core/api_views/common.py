@@ -30,17 +30,31 @@ from rest_framework.response import Response
 
 from ..ai import ai_error_code, default_rubric_for_question, generate_correction, generate_questions, generate_rubric
 from ..models import (
-    PROCESSING_LEASE_MINUTES, AIProviderConfig, AIGeneration, Assessment, AuditEvent, ContactMessage, Correction,
+    PROCESSING_LEASE_MINUTES, AIProviderConfig, AIGeneration, Assessment, AssessmentCourse, AuditEvent, ContactMessage, Correction,
     CorrectionCriterionResult, CorrectionRevision, Course, Enrollment,
-    Question, Rubric, RubricCriterion, RubricLevel, Student, Submission,
+    Question, Rubric, RubricCriterion, RubricLevel, Student, Subject, Submission,
     SubmissionAnswer, UserProfile,
 )
 from ..serializers import (
     AssessmentEditorSerializer, AssessmentListSerializer, AssessmentSerializer, AssessmentWorkspaceSerializer, CorrectionSerializer,
     CourseDashboardSerializer, CourseNavigationSerializer, CourseOptionSerializer, CourseSerializer, EnrollmentSerializer, QuestionSerializer,
     CorrectionSummarySerializer, RubricCriterionSerializer, RubricLevelSerializer, RubricOptionSerializer, RubricSerializer,
-    StudentOptionSerializer, StudentSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
+    StudentOptionSerializer, StudentSerializer, SubjectSerializer, SubmissionAnswerSerializer, SubmissionListSerializer, SubmissionSerializer,
+    assessment_course_ids, resolve_submission_course,
 )
+
+
+def assessments_in_course(queryset, course_id):
+    """Evaluaciones asignadas a una comisión (o con ella como comisión principal heredada)."""
+    return queryset.filter(Q(course_links__course_id=course_id) | Q(course_id=course_id)).distinct()
+
+
+def corrections_in_course(queryset, course_id, prefix="submission__"):
+    """Correcciones/entregas de una comisión; las previas a la fase 1 usan la de la evaluación."""
+    return queryset.filter(
+        Q(**{f"{prefix}course_id": course_id})
+        | Q(**{f"{prefix}course__isnull": True, f"{prefix}assessment__course_id": course_id})
+    )
 from ..client_ip import client_ip
 from ..throttles import AIUserRateThrottle, ContactUserRateThrottle
 from ..admin_api import PublicContactMessageSerializer
@@ -298,14 +312,17 @@ def courses_with_dashboard_counts(owner_id, *, active_only=False):
         .annotate(total=Count("student_id"))
         .values("total")[:1]
     )
+    # Evaluaciones asignadas a la comisión (o con ella como principal heredada).
     assessment_count = (
-        Assessment.objects.filter(owner_id=owner_id, course_id=OuterRef("pk"))
+        Assessment.objects.filter(owner_id=owner_id)
+        .filter(Q(course_links__course_id=OuterRef("pk")) | Q(course_id=OuterRef("pk")))
         .order_by()
-        .values("course_id")
-        .annotate(total=Count("id"))
+        .annotate(group=Value(1))
+        .values("group")
+        .annotate(total=Count("id", distinct=True))
         .values("total")[:1]
     )
-    queryset = Course.objects.filter(owner_id=owner_id)
+    queryset = Course.objects.filter(owner_id=owner_id).select_related("subject_ref")
     if active_only:
         queryset = queryset.filter(active=True)
     return queryset.annotate(

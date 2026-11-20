@@ -335,15 +335,17 @@ class TenantIsolationSweepTests(TestCase):
     """
 
     TEACHER_PREFIXES = frozenset({
-        "courses", "enrollments", "assessments", "students", "rubrics", "rubric-criteria",
+        "subjects", "courses", "enrollments", "assessments", "students", "rubrics", "rubric-criteria",
         "rubric-levels", "questions", "submissions", "submission-answers", "corrections",
     })
 
     def setUp(self):
+        from .models import Subject
         self.owner, self.intruder = uuid4(), uuid4()
         ensure_auth_users(self.owner, self.intruder)
         o = self.owner
-        course = Course.objects.create(owner_id=o, name="Curso privado")
+        subject = Subject.objects.create(owner_id=o, name="Materia privada")
+        course = Course.objects.create(owner_id=o, name="Curso privado", subject_ref=subject)
         student = Student.objects.create(owner_id=o, name="Estudiante privado")
         enrollment = Enrollment.objects.create(owner_id=o, course=course, student=student)
         rubric = Rubric.objects.create(owner_id=o, title="Rúbrica privada")
@@ -355,7 +357,7 @@ class TenantIsolationSweepTests(TestCase):
         answer = SubmissionAnswer.objects.create(owner_id=o, submission=submission, question=question, answer_text="Respuesta")
         correction = Correction.objects.create(owner_id=o, submission=submission, proposal={"criteria": []})
         self.objects = {
-            "courses": course, "enrollments": enrollment, "assessments": assessment, "students": student,
+            "subjects": subject, "courses": course, "enrollments": enrollment, "assessments": assessment, "students": student,
             "rubrics": rubric, "rubric-criteria": criterion, "rubric-levels": level, "questions": question,
             "submissions": submission, "submission-answers": answer, "corrections": correction,
         }

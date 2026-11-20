@@ -101,7 +101,7 @@ class CorrectionWorkspaceApiTests(TestCase):
         self.assertNotIn("Evaluación ajena", titles)
 
     def test_workspace_summary_without_assessment_returns_selector_only(self):
-        with self.assertNumQueries(3):  # evaluaciones, cursos activos y proveedor de IA
+        with self.assertNumQueries(4):  # evaluaciones, sus comisiones asignadas, cursos activos y proveedor de IA
             response = self.client.get("/api/correction-workspace/?summary=1")
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.data["selected_assessment"])
@@ -151,7 +151,8 @@ class CorrectionWorkspaceApiTests(TestCase):
         rows = response.data["results"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["id"], course.id)
-        self.assertEqual(set(rows[0].keys()), {"id", "name", "subject", "level", "academic_year", "active"})
+        self.assertEqual(set(rows[0].keys()), {"id", "name", "subject_id", "subject", "shift", "level", "academic_year", "active"})
+        self.assertEqual(rows[0]["subject"], "Ciencias", "sin materia vinculada se muestra el texto heredado")
 
     def test_course_filters_limit_assessments_and_correction_summaries(self):
         course_a = Course.objects.create(owner_id=self.owner_id, name="Curso A")

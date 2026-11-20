@@ -2,8 +2,12 @@ import httpx
 from ..ai import REFERENCE_CONTEXT_CHARS as MAX_REFERENCE_CONTEXT_CHARS, DEFAULT_ASSESSMENT_SCALE, MIN_FINAL_GRADE, final_grade, locate_evidence, scale_rubric_to
 from ..ai_guard import ai_slot
 from ..models import AuditEvent
+from ..serializers import submission_course
 from .common import (
     AIUserRateThrottle,
+    Course,
+    corrections_in_course,
+    resolve_submission_course,
     Assessment,
     Correction,
     CorrectionCriterionResult,
@@ -134,7 +138,7 @@ def correction_context(assessment, question_obj, all_questions=None, rubric=None
 
 
 class SubmissionViewSet(OwnerViewSet):
-    queryset = Submission.objects.all().select_related("assessment", "student", "question").order_by("-created_at")
+    queryset = Submission.objects.all().select_related("assessment", "student", "question", "course").order_by("-created_at")
     serializer_class = SubmissionSerializer
 
     def get_serializer_class(self):
@@ -227,11 +231,17 @@ class SubmissionViewSet(OwnerViewSet):
                 student = Student.objects.get(pk=student_id, owner_id=request.user.id, active=True)
             except (Student.DoesNotExist, ValueError, TypeError):
                 raise ValidationError({"student": "Estudiante no disponible."})
-            if assessment.course_id and not Enrollment.objects.filter(owner_id=request.user.id, course_id=assessment.course_id, student=student, status="active").exists():
-                raise ValidationError({"student": "El estudiante no está matriculado en el curso de esta evaluación."})
+        requested_course = None
+        if request.data.get("course") not in (None, "", "null"):
+            try:
+                requested_course = Course.objects.get(pk=request.data.get("course"), owner_id=request.user.id)
+            except (Course.DoesNotExist, ValueError, TypeError):
+                raise ValidationError({"course": "Comisión no disponible."})
+        # Misma regla que el alta en texto: comisión asignada y estudiante matriculado.
+        course = resolve_submission_course(assessment, student, requested_course, request.user.id)
         text, source_type = _read_document(uploaded)
         submission = Submission.objects.create(
-            owner_id=request.user.id, assessment=assessment, question=question, student=student,
+            owner_id=request.user.id, assessment=assessment, question=question, student=student, course=course,
             student_name=str(request.data.get("student_name", ""))[:180], answer_text=text,
             source_type=source_type, source_filename=Path(uploaded.name).name[:255], status="pending",
         )
@@ -613,8 +623,7 @@ def _serialize_correction(correction):
         "teacher_feedback": correction.teacher_feedback, "total_score": str(correction.total_score),
         "status": correction.status, "created_at": correction.created_at.isoformat(),
         "student_id": correction.submission.student_id,
-        "course_id": correction.submission.assessment.course_id,
-        "course_name": correction.submission.assessment.course.name if correction.submission.assessment.course else None,
+        **dict(zip(("course_id", "course_name"), submission_course(correction.submission))),
         "subject": correction.submission.assessment.subject,
     }
 
@@ -660,7 +669,7 @@ class SubmissionAnswerViewSet(OwnerViewSet):
         serializer.save()
 
 class CorrectionViewSet(OwnerViewSet):
-    queryset = Correction.objects.all().select_related("submission__assessment__course", "submission__student", "rubric").prefetch_related("criterion_results").order_by("-created_at")
+    queryset = Correction.objects.all().select_related("submission__assessment__course", "submission__student", "submission__course", "rubric").prefetch_related("criterion_results").order_by("-created_at")
     serializer_class = CorrectionSerializer
 
     def get_serializer_class(self):
@@ -682,7 +691,8 @@ class CorrectionViewSet(OwnerViewSet):
                     raise ValueError
             except (TypeError, ValueError):
                 raise ValidationError({"course": "El filtro de curso debe ser un identificador válido."})
-            queryset = queryset.filter(submission__assessment__course_id=parsed_course_id)
+            # La comisión de la entrega (las anteriores a la fase 1 usan la de la evaluación).
+            queryset = corrections_in_course(queryset, parsed_course_id)
         if self.action == "list" and self.request.query_params.get("summary") == "1":
             # The course dashboard needs small identifying fields, not proposal JSON,
             # rubric criteria or full answer bodies. Keep joins explicit to avoid N+1s.
@@ -690,13 +700,14 @@ class CorrectionViewSet(OwnerViewSet):
             # Django raises FieldError if a relation is both deferred by only()
             # and traversed through select_related().
             queryset = queryset.select_related(None).select_related(
-                "submission__assessment__course", "submission__student",
+                "submission__assessment__course", "submission__student", "submission__course",
             ).prefetch_related(None).only(
                 "id", "owner_id", "submission_id", "status", "provider", "total_score", "created_at",
-                "submission__id", "submission__student_id", "submission__student_name",
+                "submission__id", "submission__student_id", "submission__student_name", "submission__course_id",
                 "submission__assessment_id", "submission__assessment__title",
                 "submission__assessment__subject", "submission__assessment__course_id",
                 "submission__assessment__course__id", "submission__assessment__course__name",
+                "submission__course__id", "submission__course__name",
                 "submission__student__id", "submission__student__name",
             )
         if getattr(self, "action", None) == "approve":

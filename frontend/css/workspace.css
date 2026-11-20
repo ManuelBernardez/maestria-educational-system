@@ -580,7 +580,9 @@ textarea.autogrow { field-sizing: content; min-height: 96px; max-height: 236px; 
 .entity-metrics .is-pending dd, .entity-metrics .is-pending dt { color: var(--coral-text); font-weight: 700; }
 .entity-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .entity-grid.is-list { grid-template-columns: 1fr; gap: 10px; }
-.entity-grid.is-list .entity-card { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: center; gap: 18px; padding-block: 12px; }
+/* Las métricas necesitan ~90 px por etiqueta («evaluaciones») con la tipografía actual. */
+.entity-grid.is-list .entity-card { grid-template-columns: minmax(0, 1fr) minmax(360px, 1.2fr) auto; align-items: center; gap: 18px; padding-block: 12px; }
+.entity-metrics dt { overflow-wrap: anywhere; }
 .entity-grid.is-list .entity-metrics { border: 0; padding: 0; }
 .entity-grid.is-list .entity-symbol { display: none; }
 
@@ -755,15 +757,25 @@ details[open] > summary > .icon:last-child, .criterion-toggle[aria-expanded="tru
   background: color-mix(in srgb, var(--warn-bg) 55%, var(--surface)); color: var(--ink);
 }
 .context-notes-panel > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 700; color: var(--warn-ink); }
-.context-notes-panel > summary .icon { width: 18px; height: 18px; vertical-align: -3px; margin-right: 6px; }
+.context-notes-panel > summary > span { display: inline-flex; align-items: center; gap: 8px; }
+.context-notes-panel > summary .icon { width: 18px; height: 18px; flex: none; }
 .context-notes-panel .field-hint { margin: 8px 0 4px; }
-.context-note-list { gap: 10px; margin-top: 8px; }
+.context-note-list { gap: 10px; margin: 8px 0 0; padding: 0; list-style: none; }
 .context-note { padding-left: 12px; border-left: 3px solid var(--info-line); line-height: 1.5; }
 .context-note--warning { border-left-color: var(--coral); }
 .context-note strong { display: block; }
 .context-note span { color: var(--muted-text); }
 .suggest-notices { margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-ink); }
 .feedback-lists { display: grid; gap: 12px; margin-top: 14px; }
+/* Materias y comisiones: cada materia agrupa sus cursos o comisiones. */
+.subject-groups { display: grid; gap: 26px; }
+.subject-group { display: grid; gap: 14px; }
+.subject-group-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.subject-group-head h3 { font-size: 1.15rem; }
+.subject-group-head p { margin: 2px 0 0; font-size: .84rem; }
+.course-picker { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.course-picker legend { padding: 0 6px; font-weight: 700; }
+.course-picker .check small { margin-left: 4px; }
 .inline-confirm {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px;
   border: 1px solid var(--warn-line); border-radius: 14px; background: var(--warn-bg); color: var(--warn-ink);

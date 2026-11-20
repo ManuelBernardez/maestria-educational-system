@@ -1,5 +1,5 @@
 import { state } from '../core/state.js';
-import { escapeHtml, btn, heading, table, statusPill, statusLabel, date, panel, optionRows, textField, selectField, resourceError, emptyState, searchField, resultCount } from '../core/utils.js';
+import { escapeHtml, btn, heading, table, statusPill, statusLabel, date, panel, optionRows, textField, selectField, resourceError, emptyState, searchField, resultCount, courseIdForSubmission } from '../core/utils.js';
 import { examStatus } from './exam-status.js';
 
 /** Estado de flujo de una entrega (fuente única: exam-status.js). */
@@ -17,7 +17,7 @@ export function renderSubmissions() {
   const filtered = all.filter(item => {
     const assessment = state.data.assessments.find(row => String(row.id) === String(item.assessment));
     const matchesQuery = !query || `${item.student_display_name || item.student_name || ''} ${item.submission_title || item.assessment_title || assessment?.title || ''} ${item.answer_text || ''}`.toLowerCase().includes(query);
-    const matchesCourse = state.submissionCourseFilter === 'all' || String(assessment?.course ?? 'unassigned') === state.submissionCourseFilter;
+    const matchesCourse = state.submissionCourseFilter === 'all' || String(courseIdForSubmission(item) ?? 'unassigned') === state.submissionCourseFilter;
     const matchesStatus = state.submissionStatusFilter === 'all' || submissionWorkflowStatus(item) === state.submissionStatusFilter;
     return matchesQuery && matchesCourse && matchesStatus;
   });

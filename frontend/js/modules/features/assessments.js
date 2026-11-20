@@ -1,5 +1,5 @@
 import { state } from '../core/state.js';
-import { formField, selectField, textField, optionRows } from '../core/utils.js';
+import { formField, selectField, textField, optionRows, assessmentInCourse, assessmentCourseIds, assessmentCourseNames, subjectCoursesFields } from '../core/utils.js';
 import { escapeHtml, formatNumber, btn, heading, table, statusPill, statusLabel, date, panel, resourceError, emptyState, toneOf, icon, searchField, chipGroup, toolbarSelect, resultCount, filteredEmpty, showMore, contextNotesPanel } from '../core/utils.js';
 import { EXAM_STATUS, examStatus, examCorrection } from './exam-status.js';
 
@@ -32,7 +32,7 @@ export function renderAssessments() {
     examsByAssessment.get(key).push(item);
   });
 
-  const inCourse = (assessment) => filters.course === 'all' || String(assessment.course ?? assessment.course_id ?? 'unassigned') === filters.course;
+  const inCourse = (assessment) => filters.course === 'all' || assessmentInCourse(assessment, filters.course);
   const groups = state.data.assessments.filter(inCourse).map(assessment => {
     const exams = (examsByAssessment.get(String(assessment.id)) || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const titleMatches = !query || `${assessment.title} ${assessment.subject || ''} ${assessment.course_name || ''}`.toLocaleLowerCase('es-AR').includes(query);
@@ -51,7 +51,7 @@ export function renderAssessments() {
   const filtered = Boolean(query) || Object.keys(EXAM_FILTER_DEFAULTS).some(key => filters[key] !== EXAM_FILTER_DEFAULTS[key]);
   const examTotal = visibleGroups.reduce((sum, group) => sum + group.exams.length, 0);
 
-  const courseOptions = [{ value: 'all', label: 'Todas las materias' }, ...state.data.courses.map(course => ({ value: String(course.id), label: course.name })), ...(state.data.assessments.some(item => item.course == null && item.course_id == null) ? [{ value: 'unassigned', label: 'Sin curso' }] : [])];
+  const courseOptions = [{ value: 'all', label: 'Todas las comisiones' }, ...state.data.courses.map(course => ({ value: String(course.id), label: `${course.subject ? `${course.subject} · ` : ''}${course.name}` })), ...(state.data.assessments.some(item => assessmentInCourse(item, 'unassigned')) ? [{ value: 'unassigned', label: 'Sin comisión' }] : [])];
   const toolbar = `<div class="toolbar" role="search">
     ${searchField('Buscar evaluaciones', state.search, 'Buscar evaluación o estudiante', 'data-search="assessments" id="exam-search"')}
     ${chipGroup('Estado del examen', 'exam-status', [{ value: 'all', label: 'Todas', count: counts.all, active: filters.status === 'all' }, ...Object.entries(EXAM_STATUS).map(([value, meta]) => ({ value, label: meta.plural, count: counts[value], active: filters.status === value }))])}
@@ -63,9 +63,8 @@ export function renderAssessments() {
   const firstWithExams = filtered ? visibleGroups.findIndex(group => group.exams.length) : -1;
   const fold = ({ assessment, exams }, index) => {
     const reviewCount = exams.filter(item => examStatus(item) === 'review').length;
-    const courseId = assessment.course ?? assessment.course_id;
-    return `<details class="fold" data-ui-key="assessment-${escapeHtml(assessment.id)}" data-tone="${toneOf(courseId ?? 'none')}" ${index === firstWithExams ? 'open' : ''}>
-      <summary><span class="fold-copy"><strong>${escapeHtml(assessment.title)}</strong><small>${escapeHtml(assessment.course_name || 'Sin curso')} · Actualizada ${escapeHtml(date(assessment.updated_at))}</small></span>${statusPill(assessment.status)}${reviewCount ? `<span class="count-badge" title="${reviewCount} por revisar"><span class="visually-hidden">Por revisar: </span>${reviewCount}</span>` : ''}<span class="fold-count">${exams.length}<span class="visually-hidden"> exámenes</span></span>${icon('chevron')}</summary>
+    return `<details class="fold" data-ui-key="assessment-${escapeHtml(assessment.id)}" data-tone="${toneOf(assessment.subject_id ?? assessmentCourseIds(assessment)[0] ?? 'none')}" ${index === firstWithExams ? 'open' : ''}>
+      <summary><span class="fold-copy"><strong>${escapeHtml(assessment.title)}</strong><small>${escapeHtml([assessment.subject, assessmentCourseNames(assessment)].filter(Boolean).join(' · ') || 'Sin comisión')} · Actualizada ${escapeHtml(date(assessment.updated_at))}</small></span>${statusPill(assessment.status)}${reviewCount ? `<span class="count-badge" title="${reviewCount} por revisar"><span class="visually-hidden">Por revisar: </span>${reviewCount}</span>` : ''}<span class="fold-count">${exams.length}<span class="visually-hidden"> exámenes</span></span>${icon('chevron')}</summary>
       <div class="fold-body">${exams.length ? `<div class="work-list">${exams.map(examRow).join('')}</div>` : '<p class="muted">Todavía no hay exámenes cargados para esta evaluación.</p>'}<div class="fold-footer">${btn('Trabajar en el espacio', 'open-in-workspace', `data-id="${escapeHtml(assessment.id)}"`, 'primary')}${btn('Editar', 'edit-assessment', `data-id="${escapeHtml(assessment.id)}"`)}</div></div>
     </details>`;
   };
@@ -84,14 +83,11 @@ export function renderNewAssessment() {
   const courses = state.data.courses.filter(item => item.active);
   const requested = new URLSearchParams(window.location.search).get('course') || state.selectedCourse || '';
   const preferred = courses.find(item => String(item.id) === String(requested)) || (courses.length === 1 ? courses[0] : null);
-  const courseOptions = [{ value: '', label: 'Seleccionar curso…' }, ...optionRows(courses, item => item.name)];
-  const subject = preferred?.subject || '';
   const level = preferred?.level || '';
   return `${heading('Crear evaluación', 'Empezá con lo esencial. Después vas a poder sumar materiales, elegir criterios y cargar una entrega.', btn('Volver a evaluaciones', 'navigate', 'data-view="assessments"'))}
-    ${courses.length ? `<section class="panel quick-assessment-panel"><div class="panel-head"><div><h2>Tu evaluación</h2><p>Solo necesitamos saber qué vas a preparar y en qué curso.</p></div></div><div class="panel-body"><form id="assessment-create-page-form" class="form-grid">
-      ${selectField('Curso', 'course', courseOptions, preferred?.id || '', true)}
+    ${courses.length ? `<section class="panel quick-assessment-panel"><div class="panel-head"><div><h2>Tu evaluación</h2><p>Se crea una vez en la materia y se asigna a las comisiones donde se toma.</p></div></div><div class="panel-body"><form id="assessment-create-page-form" class="form-grid">
       ${formField('Nombre de la evaluación', 'title', '', 'text', 'maxlength="180" placeholder="Ej. Ecosistemas y relaciones tróficas"', true)}
-      ${formField('Materia o área (opcional)', 'subject', subject, 'text', 'maxlength="120" placeholder="Ciencias Naturales"')}
+      ${subjectCoursesFields(preferred?.subject_id ?? '', preferred ? [preferred.id] : [])}
       ${formField('Nivel / año (opcional)', 'level', level, 'text', 'maxlength="120" placeholder="2.º año de secundaria"')}
       <details class="form-field full"><summary>Agregar objetivos y consigna ahora <span class="muted">(podés hacerlo después)</span></summary>
         ${textField('Objetivos de aprendizaje', 'objectives', '', 'rows="3" maxlength="5000" placeholder="¿Qué deberían comprender o demostrar los estudiantes?"')}
@@ -111,7 +107,7 @@ export function renderAssessmentDetail() {
   const questions = editor?.questions || [];
   const rows = questions.map(question => `<tr><td><strong>${escapeHtml(question.prompt)}</strong><small>${escapeHtml(question.question_type || 'open')} · Máximo ${escapeHtml(formatNumber(question.max_score))}</small></td><td>${Number(question.position || 0)}</td><td>${question.rubric ? escapeHtml(state.data.rubrics.find(item => String(item.id) === String(question.rubric))?.title || 'Asignada') : 'Sin rúbrica'}</td><td><div class="table-actions">${btn('Editar', 'edit-question', `data-id="${question.id}"`)}${btn('Eliminar', 'delete-question', `data-id="${question.id}"`)}</div></td></tr>`);
   const rubrics = state.data.rubrics.map(item => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('');
-  return `${heading(assessment.title, `${assessment.course_name || base.course_name || 'Sin curso'} · ${assessment.subject || 'Evaluación'} · ${statusLabel(assessment.status)}`, `${btn('Volver al curso', 'return-assessment')}${btn('Editar evaluación', 'edit-assessment', `data-id="${base.id}"`)}`)}
+  return `${heading(assessment.title, `${assessment.subject || base.subject || 'Sin materia'} · Comisiones: ${assessmentCourseNames({ ...base, ...assessment }) || 'ninguna'} · ${statusLabel(assessment.status)}`, `${btn('Volver al curso', 'return-assessment')}${btn('Editar evaluación', 'edit-assessment', `data-id="${base.id}"`)}`)}
     ${contextNotesPanel(editor?.context_notes)}
     ${panel('Propósito y consignas generales', '', `<p>${escapeHtml(assessment.objectives || 'Sin objetivos registrados.')}</p><p>${escapeHtml(assessment.instructions || 'Sin instrucciones generales.')}</p><details><summary>Material de referencia</summary><p>${escapeHtml(assessment.reference_material || 'No se cargó material de referencia.')}</p></details>`)}
     ${panel('Consignas', 'Las preguntas propuestas por IA deben revisarse antes de incorporarse.', table(['Consigna', 'Orden', 'Rúbrica', 'Acciones'], rows, 'Esta evaluación todavía no tiene consignas.'), `<div class="view-actions">${btn('Agregar consigna', 'new-question', `data-assessment="${base.id}"`)}${btn('Proponer con IA', 'generate-questions', `data-id="${base.id}"`)}${btn('Importar material', 'import-reference', `data-id="${base.id}"`)}</div>`)}

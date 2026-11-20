@@ -3,6 +3,7 @@ import { api } from '../core/api-client.js';
 import { escapeHtml, formatInputNumber, formatNumber, formField, textField, selectField, optionRows, formValues, errorText } from '../core/utils.js';
 import { openModal, closeModal, modalForm, setModalError, toast } from '../core/ui.js';
 import { correctionClosingState } from './corrections.js';
+import { NEW_SUBJECT } from './courses.js';
 import { afterWrite, loadAssessmentEditor } from '../data/repository.js';
 import { render } from '../core/router.js';
 
@@ -25,17 +26,29 @@ export async function handleModalSubmit(form, button) {
     if (button) { button.disabled = true; button.textContent = 'Guardando…'; }
     setModalError('');
     if (kind === 'new-course' || kind === 'edit-course') {
-      const payload = { name: values.name.trim(), subject: values.subject.trim(), level: values.level.trim(), academic_year: values.academic_year.trim(), description: values.description.trim() };
+      const payload = { name: values.name.trim(), shift: values.shift || '', level: values.level.trim(), academic_year: values.academic_year.trim(), description: values.description.trim() };
+      // Materia elegida o, con «Nueva materia…», el nombre escrito (el servidor la crea).
+      if (values.subject_id === NEW_SUBJECT) {
+        if (!values.new_subject?.trim()) throw new Error('Escribí el nombre de la materia nueva.');
+        payload.subject = values.new_subject.trim();
+      } else if (values.subject_id) payload.subject_id = Number(values.subject_id);
       if (kind === 'new-course') await api.post('courses/', payload);
       else await api.patch(`courses/${modal.dataset.recordId}/`, payload);
-      closeModal(true); await afterWrite(kind === 'new-course' ? 'Curso creado.' : 'Curso actualizado.', ['courses']);
+      closeModal(true); await afterWrite(kind === 'new-course' ? 'Curso o comisión creado.' : 'Curso o comisión actualizado.', ['subjects', 'courses']);
+    } else if (kind === 'new-subject' || kind === 'edit-subject') {
+      const payload = { name: values.name.trim(), level: values.level.trim(), description: values.description.trim() };
+      if (kind === 'new-subject') await api.post('subjects/', payload);
+      else await api.patch(`subjects/${modal.dataset.recordId}/`, payload);
+      closeModal(true); await afterWrite(kind === 'new-subject' ? 'Materia creada. Ahora podés sumarle sus cursos o comisiones.' : 'Materia actualizada.', ['subjects', 'courses']);
     } else if (kind === 'new-student' || kind === 'edit-student') {
       const payload = { name: values.name.trim(), email: values.email.trim(), phone: values.phone.trim(), external_code: values.external_code.trim() };
       if (kind === 'new-student') { payload.course = Number(values.course); await api.post('students/', payload); }
       else { payload.active = values.active === 'true'; await api.patch(`students/${modal.dataset.recordId}/`, payload); }
       closeModal(true); await afterWrite(kind === 'new-student' ? 'Estudiante agregado y matriculado.' : 'Estudiante actualizado.', ['students', 'enrollments']);
     } else if (kind === 'new-assessment' || kind === 'edit-assessment') {
-      const payload = { title: values.title.trim(), course: values.course ? Number(values.course) : null, subject: values.subject.trim(), level: values.level.trim(), status: values.status, objectives: values.objectives.trim(), instructions: values.instructions.trim(), reference_material: values.reference_material.trim() };
+      // La evaluación es de la materia y se asigna a una o más de sus comisiones.
+      const courseIds = [...form.querySelectorAll('input[name="course_ids"]:checked')].filter(input => !input.closest('[hidden]')).map(input => Number(input.value));
+      const payload = { title: values.title.trim(), subject_id: values.subject_id ? Number(values.subject_id) : null, course_ids: courseIds, level: values.level.trim(), status: values.status, objectives: values.objectives.trim(), instructions: values.instructions.trim(), reference_material: values.reference_material.trim() };
       if (kind === 'new-assessment') await api.post('assessments/', payload);
       else await api.patch(`assessments/${modal.dataset.recordId}/`, payload);
       closeModal(true); await afterWrite(kind === 'new-assessment' ? 'Evaluación creada.' : 'Evaluación actualizada.', ['assessments']);
@@ -86,10 +99,11 @@ export async function handleModalSubmit(form, button) {
         if (values.student) payload.append('student', values.student);
         if (values.student_name.trim()) payload.append('student_name', values.student_name.trim());
         if (values.question) payload.append('question', values.question);
+        if (values.course) payload.append('course', values.course);
         await api.upload('submissions/import-file/', payload);
       } else {
         if (!values.answer_text.trim()) throw new Error('Ingresá una respuesta o seleccioná un archivo.');
-        await api.post('submissions/', { assessment: Number(values.assessment), question: values.question ? Number(values.question) : null, student: values.student ? Number(values.student) : null, student_name: values.student_name.trim(), answer_text: values.answer_text.trim(), source_type: 'text' });
+        await api.post('submissions/', { assessment: Number(values.assessment), course: values.course ? Number(values.course) : null, question: values.question ? Number(values.question) : null, student: values.student ? Number(values.student) : null, student_name: values.student_name.trim(), answer_text: values.answer_text.trim(), source_type: 'text' });
       }
       closeModal(true); await afterWrite('Entrega registrada.', ['submissions']);
     } else if (kind === 'generate-questions') {

@@ -45,7 +45,7 @@ export const state = {
   adminMessageStatus: '',
   adminTab: 'users',
   data: {
-    overview: null, courses: [], students: [], enrollments: [], assessments: [],
+    overview: null, subjects: [], courses: [], students: [], enrollments: [], assessments: [],
     rubrics: [], submissions: [], corrections: [],
     admin: { users: [], institutions: [], memberships: [], messages: [], audit: [], providers: [] }
   },

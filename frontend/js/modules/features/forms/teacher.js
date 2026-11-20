@@ -1,17 +1,23 @@
 import { state, modal } from '../../core/state.js';
-import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows, suggestedQuestionScore } from '../../core/utils.js';
+import { escapeHtml, formatInputNumber, formField, textField, selectField, optionRows, suggestedQuestionScore, assessmentCourseIds, assessmentInCourse, subjectCoursesFields } from '../../core/utils.js';
 import { openModal, modalForm, toast } from '../../core/ui.js';
 
+/** «Materia · comisión» para los selectores: el mismo nombre de comisión puede repetirse. */
+const courseLabel = item => `${item.subject ? `${item.subject} · ` : ''}${item.name}`;
+
 export function studentForm(student = null, defaultCourse = '') {
-  const courses = state.data.courses.filter(item => item.active).map(item => ({ value: item.id, label: item.name }));
+  const courses = state.data.courses.filter(item => item.active).map(item => ({ value: item.id, label: courseLabel(item) }));
   const fields = `${formField('Nombre y apellido', 'name', student?.name || '', 'text', 'maxlength="180"', true)}${formField('Correo electrónico', 'email', student?.email || '', 'email', 'maxlength="254"')}${formField('Teléfono', 'phone', student?.phone || '', 'tel', 'maxlength="32"')}${formField('Código externo', 'external_code', student?.external_code || '', 'text', 'maxlength="80"')}${student ? selectField('Estado', 'active', [{ value: 'true', label: 'Activo' }, { value: 'false', label: 'Inactivo' }], String(student.active !== false)) : selectField('Curso inicial', 'course', courses, defaultCourse || '', true)}`;
   openModal(student ? 'Editar estudiante' : 'Agregar estudiante', modalForm(fields), student ? 'edit-student' : 'new-student');
   modal.dataset.recordId = student?.id || '';
 }
 
 export function assessmentForm(assessment = null, defaultCourse = '') {
-  const courses = optionRows(state.data.courses.filter(item => item.active), item => item.name, true);
-  const fields = `${formField('Título', 'title', assessment?.title || '', 'text', 'maxlength="180"', true)}${selectField('Curso', 'course', courses, assessment?.course || defaultCourse || '', false)}${formField('Materia', 'subject', assessment?.subject || '', 'text', 'maxlength="120"')}${formField('Nivel', 'level', assessment?.level || '', 'text', 'maxlength="120"')}${selectField('Estado', 'status', [{ value: 'draft', label: 'Borrador' }, { value: 'ready', label: 'Lista' }, { value: 'archived', label: 'Archivada' }], assessment?.status || 'draft')}${textField('Objetivos', 'objectives', assessment?.objectives || '')}${textField('Instrucciones generales', 'instructions', assessment?.instructions || '')}${textField('Material de referencia', 'reference_material', assessment?.reference_material || '', 'maxlength="50000"')}`;
+  // Materia de la evaluación y comisiones a las que se asigna (por defecto, la del curso abierto).
+  const course = state.data.courses.find(item => String(item.id) === String(defaultCourse));
+  const subjectId = assessment?.subject_id ?? course?.subject_id ?? '';
+  const courseIds = assessment ? assessmentCourseIds(assessment) : (defaultCourse ? [String(defaultCourse)] : []);
+  const fields = `${formField('Título', 'title', assessment?.title || '', 'text', 'maxlength="180"', true)}${subjectCoursesFields(subjectId, courseIds)}${formField('Nivel', 'level', assessment?.level || '', 'text', 'maxlength="120"')}${selectField('Estado', 'status', [{ value: 'draft', label: 'Borrador' }, { value: 'ready', label: 'Lista' }, { value: 'archived', label: 'Archivada' }], assessment?.status || 'draft')}${textField('Objetivos', 'objectives', assessment?.objectives || '')}${textField('Instrucciones generales', 'instructions', assessment?.instructions || '')}${textField('Material de referencia', 'reference_material', assessment?.reference_material || '', 'maxlength="50000"')}`;
   openModal(assessment ? 'Editar evaluación' : 'Crear evaluación', modalForm(fields), assessment ? 'edit-assessment' : 'new-assessment', true);
   modal.dataset.recordId = assessment?.id || '';
 }
@@ -31,8 +37,8 @@ export function rubricForm(rubric = null) {
 }
 
 export function importStudentsForm(defaultCourse = '') {
-  const courses = optionRows(state.data.courses.filter(item => item.active), item => item.name, false);
-  openModal('Importar estudiantes', modalForm(`${selectField('Curso', 'course', courses, defaultCourse || '', true)}<div class="form-field full"><label for="f-file">Archivo CSV</label><input id="f-file" name="file" type="file" accept=".csv,text/csv" required><small>Hasta 2 MB y 500 filas. Columnas: nombre (obligatoria), correo, teléfono y legajo; también se acepta la plantilla en inglés.</small></div>`, 'Importar', '<p class="muted"><a href="../plantilla-estudiantes.csv" download>Descargar plantilla CSV</a></p>'), 'import-students');
+  const courses = optionRows(state.data.courses.filter(item => item.active), courseLabel, false);
+  openModal('Importar estudiantes', modalForm(`${selectField('Curso o comisión', 'course', courses, defaultCourse || '', true)}<div class="form-field full"><label for="f-file">Archivo CSV</label><input id="f-file" name="file" type="file" accept=".csv,text/csv" required><small>Hasta 2 MB y 500 filas. Columnas: nombre (obligatoria), correo, teléfono y legajo; también se acepta la plantilla en inglés.</small></div>`, 'Importar', '<p class="muted"><a href="../plantilla-estudiantes.csv" download>Descargar plantilla CSV</a></p>'), 'import-students');
 }
 
 /** Búsqueda, «seleccionar todos los visibles» y contador del selector de matrícula. */
@@ -68,10 +74,12 @@ export function enrollmentForm(courseId) {
 }
 
 export function submissionForm(courseId = state.selectedCourse || '') {
-  const assessments = optionRows(state.data.assessments.filter(item => item.status !== 'archived' && (!courseId || String(item.course ?? item.course_id ?? '') === String(courseId))), item => item.title);
+  const assessments = optionRows(state.data.assessments.filter(item => item.status !== 'archived' && (!courseId || assessmentInCourse(item, courseId))), item => item.title);
   const enrolledStudentIds = courseId ? new Set(state.data.enrollments.filter(item => String(item.course) === String(courseId) && item.status === 'active').map(item => String(item.student))) : null;
   const students = optionRows(state.data.students.filter(item => item.active && (!enrolledStudentIds || enrolledStudentIds.has(String(item.id)))), item => item.name, true);
-  const fields = `${selectField('Evaluación', 'assessment', assessments, '', true)}${selectField('Consigna', 'question', [{ value: '', label: 'Sin asociar a una consigna' }], '', false)}${selectField('Estudiante', 'student', students, '', false)}${formField('Nombre si no está registrado', 'student_name', '', 'text', 'maxlength="180"')}${textField('Respuesta en texto', 'answer_text', '', 'maxlength="50000"')}<div class="form-field full"><label for="f-file">O cargar archivo (PDF, DOCX, TXT o MD)</label><input id="f-file" name="file" type="file" accept=".pdf,.docx,.txt,.md"><small>Máximo 5 MB. Se extrae el texto; no se conserva el archivo original.</small></div>`;
+  // Comisión de la entrega: la abierta o, si hay varias, la del estudiante (lo resuelve el servidor).
+  const courseOptions = [{ value: '', label: 'Según la matrícula del estudiante' }, ...optionRows(state.data.courses.filter(item => item.active), courseLabel)];
+  const fields = `${selectField('Evaluación', 'assessment', assessments, '', true)}${selectField('Comisión', 'course', courseOptions, courseId || '', false)}${selectField('Consigna', 'question', [{ value: '', label: 'Sin asociar a una consigna' }], '', false)}${selectField('Estudiante', 'student', students, '', false)}${formField('Nombre si no está registrado', 'student_name', '', 'text', 'maxlength="180"')}${textField('Respuesta en texto', 'answer_text', '', 'maxlength="50000"')}<div class="form-field full"><label for="f-file">O cargar archivo (PDF, DOCX, TXT o MD)</label><input id="f-file" name="file" type="file" accept=".pdf,.docx,.txt,.md"><small>Máximo 5 MB. Se extrae el texto; no se conserva el archivo original.</small></div>`;
   openModal('Registrar entrega', modalForm(fields, 'Guardar entrega'), 'new-submission', true);
 }
 

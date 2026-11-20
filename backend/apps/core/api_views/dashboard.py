@@ -1,6 +1,11 @@
+from django.db.models.functions import Coalesce
+
 from ..context_quality import context_notes_for
 from .common import (
     AllowAny,
+    AssessmentCourse,
+    Subject,
+    assessment_course_ids,
     Assessment,
     AssessmentListSerializer,
     AssessmentWorkspaceSerializer,
@@ -63,24 +68,26 @@ def dashboard_overview(request):
     course_rows = list(courses_with_dashboard_counts(owner_id, active_only=True).order_by("-updated_at", "name"))
     courses_data = CourseDashboardSerializer(course_rows, many=True).data
 
-    assessment_rows = Assessment.objects.filter(owner_id=owner_id).select_related("course").only(
-        "id", "title", "subject", "level", "status", "course_id", "updated_at",
-        "course__id", "course__name",
-    ).order_by("-updated_at")
+    assessment_rows = Assessment.objects.filter(owner_id=owner_id).select_related("course", "subject_ref").only(
+        "id", "title", "subject", "level", "status", "course_id", "subject_ref_id", "updated_at",
+        "course__id", "course__name", "subject_ref__id", "subject_ref__name",
+    ).prefetch_related("course_links").order_by("-updated_at")
     assessments_data = AssessmentListSerializer(assessment_rows, many=True).data
 
     # Aggregate by course and state instead of transferring every correction row.
+    # La comisión es la de la entrega; las anteriores a la fase 1 usan la de la evaluación.
     correction_groups = list(
         Correction.objects.filter(
             owner_id=owner_id,
             submission__owner_id=owner_id,
             submission__assessment__owner_id=owner_id,
         )
-        .values("submission__assessment__course_id", "status")
+        .annotate(group_course=Coalesce("submission__course_id", "submission__assessment__course_id"))
+        .values("group_course", "status")
         .annotate(total=Count("id"))
     )
     course_correction_counts = [
-        {"course_id": item["submission__assessment__course_id"], "status": item["status"], "count": item["total"]}
+        {"course_id": item["group_course"], "status": item["status"], "count": item["total"]}
         for item in correction_groups
     ]
     pending_count = sum(item["total"] for item in correction_groups if item["status"] == "pending_review")
@@ -171,9 +178,15 @@ def seed_demo_dataset(request):
             "active": True,
         },
     )
-    if not course.active:
+    # Materia propia del ejemplo: no se mezcla con una «Ciencias Naturales» real del docente.
+    demo_subject, _ = Subject.objects.get_or_create(
+        owner_id=owner_id, name="Ejemplo MaestrIA · Ciencias Naturales",
+        defaults={"level": "Secundaria · 2.º año", "description": "Materia ficticia para practicar.", "active": True},
+    )
+    if not course.active or course.subject_ref_id != demo_subject.pk:
         course.active = True
-        course.save(update_fields=["active", "updated_at"])
+        course.subject_ref = demo_subject
+        course.save(update_fields=["active", "subject_ref", "updated_at"])
 
     sample_students = [
         ("Alma Torres · Ejemplo", "DEMO-FOTO-001"),
@@ -238,8 +251,13 @@ def seed_demo_dataset(request):
             "instructions": "Respondé con tus palabras. Explicá qué toma la planta del ambiente, qué produce y por qué el proceso es importante.",
             "reference_material": "Material ficticio de práctica: durante la fotosíntesis, las plantas usan energía de la luz para formar glucosa a partir de agua y dióxido de carbono. En el proceso se libera oxígeno. La glucosa almacena energía química y aporta materia para el crecimiento.",
             "status": "ready",
+            "subject_ref": demo_subject,
         },
     )
+    if assessment.subject_ref_id != demo_subject.pk:
+        assessment.subject_ref = demo_subject
+        assessment.save(update_fields=["subject_ref", "updated_at"])
+    AssessmentCourse.objects.get_or_create(owner_id=owner_id, assessment=assessment, course=course)
     question, _ = Question.objects.get_or_create(
         owner_id=owner_id, assessment=assessment, position=1,
         defaults={
@@ -265,6 +283,7 @@ def seed_demo_dataset(request):
             owner_id=owner_id, assessment=assessment, student=student,
             defaults={
                 "question": question,
+                "course": course,
                 "student_name": student.name,
                 "answer_text": answer_text,
                 "source_type": "text",
@@ -293,7 +312,8 @@ def correction_workspace(request):
     summary_mode = request.query_params.get("summary") == "1"
     # Una sola consulta para el selector y la evaluación elegida (antes eran dos).
     assessment_list = list(
-        Assessment.objects.filter(owner_id=owner_id).select_related("course").order_by("-updated_at")
+        Assessment.objects.filter(owner_id=owner_id).select_related("course", "subject_ref")
+        .prefetch_related("course_links").order_by("-updated_at")
     )
     requested_id = request.query_params.get("assessment")
     selected = None
@@ -316,7 +336,7 @@ def correction_workspace(request):
         # rubrics, questions, submissions, corrections or enrollments until a
         # teacher chooses an assessment (or opens a deep link with its ID).
         courses = CourseOptionSerializer(
-            Course.objects.filter(owner_id=owner_id, active=True).order_by("name"), many=True
+            Course.objects.filter(owner_id=owner_id, active=True).select_related("subject_ref").order_by("name"), many=True
         ).data
         return Response({
             "assessments": assessments,
@@ -343,10 +363,12 @@ def correction_workspace(request):
     context_notes = []
     if selected is not None:
         student_qs = Student.objects.filter(owner_id=owner_id, active=True)
-        if selected.course_id:
+        # Estudiantes de todas las comisiones a las que se asignó la evaluación.
+        selected_course_ids = assessment_course_ids(selected)
+        if selected_course_ids:
             student_qs = student_qs.filter(
                 enrollments__owner_id=owner_id,
-                enrollments__course_id=selected.course_id,
+                enrollments__course_id__in=selected_course_ids,
                 enrollments__course__owner_id=owner_id,
                 enrollments__status="active",
             ).distinct()
@@ -368,7 +390,7 @@ def correction_workspace(request):
                 student_qs.order_by("name"), many=True, context={"request": request}
             ).data
         courses = CourseOptionSerializer(
-            Course.objects.filter(owner_id=owner_id, active=True).order_by("name"), many=True
+            Course.objects.filter(owner_id=owner_id, active=True).select_related("subject_ref").order_by("name"), many=True
         ).data
         rubric_queryset = Rubric.objects.filter(owner_id=owner_id).prefetch_related(
             Prefetch("criteria", queryset=RubricCriterion.objects.order_by("position", "id"))
@@ -390,7 +412,7 @@ def correction_workspace(request):
             # Keep list rows narrow: question prompts and assessment instructions are
             # delivered by their dedicated serializers, not duplicated per submission.
             selected_submissions = selected_submissions.select_related(None).select_related("student").only(
-                "id", "assessment_id", "question_id", "student_id", "student_name",
+                "id", "assessment_id", "question_id", "student_id", "course_id", "student_name",
                 "source_type", "source_filename", "status", "created_at",
                 "student__id", "student__name",
             )
@@ -427,19 +449,20 @@ def correction_workspace(request):
         ).order_by("-updated_at")
         if summary_mode:
             corrections_qs = corrections_qs.select_related(
-                "submission__assessment__course", "submission__student",
+                "submission__assessment__course", "submission__student", "submission__course",
             ).only(
                 "id", "owner_id", "submission_id", "status", "provider", "total_score", "created_at",
-                "submission__id", "submission__student_id", "submission__student_name",
+                "submission__id", "submission__student_id", "submission__student_name", "submission__course_id",
                 "submission__assessment_id", "submission__assessment__title",
                 "submission__assessment__subject", "submission__assessment__course_id",
                 "submission__assessment__course__id", "submission__assessment__course__name",
+                "submission__course__id", "submission__course__name",
                 "submission__student__id", "submission__student__name",
             )
             corrections = CorrectionSummarySerializer(corrections_qs, many=True).data
         else:
             corrections_qs = corrections_qs.select_related(
-                "submission__assessment", "submission__student"
+                "submission__assessment__course", "submission__student", "submission__course",
             ).prefetch_related(
                 Prefetch(
                     "criterion_results",
@@ -450,9 +473,9 @@ def correction_workspace(request):
             )
             corrections = CorrectionSerializer(corrections_qs, many=True, context={"request": request}).data
         context_notes = context_notes_for(selected, selected_questions)
-        if selected.course_id and not summary_mode:
+        if selected_course_ids and not summary_mode:
             enrollments = EnrollmentSerializer(
-                Enrollment.objects.filter(owner_id=owner_id, course_id=selected.course_id, status="active")
+                Enrollment.objects.filter(owner_id=owner_id, course_id__in=selected_course_ids, status="active")
                 .filter(course__owner_id=owner_id, student__owner_id=owner_id)
                 .select_related("course", "student"), many=True, context={"request": request},
             ).data

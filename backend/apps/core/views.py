@@ -37,6 +37,7 @@ from .api_views.catalog import (
     RubricLevelViewSet,
     RubricViewSet,
     StudentViewSet,
+    SubjectViewSet,
 )
 
 from .api_views.submissions import (

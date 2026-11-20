@@ -1,6 +1,6 @@
 import { api } from '../core/api-client.js';
 import { state, content } from '../core/state.js';
-import { escapeHtml, formatNumber, formatInputNumber, statusPill, toneOf, icon } from '../core/utils.js';
+import { escapeHtml, formatNumber, formatInputNumber, statusPill, toneOf, icon, assessmentInCourse, assessmentCourseIds, assessmentCourseNames } from '../core/utils.js';
 import { render, navigate } from '../core/router.js';
 import { toast } from '../core/ui.js';
 import { openExclusive } from '../core/disclosure.js';
@@ -56,7 +56,7 @@ function summarizeCorrection(item) {
     submission_assessment_id: item.submission_assessment_id ?? workspace.assessmentId,
     submission_title: item.submission_title || assessment?.title || 'Evaluación',
     student_name: item.student_name || workspace.activeSubmission?.student_display_name || workspace.activeSubmission?.student_name || 'Estudiante sin identificar',
-    course_id: item.course_id ?? assessment?.course ?? null, course_name: item.course_name ?? assessment?.course_name ?? null,
+    course_id: item.course_id ?? workspace.activeSubmission?.course ?? assessmentCourseIds(assessment)[0] ?? null, course_name: item.course_name ?? assessment?.course_name ?? null,
     subject: item.subject || assessment?.subject || '', created_at: item.created_at
   };
 }
@@ -249,9 +249,9 @@ function storeAssessment(updated) {
 async function saveContext() {
   const assessment = selectedAssessment();
   if (!assessment) throw new Error('Seleccioná una evaluación primero.');
+  // Sólo los campos de este paso: reenviar `course` reduciría a una las comisiones asignadas.
   const updated = await api.patch(`assessments/${assessment.id}/`, {
     objectives: workspace.objectives.trim(), instructions: workspace.instructions.trim(), reference_material: workspace.referenceMaterial,
-    title: assessment.title, subject: assessment.subject, level: assessment.level, status: assessment.status, course: assessment.course || null
   });
   storeAssessment(updated);
   workspace.savedContext = { objectives: workspace.objectives, instructions: workspace.instructions };
@@ -440,6 +440,9 @@ async function createSubmissionAndCorrection() {
   const existing = workspace.activeSubmission && String(workspace.activeSubmission.assessment) === String(assessment.id);
   if (existing && workspace.answerFile) throw new Error('Esta entrega ya tiene su texto cargado. Quitá el archivo adjunto y editá el texto directamente.');
   let submission;
+  // Comisión elegida en el selector, si la evaluación está asignada a ella; si no, el
+  // servidor la deduce de la matrícula del estudiante.
+  const courseId = workspace.courseFilter !== 'all' && assessmentInCourse(assessment, workspace.courseFilter) ? workspace.courseFilter : '';
   if (existing) {
     // PATCH sólo con campos editables: evaluación, consigna y estudiante son identidades inmutables.
     submission = await api.patch(`submissions/${workspace.activeSubmission.id}/`, { answer_text: workspace.answerText.trim() });
@@ -450,6 +453,7 @@ async function createSubmissionAndCorrection() {
     if (workspace.questionId) payload.set('question', workspace.questionId);
     if (workspace.studentId) payload.set('student', workspace.studentId);
     if (studentName) payload.set('student_name', studentName);
+    if (courseId) payload.set('course', courseId);
     submission = await api.upload('submissions/import-file/', payload, { timeoutMs: 90000 });
     // El archivo ya se convirtió en texto guardado: si la corrección falla, el reintento
     // reutiliza esta entrega en vez de chocar con «ya existe» por el archivo pendiente.
@@ -457,6 +461,7 @@ async function createSubmissionAndCorrection() {
   } else {
     submission = await api.post('submissions/', {
       assessment: Number(assessment.id), question: workspace.questionId ? Number(workspace.questionId) : null,
+      course: courseId ? Number(courseId) : null,
       student: workspace.studentId ? Number(workspace.studentId) : null, student_name: studentName,
       answer_text: workspace.answerText.trim(), source_type: 'text'
     });
@@ -593,18 +598,19 @@ async function copyText(text, label) {
 function cover() {
   const assessment = selectedAssessment();
   const courses = state.data.courses.filter(item => item.active);
-  const assessments = state.data.assessments.filter(item => item.status !== 'archived' && (workspace.courseFilter === 'all' || String(item.course ?? item.course_id ?? 'unassigned') === workspace.courseFilter));
+  const assessments = state.data.assessments.filter(item => item.status !== 'archived' && (workspace.courseFilter === 'all' || assessmentInCourse(item, workspace.courseFilter)));
   const disabled = workspace.loading || actionLocked || workspace.generatingQuestions ? 'disabled' : '';
-  const tone = toneOf(assessment?.course ?? assessment?.course_id ?? 'none');
+  const tone = toneOf(assessment?.subject_id ?? assessmentCourseIds(assessment)[0] ?? 'none');
   // Sólo identidad de la evaluación: los conteos de consignas y entregas ya están en cada pestaña.
-  const meta = assessment ? `<ul class="meta-chips" aria-label="Datos de la evaluación"><li>${statusPill(assessment.status)}</li>${assessment.course_name ? `<li class="meta-chip">${escapeHtml(assessment.course_name)}</li>` : ''}</ul>` : '';
+  const courseNames = assessment ? assessmentCourseNames(assessment) : '';
+  const meta = assessment ? `<ul class="meta-chips" aria-label="Datos de la evaluación"><li>${statusPill(assessment.status)}</li>${assessment.subject ? `<li class="meta-chip">${escapeHtml(assessment.subject)}</li>` : ''}${courseNames ? `<li class="meta-chip">${escapeHtml(courseNames)}</li>` : ''}</ul>` : '';
   const actions = `${assessment ? `<button class="btn btn-secondary btn-small" type="button" data-action="edit-assessment" data-id="${escapeHtml(assessment.id)}">${icon('pencil')} Editar</button>` : ''}<button class="btn btn-primary btn-small" type="button" data-action="new-assessment">${icon('plus')} Nueva evaluación</button>`;
   return `<header class="view-header ws-cover" data-tone-h="${tone}">
     <div class="view-heading-copy"><h1>${escapeHtml(assessment?.title || 'Vamos a corregir con criterio.')}</h1>${assessment ? meta : '<p class="view-lead">Elegí la materia, prepará el contexto y revisá cada propuesta antes de aprobarla.</p>'}</div>
     <div class="view-actions">${actions}</div>
     <div class="ws-selectors">
-      <label class="pill-field" for="workspace-course-filter"><span class="pill-field-label">Materia o curso</span><select id="workspace-course-filter" data-workspace-course ${disabled}><option value="all">Todas las materias</option>${courses.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.courseFilter) ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}${state.data.assessments.some(item => !item.course && !item.course_id) ? `<option value="unassigned" ${workspace.courseFilter === 'unassigned' ? 'selected' : ''}>Sin materia asignada</option>` : ''}</select></label>
-      <label class="pill-field" for="workspace-assessment"><span class="pill-field-label">Evaluación</span><select id="workspace-assessment" data-workspace-assessment ${disabled || (state.data.assessments.length ? '' : 'disabled')}><option value="">Elegí una evaluación…</option>${assessments.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.assessmentId) ? 'selected' : ''}>${escapeHtml(item.title)}${item.course_name ? ` · ${escapeHtml(item.course_name)}` : ''}</option>`).join('')}</select></label>
+      <label class="pill-field" for="workspace-course-filter"><span class="pill-field-label">Curso o comisión</span><select id="workspace-course-filter" data-workspace-course ${disabled}><option value="all">Todas las comisiones</option>${courses.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.courseFilter) ? 'selected' : ''}>${escapeHtml(`${item.subject ? `${item.subject} · ` : ''}${item.name}`)}</option>`).join('')}${state.data.assessments.some(item => assessmentInCourse(item, 'unassigned')) ? `<option value="unassigned" ${workspace.courseFilter === 'unassigned' ? 'selected' : ''}>Sin comisión asignada</option>` : ''}</select></label>
+      <label class="pill-field" for="workspace-assessment"><span class="pill-field-label">Evaluación</span><select id="workspace-assessment" data-workspace-assessment ${disabled || (state.data.assessments.length ? '' : 'disabled')}><option value="">Elegí una evaluación…</option>${assessments.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id) === String(workspace.assessmentId) ? 'selected' : ''}>${escapeHtml(item.title)}${item.subject ? ` · ${escapeHtml(item.subject)}` : ''}</option>`).join('')}</select></label>
     </div>
   </header>`;
 }

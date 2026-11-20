@@ -1,5 +1,5 @@
 import { state } from '../core/state.js';
-import { escapeHtml, btn, heading, table, statusPill, resourceError, emptyState, date, formatNumber, toneOf, icon, searchField, toolbarSelect, resultCount, chipGroup, initials } from '../core/utils.js';
+import { escapeHtml, btn, heading, table, statusPill, resourceError, emptyState, date, formatNumber, toneOf, icon, searchField, toolbarSelect, resultCount, chipGroup, initials, courseIdForSubmission } from '../core/utils.js';
 import { EXAM_STATUS, examStatus, examCorrection } from './exam-status.js';
 
 export function renderStudents() {
@@ -30,7 +30,8 @@ function examFold(submission) {
   const assessment = state.data.assessments.find(item => String(item.id) === String(submission.assessment));
   const correction = examCorrection(submission);
   const status = examStatus(submission);
-  const courseId = assessment?.course ?? assessment?.course_id ?? correction?.course_id;
+  // La comisión de la entrega (una evaluación puede estar asignada a varias).
+  const courseId = correction?.course_id ?? courseIdForSubmission(submission);
   const course = state.data.courses.find(item => String(item.id) === String(courseId));
   const score = correction ? formatNumber(correction.total_score) : '—';
   const title = assessment?.title || correction?.submission_title || 'Evaluación';

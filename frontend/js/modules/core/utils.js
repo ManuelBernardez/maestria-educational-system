@@ -74,7 +74,11 @@ export const greeting = () => {
   const hour = new Date().getHours();
   return hour < 12 ? 'Buen día' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
 };
-export const courseName = (id) => state.data.courses.find(item => String(item.id) === String(id))?.name || 'Curso';
+/** «Materia · comisión»: el nombre de la comisión solo (1K1) puede repetirse entre materias. */
+export const courseName = (id) => {
+  const course = state.data.courses.find(item => String(item.id) === String(id));
+  return course ? `${course.subject ? `${course.subject} · ` : ''}${course.name}` : 'Curso';
+};
 
 const REQUIRED_MARK = ' <span class="required-mark" aria-hidden="true">*</span>';
 
@@ -113,9 +117,76 @@ export function table(headers, rows, emptyText = 'No hay registros para mostrar.
   return rows.length ? `<div class="table-wrap"><table class="data-table"><thead><tr>${headers.map(item => `<th scope="col">${item}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : emptyState('Todavía no hay registros', emptyText);
 }
 
+/* ---------- Materias y comisiones ---------- */
+
+/** Comisiones asignadas a una evaluación (las anteriores a la fase 1 tienen sólo `course`). */
+export function assessmentCourseIds(assessment) {
+  if (Array.isArray(assessment?.course_ids) && assessment.course_ids.length) return assessment.course_ids.map(String);
+  const legacy = assessment?.course ?? assessment?.course_id;
+  return legacy == null ? [] : [String(legacy)];
+}
+
+/** ¿La evaluación está asignada a esa comisión? `'unassigned'` = sin comisiones. */
+export function assessmentInCourse(assessment, courseId) {
+  const ids = assessmentCourseIds(assessment);
+  return courseId === 'unassigned' ? ids.length === 0 : ids.includes(String(courseId));
+}
+
+/** Nombres de las comisiones de una evaluación, para mostrarlas juntas. */
+export function assessmentCourseNames(assessment) {
+  const names = assessmentCourseIds(assessment).map(id => state.data.courses.find(item => String(item.id) === id)?.name).filter(Boolean);
+  return names.length ? names.join(', ') : (assessment?.course_name || '');
+}
+
+export const SHIFT_OPTIONS = Object.freeze([
+  { value: '', label: 'Sin indicar' }, { value: 'manana', label: 'Mañana' }, { value: 'tarde', label: 'Tarde' },
+  { value: 'noche', label: 'Noche' }, { value: 'virtual', label: 'Virtual' }, { value: 'mixto', label: 'Mixto' },
+]);
+export const shiftLabel = value => SHIFT_OPTIONS.find(item => item.value === value && value)?.label || '';
+
+/**
+ * Materias del docente: la lista completa si está cargada, si no las deducidas de los
+ * cursos (cada curso trae `subject_id` y `subject`).
+ */
+export function knownSubjects() {
+  if (state.data.subjects.length) return state.data.subjects;
+  const seen = new Map();
+  state.data.courses.forEach(course => {
+    if (course.subject_id != null && !seen.has(String(course.subject_id))) seen.set(String(course.subject_id), { id: course.subject_id, name: course.subject || 'Materia', level: course.level || '', active: true });
+  });
+  return [...seen.values()].sort((a, b) => String(a.name).localeCompare(String(b.name), 'es-AR'));
+}
+
+/**
+ * Campos «Materia» + «Comisiones» de una evaluación. Se marcan las comisiones de la
+ * materia elegida; al cambiar de materia, `syncSubjectFields` muestra sólo las suyas.
+ */
+export function subjectCoursesFields(subjectId = '', courseIds = []) {
+  const subjects = knownSubjects().filter(item => item.active !== false || String(item.id) === String(subjectId));
+  const chosen = new Set((courseIds || []).map(String));
+  const courses = state.data.courses.filter(item => item.active || chosen.has(String(item.id)));
+  const rows = courses.map(course => `<label class="check" data-course-subject="${escapeHtml(course.subject_id ?? '')}" ${subjectId && String(course.subject_id) !== String(subjectId) ? 'hidden' : ''}><input type="checkbox" name="course_ids" value="${escapeHtml(course.id)}" ${chosen.has(String(course.id)) ? 'checked' : ''}><span>${escapeHtml(course.name)}${subjectId ? '' : ` <small class="muted">${escapeHtml(course.subject || '')}</small>`}${shiftLabel(course.shift) ? ` <small class="muted">· ${escapeHtml(shiftLabel(course.shift))}</small>` : ''}</span></label>`).join('');
+  return `${selectField('Materia', 'subject_id', [{ value: '', label: 'Elegí la materia' }, ...subjects.map(item => ({ value: String(item.id), label: item.name }))], String(subjectId || ''), true)}
+    <fieldset class="form-field full course-picker"><legend>Comisiones donde se toma</legend>${rows || '<p class="muted">Todavía no hay cursos o comisiones. Crealos desde Materias.</p>'}<small class="field-hint">Podés asignarla a varias comisiones de la misma materia; las entregas y las notas quedan separadas por comisión.</small></fieldset>`;
+}
+
+/** Al cambiar la materia de un formulario: campo de materia nueva y comisiones visibles. */
+export function syncSubjectFields(form) {
+  const select = form?.querySelector('[name="subject_id"]');
+  if (!select) return;
+  const newSubject = form.querySelector('[data-new-subject]');
+  if (newSubject) newSubject.hidden = select.value !== '__new';
+  form.querySelectorAll('[data-course-subject]').forEach(row => {
+    const visible = !select.value || row.dataset.courseSubject === select.value;
+    row.hidden = !visible;
+    if (!visible) row.querySelector('input').checked = false;
+  });
+}
+
 export function courseIdForSubmission(submission) {
+  if (submission?.course != null) return submission.course;
   const assessment = state.data.assessments.find(item => String(item.id) === String(submission?.assessment));
-  return assessment?.course ?? assessment?.course_id ?? null;
+  return assessmentCourseIds(assessment)[0] ?? null;
 }
 
 export function courseIdForCorrection(correction) {

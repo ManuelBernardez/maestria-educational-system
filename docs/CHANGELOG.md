@@ -2,6 +2,15 @@
 
 Registro de versiones del sistema, de la más reciente a la más antigua. Hasta la v1.1.3 este historial formaba parte del `README.md`. Las auditorías técnicas de cada etapa están en `docs/` y en `docs/auditoria/` (por ejemplo, `AUDITORIA-SUPABASE-2026-11-09.md`).
 
+## Fase 1 (sin versión publicada todavía)
+
+- **Materias y comisiones:** una materia (por ejemplo, Programación I) agrupa todos sus cursos, comisiones o turnos. Las evaluaciones se crean una vez en la materia y se asignan a una o más comisiones; cada entrega guarda su comisión y la planilla de notas sale por comisión. Requiere la migración `20261120120000_maestria_subjects_and_sections.sql` (aditiva; agrupa los cursos existentes por su materia). Se agrega `external_link` para las futuras integraciones.
+- **IA, consignas sin repetición:** la IA recibe las consignas guardadas y las ya propuestas en la sesión, un enfoque de variación distinto en cada pedido y temperatura 0.8; el servidor descarta las iguales o muy parecidas y reintenta una vez.
+- **IA, observaciones de contexto:** el editor, el espacio de trabajo y las propuestas avisan qué falta o conviene profundizar (objetivos, criterios, material, respuestas esperadas), con una sugerencia concreta de redacción.
+- **IA, devoluciones:** la corrección recibe título, materia, nivel y descripción de la rúbrica; cada criterio trae una devolución para el estudiante (`student_feedback`) y la general tiene 2 o 3 párrafos anclados en la respuesta. Lo que se comparte con el estudiante usa esas devoluciones, más fortalezas y próximos pasos. Las rúbricas propuestas traen descriptores de nivel propios.
+- **Correcciones:** promedio de la planilla de notas normalizado a 10; precisión decimal de los modelos alineada con la base; aprobación que sólo conserva campos conocidos; operaciones masivas en importación CSV, rúbricas y reordenamiento; permisos de instituciones alineados con el resto.
+- **Tipografía:** textos más grandes y legibles en todo el sitio, con la misma relación entre tamaños.
+
 ## v1.1.3
 
 - **Estáticos en desarrollo:** `runserver` servía `/assets/` sin `Cache-Control`; el navegador cacheaba los módulos por heurística y, tras cada cambio, mezclaba JavaScript viejo con CSS nuevo (la interfaz quedaba a medio actualizar: filtros que no respondían, tarjetas con la respuesta completa, botones faltantes). Ahora los sirve WhiteNoise (`whitenoise.runserver_nostatic`) con el mismo `no-cache` que producción. `config/static_files.py` corrige además la búsqueda en Windows: con los prefijos `css/` y `js/` de `STATICFILES_DIRS`, WhiteNoise no encontraba el código fuente y servía la copia de `backend/staticfiles/`, que puede estar desactualizada. En producción no cambia nada (sin finders ni autorefresh).

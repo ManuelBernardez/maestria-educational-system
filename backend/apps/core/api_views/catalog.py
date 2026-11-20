@@ -10,6 +10,16 @@ from ..context_quality import context_notes_for
 
 from .common import (
     AIUserRateThrottle,
+    Coalesce,
+    Count,
+    IntegerField,
+    OuterRef,
+    Subject,
+    SubjectSerializer,
+    Subquery,
+    Value,
+    assessments_in_course,
+    corrections_in_course,
     Assessment,
     AssessmentEditorSerializer,
     AssessmentListSerializer,
@@ -65,6 +75,104 @@ from .common import (
     validate_email,
 )
 
+def _positive_int_param(request, name, label):
+    raw = request.query_params.get(name)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+        if value < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValidationError({name: f"El filtro de {label} debe ser un identificador válido."})
+    return value
+
+
+def resolve_subject(owner_id, *, subject=None, subject_name="", level=""):
+    """Materia elegida o, si sólo llega el nombre, la existente con ese nombre o una nueva.
+
+    Permite crear una comisión escribiendo la materia sin un paso previo (y mantiene
+    compatible a quien todavía envía `subject` como texto). Llamar con el perfil bloqueado.
+    """
+    if subject is not None:
+        return subject
+    name = " ".join(str(subject_name or "").split())[:160]
+    if not name:
+        return None
+    existing = Subject.objects.filter(owner_id=owner_id, name__iexact=name).first()
+    if existing:
+        if not existing.active:
+            existing.active = True
+            existing.save(update_fields=["active", "updated_at"])
+        return existing
+    return Subject.objects.create(owner_id=owner_id, name=name, level=str(level or "")[:120])
+
+
+class SubjectViewSet(OwnerViewSet):
+    """Materias del docente. `?nav=1` las devuelve con sus comisiones para la navegación."""
+    queryset = Subject.objects.all()
+    serializer_class = SubjectSerializer
+
+    def get_queryset(self):
+        owner_id = self.request.user.id
+        course_count = (
+            Course.objects.filter(owner_id=owner_id, subject_ref_id=OuterRef("pk"), active=True)
+            .order_by().values("subject_ref_id").annotate(total=Count("id")).values("total")[:1]
+        )
+        assessment_count = (
+            Assessment.objects.filter(owner_id=owner_id, subject_ref_id=OuterRef("pk"))
+            .exclude(status="archived").order_by().values("subject_ref_id").annotate(total=Count("id")).values("total")[:1]
+        )
+        return Subject.objects.filter(owner_id=owner_id).annotate(
+            course_count=Coalesce(Subquery(course_count, output_field=IntegerField()), Value(0)),
+            assessment_count=Coalesce(Subquery(assessment_count, output_field=IntegerField()), Value(0)),
+        ).order_by("name", "id")
+
+    def list(self, request, *args, **kwargs):
+        if request.query_params.get("nav") != "1":
+            return super().list(request, *args, **kwargs)
+        subjects = list(self.get_queryset())
+        courses = CourseNavigationSerializer(
+            Course.objects.filter(owner_id=request.user.id).select_related("subject_ref").order_by("name", "id"), many=True,
+        ).data
+        by_subject = {}
+        for course in courses:
+            by_subject.setdefault(course["subject_id"], []).append(course)
+        payload = [{**SubjectSerializer(item, context={"request": request}).data, "courses": by_subject.get(item.pk, [])} for item in subjects]
+        # Comisiones creadas por la versión anterior sin materia: se muestran aparte.
+        return Response({"results": payload, "unassigned_courses": by_subject.get(None, [])})
+
+    def _save_subject(self, serializer, **kwargs):
+        owner_id = self.request.user.id
+        with transaction.atomic():
+            lock_owner_profile(owner_id)
+            name = serializer.validated_data.get("name", getattr(serializer.instance, "name", ""))
+            duplicates = Subject.objects.filter(owner_id=owner_id, name__iexact=name)
+            if serializer.instance:
+                duplicates = duplicates.exclude(pk=serializer.instance.pk)
+            if duplicates.exists():
+                raise ValidationError({"name": "Ya tenés una materia con ese nombre."})
+            subject = serializer.save(**kwargs)
+            if serializer.instance and "name" in serializer.validated_data:
+                # Texto heredado que todavía lee la versión anterior desplegada.
+                Course.objects.filter(owner_id=owner_id, subject_ref=subject).update(subject=subject.name[:120])
+                Assessment.objects.filter(owner_id=owner_id, subject_ref=subject).update(subject=subject.name[:120])
+
+    def perform_create(self, serializer):
+        self._save_subject(serializer, owner_id=self.request.user.id, active=True)
+
+    def perform_update(self, serializer):
+        self._save_subject(serializer)
+
+    def perform_destroy(self, instance):
+        # Archivar la materia archiva sus comisiones; el historial se conserva.
+        with transaction.atomic():
+            lock_owner_profile(self.request.user.id)
+            Subject.objects.filter(pk=instance.pk, owner_id=self.request.user.id).update(active=False)
+            Course.objects.filter(owner_id=self.request.user.id, subject_ref_id=instance.pk, active=True).update(active=False)
+            record_audit(self.request.user.id, "subject.archived", "subject", instance.pk, {}, request=self.request)
+
+
 class CourseViewSet(OwnerViewSet):
     # Keep a model-bound queryset for router basename discovery. The full list
     # uses correlated subqueries to avoid enrollment × assessment row fan-out.
@@ -75,10 +183,14 @@ class CourseViewSet(OwnerViewSet):
         # Navigation and selector calls do not need expensive aggregate counts or
         # long descriptions. Keep the rich annotated queryset for the course page.
         if self.action == "list" and self.request.query_params.get("nav") == "1":
-            return Course.objects.filter(owner_id=self.request.user.id).only(
-                "id", "name", "subject", "level", "academic_year", "active",
+            queryset = Course.objects.filter(owner_id=self.request.user.id).select_related("subject_ref").only(
+                "id", "name", "subject", "subject_ref", "shift", "level", "academic_year", "active",
+                "subject_ref__id", "subject_ref__name",
             ).order_by("name", "id")
-        return courses_with_dashboard_counts(self.request.user.id)
+        else:
+            queryset = courses_with_dashboard_counts(self.request.user.id)
+        subject_id = _positive_int_param(self.request, "subject", "materia")
+        return queryset.filter(subject_ref_id=subject_id) if subject_id else queryset
 
     def get_serializer_class(self):
         if self.action == "list" and self.request.query_params.get("nav") == "1":
@@ -101,9 +213,15 @@ class CourseViewSet(OwnerViewSet):
         if course is None:
             from rest_framework.exceptions import NotFound
             raise NotFound("Curso no disponible.")
+        # Evaluaciones de la materia asignadas a esta comisión. Los puntos se suman en una
+        # subconsulta: sumar sobre el JOIN con las asignaciones duplicaría consignas.
+        points = (
+            Question.objects.filter(assessment_id=OuterRef("pk")).order_by()
+            .values("assessment_id").annotate(total=Sum("max_score")).values("total")[:1]
+        )
         assessments = list(
-            Assessment.objects.filter(owner_id=owner_id, course=course).order_by("created_at", "id")
-            .annotate(points=Sum("questions__max_score")).values("id", "title", "points")
+            assessments_in_course(Assessment.objects.filter(owner_id=owner_id), course.pk).order_by("created_at", "id")
+            .annotate(points=Subquery(points)).values("id", "title", "points")
         )
         # Máximo de cada evaluación (suma de sus consignas; 10 si no tiene), para
         # correcciones cuyo resultado no detalla los máximos por criterio.
@@ -119,10 +237,10 @@ class CourseViewSet(OwnerViewSet):
         # Se guarda también el máximo de esa corrección para promediar en una escala común.
         grades = {}
         approved = (
-            Correction.objects.filter(
+            corrections_in_course(Correction.objects.filter(
                 owner_id=owner_id, status="approved", submission__owner_id=owner_id,
-                submission__assessment__course=course, submission__student__isnull=False,
-            )
+                submission__student__isnull=False,
+            ), course.pk)
             .order_by("approved_at", "id")
             .values_list("submission__student_id", "submission__assessment_id", "total_score", "final_result")
         )
@@ -168,12 +286,26 @@ class CourseViewSet(OwnerViewSet):
                 serializer.instance = Course.objects.select_for_update().get(
                     pk=serializer.instance.pk, owner_id=owner_id,
                 )
-            name = serializer.validated_data.get("name", getattr(serializer.instance, "name", ""))
-            duplicates = Course.objects.filter(owner_id=owner_id, name__iexact=name.strip())
+            data = serializer.validated_data
+            subject = data.get("subject_ref", getattr(serializer.instance, "subject_ref", None))
+            name = data.get("name", getattr(serializer.instance, "name", "")).strip()
+            if subject is None and "subject_ref" not in data:
+                # Sin materia elegida: el nombre escrito o, como en la migración, el del
+                # propio curso (crea la materia si no existe). Mantiene compatible la API.
+                subject = resolve_subject(owner_id, subject_name=self.request.data.get("subject", "") or name, level=data.get("level", ""))
+            year = data.get("academic_year", getattr(serializer.instance, "academic_year", ""))
+            # La misma comisión puede repetirse en otra materia o en otro ciclo lectivo.
+            duplicates = Course.objects.filter(owner_id=owner_id, name__iexact=name, academic_year=year, subject_ref=subject)
             if serializer.instance:
                 duplicates = duplicates.exclude(pk=serializer.instance.pk)
             if duplicates.exists():
-                raise ValidationError({"name": "Ya existe un curso con ese nombre en tu cuenta."})
+                raise ValidationError({"name": "Esa materia ya tiene un curso o comisión con ese nombre en el mismo ciclo lectivo."})
+            if subject is None and serializer.instance is None:
+                raise ValidationError({"subject_id": "Elegí la materia o escribí su nombre para crear la comisión."})
+            if subject is not None:
+                kwargs["subject_ref"] = subject
+                # Texto heredado que todavía lee la versión anterior desplegada.
+                kwargs["subject"] = subject.name[:120]
             serializer.save(**kwargs)
 
     def perform_create(self, serializer):
@@ -306,23 +438,24 @@ class EnrollmentViewSet(OwnerViewSet):
         return queryset
 
 class AssessmentViewSet(OwnerViewSet):
-    queryset = Assessment.objects.all().select_related("course").order_by("-updated_at")
+    queryset = Assessment.objects.all().select_related("course", "subject_ref").prefetch_related("course_links").order_by("-updated_at")
     serializer_class = AssessmentSerializer
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        course_id = self.request.query_params.get("course")
+        course_id = _positive_int_param(self.request, "course", "curso")
         if course_id is not None:
-            try:
-                parsed_course_id = int(course_id)
-                if parsed_course_id < 1:
-                    raise ValueError
-            except (TypeError, ValueError):
-                raise ValidationError({"course": "El filtro de curso debe ser un identificador válido."})
-            queryset = queryset.filter(course_id=parsed_course_id)
+            queryset = assessments_in_course(queryset, course_id)
+        subject_id = _positive_int_param(self.request, "subject", "materia")
+        if subject_id is not None:
+            queryset = queryset.filter(subject_ref_id=subject_id)
         if self.action == "retrieve":
             queryset = queryset.prefetch_related("questions")
         return queryset
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            serializer.save(owner_id=self.request.user.id)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -349,7 +482,7 @@ class AssessmentViewSet(OwnerViewSet):
         assessment = self.get_object()
         owner_id = request.user.id
         questions = list(Question.objects.filter(owner_id=owner_id, assessment=assessment).order_by("position", "id"))
-        courses = CourseOptionSerializer(Course.objects.filter(owner_id=owner_id, active=True).order_by("name"), many=True).data
+        courses = CourseOptionSerializer(Course.objects.filter(owner_id=owner_id, active=True).select_related("subject_ref").order_by("name"), many=True).data
         return Response({
             "assessment": AssessmentEditorSerializer(assessment, context={"request": request}).data,
             "questions": QuestionSerializer(questions, many=True, context={"request": request}).data,

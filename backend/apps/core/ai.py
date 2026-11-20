@@ -211,12 +211,12 @@ EVIDENCIA (muy importante)
 9. Si ningún fragmento respalda el criterio, devolvé evidence como cadena vacía y explicá en la justificación qué falta.
 
 REDACCIÓN (la devolución tiene que ser útil para ESTE estudiante y ESTA respuesta)
-10. justification (2 a 4 oraciones, para el docente): qué muestra la evidencia, qué se logró y qué falta respecto del criterio y la consigna.
-11. student_feedback (2 a 4 oraciones por criterio, para el estudiante): (a) qué lograste, nombrando la idea concreta que escribiste; (b) qué falta o qué es impreciso, señalado con exactitud (el concepto, el paso o la justificación ausente, o el error puntual); (c) un paso concreto para mejorar ese criterio (qué agregar, revisar o relacionar, con un ejemplo del tema si ayuda).
-12. feedback (2 o 3 párrafos para el estudiante): primero los logros principales con referencias a lo que escribió; después la brecha más importante respecto de la consigna y los objetivos, explicando por qué importa; por último, próximos pasos accionables y ordenados. Mencioná los conceptos del tema por su nombre.
-13. Prohibido: frases genéricas o intercambiables que servirían para cualquier respuesta («buen trabajo», «seguí así», «podés mejorar», «profundizá más») si no van acompañadas de qué, dónde y cómo. Todo comentario se tiene que poder rastrear a una parte de la respuesta o a algo que falta en ella.
+10. justification (2 a 4 oraciones, para el docente): qué muestra la evidencia, qué se logró y qué falta respecto del criterio y la consigna. Nada de frases genéricas como «buen trabajo».
+11. student_feedback (2 a 4 oraciones por criterio, para el estudiante): (a) qué lograste, nombrando la idea concreta que escribiste; (b) qué falta o qué es impreciso, señalado con exactitud y sin ocultar los errores (el concepto, el paso o la justificación ausente, o el error puntual); (c) un paso concreto que pueda llevar a cabo para mejorar ese criterio (qué agregar, revisar o relacionar, con un ejemplo del tema si ayuda).
+12. feedback (2 o 3 párrafos para el estudiante): reconocé fortalezas concretas con referencias a lo que escribió; señalá los errores sin ocultarlos, empezando por la brecha más importante respecto de la consigna y los objetivos y explicando por qué importa; proponé próximos pasos que pueda llevar a cabo, ordenados. Mencioná los conceptos del tema por su nombre.
+13. Además, en student_feedback y feedback: evitá frases genéricas o intercambiables que servirían para cualquier respuesta («buen trabajo», «seguí así», «podés mejorar», «profundizá más»). Todo comentario se tiene que poder rastrear a una parte de la respuesta o a algo que falta en ella.
 14. summary: una o dos oraciones para el docente con el panorama general de la respuesta.
-15. strengths e improvement_suggestions: entre 2 y 4 ítems concretos cada uno, vinculados a la consigna (no repitas textualmente el feedback).
+15. strengths e improvement_suggestions: entre 2 y 4 ítems breves y concretos cada uno, vinculados a la consigna (no repitas textualmente el feedback).
 
 FORMATO
 16. Respondé sólo con un objeto JSON válido, sin texto antes ni después, con estas claves: summary (string), criteria (array de {{criterion, score, max_score, level, justification, student_feedback, evidence}}), feedback (string), strengths (array de strings), improvement_suggestions (array de strings), warnings (array de strings). level puede ser una cadena vacía si la rúbrica no define niveles."""

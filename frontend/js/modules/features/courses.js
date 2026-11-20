@@ -1,5 +1,5 @@
 import { state, modal } from '../core/state.js';
-import { escapeHtml, formatNumber, toneOf, statusPill, btn, date, heading, emptyState, resourceError, formField, textField, courseIdForCorrection, icon, searchField, chipGroup, toolbarSelect, resultCount, filteredEmpty } from '../core/utils.js';
+import { escapeHtml, formatNumber, toneOf, statusPill, btn, date, heading, emptyState, resourceError, formField, textField, selectField, courseIdForCorrection, courseIdForSubmission, assessmentInCourse, assessmentCourseNames, knownSubjects, shiftLabel, SHIFT_OPTIONS, icon, searchField, chipGroup, toolbarSelect, resultCount, filteredEmpty } from '../core/utils.js';
 import { openModal, modalForm } from '../core/ui.js';
 
 /** La vista por defecto de «Mis materias» es la lista compacta. */
@@ -11,9 +11,8 @@ const FOLD_TONES = Object.freeze({ students: 0, assessments: 3, submissions: 2, 
 /** Métricas de un curso a partir de las listas cargadas (con respaldo en los contadores del resumen). */
 function courseMetrics(course) {
   const enrollments = state.data.enrollments.filter(item => String(item.course) === String(course.id) && item.status === 'active');
-  const assessments = state.data.assessments.filter(item => String(item.course ?? item.course_id ?? '') === String(course.id));
-  const assessmentIds = new Set(assessments.map(item => String(item.id)));
-  const submissions = state.data.submissions.filter(item => assessmentIds.has(String(item.assessment)));
+  const assessments = state.data.assessments.filter(item => assessmentInCourse(item, course.id));
+  const submissions = state.data.submissions.filter(item => String(courseIdForSubmission(item) ?? '') === String(course.id));
   const pending = state.data.corrections.filter(item => item.status === 'pending_review' && String(courseIdForCorrection(item) ?? '') === String(course.id)).length;
   return {
     students: state.data.enrollments.length ? enrollments.length : Number(course.student_count || 0),
@@ -32,7 +31,7 @@ const SORTERS = Object.freeze({
 function courseCard(course, metrics) {
   const id = escapeHtml(course.id);
   return `<article class="entity-card course-card${course.active ? '' : ' is-archived'}" data-tone="${toneOf(course.id)}">
-    <div class="entity-card-main"><span class="entity-symbol" aria-hidden="true">${icon('book')}</span><div class="entity-card-copy"><button class="entity-link entity-link--title" type="button" data-action="open-course" data-id="${id}">${escapeHtml(course.name)}</button><p>${escapeHtml([course.subject, course.level, course.academic_year].filter(Boolean).join(' · ') || 'Materia o comisión')}</p></div>${statusPill(course.active ? 'active' : 'archived', course.active ? 'Activo' : 'Archivado')}</div>
+    <div class="entity-card-main"><span class="entity-symbol" aria-hidden="true">${icon('book')}</span><div class="entity-card-copy"><button class="entity-link entity-link--title" type="button" data-action="open-course" data-id="${id}">${escapeHtml(course.name)}</button><p>${escapeHtml([shiftLabel(course.shift) && `Turno ${shiftLabel(course.shift).toLocaleLowerCase('es-AR')}`, course.academic_year, course.level].filter(Boolean).join(' · ') || 'Curso o comisión')}</p></div>${statusPill(course.active ? 'active' : 'archived', course.active ? 'Activo' : 'Archivado')}</div>
     <dl class="entity-metrics"><div><dt>estudiantes</dt><dd>${metrics.students}</dd></div><div><dt>evaluaciones</dt><dd>${metrics.assessments}</dd></div><div><dt>entregas</dt><dd>${metrics.submissions}</dd></div><div class="${metrics.pending ? 'is-pending' : ''}"><dt>por revisar</dt><dd>${metrics.pending}</dd></div></dl>
     <footer class="entity-actions"><button type="button" class="btn btn-primary btn-small" data-action="open-course" data-id="${id}">Abrir curso</button><button type="button" class="btn btn-secondary btn-small" data-action="edit-course" data-id="${id}">Editar</button><button type="button" class="btn btn-secondary btn-small" data-action="toggle-course" data-id="${id}">${course.active ? 'Archivar' : 'Reactivar'}</button></footer>
   </article>`;
@@ -66,13 +65,34 @@ export function renderCourses() {
     ${resultCount(`${items.length} ${items.length === 1 ? 'curso' : 'cursos'}`, filtered ? 'clear-course-filters' : '')}
   </div>`;
 
-  const list = items.length
-    ? `<div class="entity-grid${filters.layout === 'list' ? ' is-list' : ''}">${items.map(({ course, metrics }) => courseCard(course, metrics)).join('')}</div>`
+  // Agrupado por materia: cada materia muestra sus cursos o comisiones.
+  const grid = rows => `<div class="entity-grid${filters.layout === 'list' ? ' is-list' : ''}">${rows.map(({ course, metrics }) => courseCard(course, metrics)).join('')}</div>`;
+  const groups = new Map();
+  items.forEach(item => {
+    const key = item.course.subject_id == null ? 'none' : String(item.course.subject_id);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  const subjects = knownSubjects().filter(subject => groups.has(String(subject.id)) || (!filtered && subject.active !== false && !subject.course_count));
+  const subjectSection = subject => {
+    const rows = groups.get(String(subject.id)) || [];
+    const meta = [subject.level, `${rows.length} ${rows.length === 1 ? 'curso o comisión' : 'cursos o comisiones'}`].filter(Boolean).join(' · ');
+    return `<section class="subject-group" data-tone="${toneOf(subject.id)}" aria-labelledby="subject-title-${escapeHtml(subject.id)}">
+      <header class="subject-group-head"><div><h3 id="subject-title-${escapeHtml(subject.id)}">${escapeHtml(subject.name)}</h3><p class="muted">${escapeHtml(meta)}</p></div>
+        <div class="view-actions">${btn('Nueva comisión', 'new-course', `data-subject="${escapeHtml(subject.id)}"`, 'primary')}${btn('Editar materia', 'edit-subject', `data-id="${escapeHtml(subject.id)}"`)}${btn('Archivar materia', 'archive-subject', `data-id="${escapeHtml(subject.id)}"`)}</div></header>
+      ${rows.length ? grid(rows) : '<p class="muted">Todavía no tiene cursos ni comisiones. Creá la primera para cargar estudiantes y asignarle evaluaciones.</p>'}
+    </section>`;
+  };
+  const orphan = groups.get('none') || [];
+  const sections = [...subjects.map(subjectSection), orphan.length ? `<section class="subject-group"><header class="subject-group-head"><div><h3>Sin materia asignada</h3><p class="muted">Editá cada curso para elegir su materia.</p></div></header>${grid(orphan)}</section>` : ''].join('');
+
+  const list = sections
+    ? `<div class="subject-groups">${sections}</div>`
     : state.data.courses.length
       ? filteredEmpty('cursos', 'clear-course-filters')
-      : emptyState('Todavía no hay cursos', 'Creá un curso para empezar a organizar estudiantes, evaluaciones y correcciones.', btn('Crear primer curso', 'new-course', '', 'primary'));
+      : emptyState('Todavía no hay materias', 'Creá una materia (por ejemplo, Programación I) y dentro de ella sus cursos o comisiones.', btn('Crear primera materia', 'new-subject', '', 'primary'));
 
-  return `${heading('Cursos', 'Cada curso reúne estudiantes, evaluaciones, entregas y correcciones en un único espacio.', btn('Crear curso', 'new-course', '', 'primary'))}${resourceError('courses', 'los cursos')}${toolbar}${list}`;
+  return `${heading('Materias y comisiones', 'Cada materia agrupa sus cursos o comisiones; las evaluaciones se crean una vez y se asignan a las comisiones que correspondan.', `${btn('Nueva materia', 'new-subject', '', 'primary')}${btn('Nuevo curso o comisión', 'new-course')}`)}${resourceError('subjects', 'las materias')}${resourceError('courses', 'los cursos')}${toolbar}${list}`;
 }
 
 /** Fila de lista de trabajo; `status` alimenta el filtro en el cliente. */
@@ -91,9 +111,9 @@ export function renderCourseDetail() {
   if (!course) { state.view = 'courses'; return renderCourses(); }
   const enrollments = state.data.enrollments.filter(item => String(item.course) === String(course.id));
   const activeEnrollments = enrollments.filter(item => item.status === 'active');
-  const assessments = state.data.assessments.filter(item => String(item.course ?? item.course_id ?? '') === String(course.id));
-  const assessmentIds = new Set(assessments.map(item => String(item.id)));
-  const submissions = state.data.submissions.filter(item => assessmentIds.has(String(item.assessment)));
+  const assessments = state.data.assessments.filter(item => assessmentInCourse(item, course.id));
+  // Entregas de esta comisión (una evaluación de la materia puede tener varias comisiones).
+  const submissions = state.data.submissions.filter(item => String(courseIdForSubmission(item) ?? '') === String(course.id));
   const corrections = state.data.corrections.filter(item => String(courseIdForCorrection(item) ?? '') === String(course.id));
   const pendingCorrections = corrections.filter(item => item.status === 'pending_review');
 
@@ -104,7 +124,7 @@ export function renderCourseDetail() {
     return record(`<button type="button" class="entity-link" data-action="open-student" data-id="${escapeHtml(enrollment.student)}">${escapeHtml(name)}</button><small>${escapeHtml(email || enrollment.student_external_code || 'Sin datos de contacto')}</small>`, statusPill(enrollment.status), `${btn('Ver / editar', 'edit-student', `data-id="${escapeHtml(enrollment.student)}"`)}${enrollment.status === 'active' ? btn('Desmatricular', 'deactivate-enrollment', `data-id="${escapeHtml(enrollment.id)}"`) : ''}`, enrollment.status);
   });
 
-  const assessmentRows = assessments.map(item => record(`<button type="button" class="entity-link" data-action="open-assessment" data-id="${escapeHtml(item.id)}">${escapeHtml(item.title)}</button><small>${escapeHtml(item.subject || 'Evaluación')} · Actualizada ${date(item.updated_at)}</small>`, statusPill(item.status), `${btn('Abrir', 'open-assessment', `data-id="${escapeHtml(item.id)}"`, 'primary')}${btn('Editar', 'edit-assessment', `data-id="${escapeHtml(item.id)}"`)}`, item.status));
+  const assessmentRows = assessments.map(item => record(`<button type="button" class="entity-link" data-action="open-assessment" data-id="${escapeHtml(item.id)}">${escapeHtml(item.title)}</button><small>${escapeHtml(`Comisiones: ${assessmentCourseNames(item) || '—'}`)} · Actualizada ${date(item.updated_at)}</small>`, statusPill(item.status), `${btn('Abrir', 'open-assessment', `data-id="${escapeHtml(item.id)}"`, 'primary')}${btn('Editar', 'edit-assessment', `data-id="${escapeHtml(item.id)}"`)}`, item.status));
 
   const submissionStatuses = [];
   const submissionRows = submissions.map(item => {
@@ -134,7 +154,8 @@ export function renderCourseDetail() {
   const pipeline = `<nav class="pipeline" aria-label="Recorrido del curso">${steps.map(([key, label, count, pending], index) => `${index ? '<span class="pipeline-sep" aria-hidden="true">›</span>' : ''}<button type="button" class="pipeline-step${pending ? ' has-pending' : ''}" data-action="open-fold" data-fold="${key}" data-tone="${FOLD_TONES[key]}" aria-controls="course-fold-${key}" title="Ver ${label.toLocaleLowerCase('es-AR')}"><span class="pipeline-dot">${count}</span><span class="pipeline-label">${label}</span>${pending ? `<span class="pipeline-pending">${pending} por revisar</span>` : ''}</button>`).join('')}</nav>
     ${nextStep ? `<div class="next-step" role="status"><span class="next-step-mark" aria-hidden="true">✳</span><p>${nextStep.text}</p>${btn(nextStep.label, nextStep.action, nextStep.attrs, 'primary')}</div>` : '<p class="margin-note"><strong>Todo al día en este curso.</strong></p>'}`;
 
-  return `<div class="course-view" data-tone="${toneOf(course.id)}">${heading(course.name, `${course.subject || 'Curso'} · ${course.level || 'Nivel no indicado'} · ${course.academic_year || 'Ciclo no indicado'}`, `${btn('Volver a cursos', 'navigate', 'data-view="courses"')}${btn('Exportar notas (CSV)', 'export-course-grades', `data-id="${course.id}" title="Nota aprobada de cada estudiante en cada evaluación, lista para Excel"`)}${btn('Editar curso', 'edit-course', `data-id="${course.id}"`)}`)}
+  const subtitle = [course.subject || 'Sin materia', shiftLabel(course.shift) && `Turno ${shiftLabel(course.shift).toLocaleLowerCase('es-AR')}`, course.level || 'Nivel no indicado', course.academic_year || 'Ciclo no indicado'].filter(Boolean).join(' · ');
+  return `<div class="course-view" data-tone="${toneOf(course.id)}">${heading(course.name, subtitle, `${btn('Volver a materias', 'navigate', 'data-view="courses"')}${btn('Exportar notas (CSV)', 'export-course-grades', `data-id="${course.id}" title="Nota aprobada de cada estudiante en cada evaluación, lista para Excel"`)}${btn('Editar curso', 'edit-course', `data-id="${course.id}"`)}`)}
     ${course.description ? `<p class="course-description">${escapeHtml(course.description)}</p>` : ''}
     ${pipeline}
     <section class="fold-list" aria-label="Información del curso">
@@ -146,8 +167,23 @@ export function renderCourseDetail() {
     <p class="margin-note">El curso es el contexto de trabajo: cada entrega se vincula a una evaluación, cada corrección a una entrega y la aprobación final siempre queda a cargo del docente.</p></div>`;
 }
 
-export function courseForm(course = null) {
-  const fields = `${formField('Nombre del curso', 'name', course?.name || '', 'text', 'maxlength="180"', true)}${formField('Materia / área', 'subject', course?.subject || '', 'text', 'maxlength="120"')}${formField('Nivel', 'level', course?.level || '', 'text', 'maxlength="120"')}${formField('Ciclo lectivo', 'academic_year', course?.academic_year || '', 'text', 'maxlength="80"')}${textField('Descripción', 'description', course?.description || '')}`;
-  openModal(course ? 'Editar curso' : 'Crear curso', modalForm(fields), course ? 'edit-course' : 'new-course', true);
+/** Valor del selector de materia que habilita escribir una materia nueva. */
+export const NEW_SUBJECT = '__new';
+
+/** Curso o comisión dentro de una materia (existente o nueva, escrita en el mismo formulario). */
+export function courseForm(course = null, defaultSubject = '') {
+  const subjects = knownSubjects().filter(item => item.active !== false || String(item.id) === String(course?.subject_id));
+  const selected = String(course?.subject_id ?? defaultSubject ?? '') || (subjects.length ? '' : NEW_SUBJECT);
+  const subjectOptions = [{ value: '', label: 'Elegí la materia' }, ...subjects.map(item => ({ value: String(item.id), label: item.name })), { value: NEW_SUBJECT, label: '+ Nueva materia…' }];
+  const fields = `${selectField('Materia', 'subject_id', subjectOptions, selected, true)}
+    <div class="form-field full" data-new-subject ${selected === NEW_SUBJECT ? '' : 'hidden'}><label for="f-new-subject">Nombre de la materia nueva</label><input id="f-new-subject" name="new_subject" type="text" maxlength="160" placeholder="Programación I"></div>
+    ${formField('Curso o comisión', 'name', course?.name || '', 'text', 'maxlength="160" placeholder="1K1, 5.º A, Comisión 2…"', true)}${selectField('Turno', 'shift', SHIFT_OPTIONS, course?.shift || '')}${formField('Ciclo lectivo', 'academic_year', course?.academic_year || '', 'text', 'maxlength="20" placeholder="2026"')}${formField('Nivel', 'level', course?.level || '', 'text', 'maxlength="120"')}${textField('Descripción', 'description', course?.description || '')}`;
+  openModal(course ? 'Editar curso o comisión' : 'Nuevo curso o comisión', modalForm(fields), course ? 'edit-course' : 'new-course', true);
   modal.dataset.recordId = course?.id || '';
+}
+
+export function subjectForm(subject = null) {
+  const fields = `${formField('Nombre de la materia', 'name', subject?.name || '', 'text', 'maxlength="160" placeholder="Programación I"', true)}${formField('Nivel', 'level', subject?.level || '', 'text', 'maxlength="120" placeholder="Universitario · 1.er año"')}${textField('Descripción', 'description', subject?.description || '')}`;
+  openModal(subject ? 'Editar materia' : 'Nueva materia', modalForm(fields, 'Guardar materia', subject ? '' : '<p class="muted">Después vas a poder crear dentro de la materia todos sus cursos, comisiones o turnos.</p>'), subject ? 'edit-subject' : 'new-subject');
+  modal.dataset.recordId = subject?.id || '';
 }
